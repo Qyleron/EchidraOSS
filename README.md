@@ -1,32 +1,61 @@
-# Echidra
-Next-gen multi-protocol honeypot system with deception, threat correlation, and real-time analytics . 
+# Echidra – Advanced Multi-Protocol Honeypot
+
+**By Qyleron | Built for modern cyber deception & detection**
 
 ---
 
-## 🚀 Overview
+## 🔥 What Is Echidra?
 
-**Echidra** is a modern honeypot system built to simulate multiple services (SSH, FTP, HTTP, Telnet, SMTP, RDP, SNMP, and more) with high-fidelity deception, session recording, correlation engines, and real-time alerting.
+Echidra is a modular honeypot designed for high-fidelity attacker interaction, advanced deception, and real-time intelligence — going far beyond SSH. 
 
-This isn't just a honeypot — it's an **adaptive threat intelligence node**. Out-of-the-box support for alerting, visual analytics, deception environments, and attack clustering makes Echidra a formidable defensive asset for any organization.
-
-> ✅ Free Lite version is open source.  
-> 🔒 Enterprise-grade Pro features are available via license.
+Emulated Protocols: **SSH, FTP, HTTP(S), SMTP, RDP, Telnet, SNMP**  
+Core Features: **Deception Layer, Correlation Engine, AI Analytics, Real-Time Alerts**
 
 ---
 
-## 🎯 Core Features
+## 📐 Architecture
 
-| Layer | Description |
-|-------|-------------|
-| 🎭 Capture Layer | Emulates real services (SSH, FTP, HTTP, Telnet, SMTP, etc.) |
-| 🧠 Detection Engine | Detects brute force, scans, recon, and exploits |
-| 🕸️ Correlation Engine | Links activity across services, sessions, and IPs |
-| 🧬 Deception Layer | Fake file systems, trap commands, dummy exfil data |
-| 🔔 Alerting System | SMTP, Discord, Slack, Webhooks |
-| 📈 Analytics Layer | GeoIP, command traces, cluster visualizations |
-| 🧾 Reporting | Daily PDF and JSON threat reports |
+![image](https://github.com/user-attachments/assets/fdbc3e95-7faa-4199-b4f6-92c1de5e85fa)
+
 
 ---
 
-## 📦 Architecture
+## 🧩 Key Features
+
+- Emulate 10+ services realistically (SSH, FTP, HTTP, etc.)
+- Detect honeypot fingerprinting attempts
+- Capture full session transcripts
+- Deception Layer: Fake file systems, trap commands, dummy leaks
+- Auto-generate reports (PDF/JSON)
+- Alerting via SMTP/Webhooks
+- Dashboard with GeoIP, timeline & clustering
+
+---
+
+## ⚙️ Tech Stack
+
+| Layer              | Stack                                |
+|-------------------|---------------------------------------|
+| Runtime           | Python (asyncio) + Bash               |
+| Dashboard         | Node.js (Express) + Chart.js/D3.js    |
+| DB & Analytics    | PostgreSQL + GeoIP + User-Agent Parser |
+| Deployment        | Docker or systemd                     |
+| Alerting          | Nodemailer, Slack/Discord Webhooks    |
+
+---
+
+## 📁 Folder Structure (Planned)
+
+Echidra/
+├── capture_layer/ # Service emulators
+├── detection_layer/ # Signatures, rate limits
+├── correlation_engine/ # Attack grouping
+├── deception_layer/ # Dummy file systems
+├── alerts/ # Email + webhook
+├── dashboard/ # Web UI
+├── db/ # Postgres schema, queries
+├── docs/ # Architecture, licensing
+├── scripts/ # Setup, deploy
+├── LICENSE
+└── README.md
 
