@@ -15,7 +15,8 @@ Core Features: **Deception Layer, Correlation Engine, AI Analytics, Real-Time Al
 
 ## 📐 Architecture
 
-![image](https://github.com/user-attachments/assets/fdbc3e95-7faa-4199-b4f6-92c1de5e85fa)
+![image](https://github.com/user-attachments/assets/d6075f41-ecae-4f9a-b0ee-3ef37995b9a1)
+
 
 
 ---
