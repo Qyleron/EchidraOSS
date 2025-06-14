@@ -48,7 +48,6 @@ Core Runtime	|Python 3.11 (asyncio) – Honeypot core|
 ## 📁 Folder Structure (Planned)
 
 <pre>
-```
 Echidra/
 ├── capture_layer/ # Protocol emulators
 ├── deception_layer/ # Fake files, traps
@@ -66,12 +65,14 @@ Echidra/
 ---
 
 ## 🚀 Quick Start
-```bash
+<pre>
 git clone https://github.com/Qyleron/Echidra.git
 cd Echidra
 docker compose up
+</pre>
 
-Visit http://localhost:8080 for the web interface.
+Visit http://localhost:8080 for the web interface
+
 Logs and captured data are stored in PostgreSQL for further analysis.
-
+  
 
