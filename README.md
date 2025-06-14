@@ -1,15 +1,24 @@
-# Echidra – Advanced Multi-Protocol Honeypot
+# Echidra – Multi-Protocol Honeypot
 
-**By Qyleron | Built for modern cyber deception & detection**
+
+Modular honeypot built for realistic attacker interaction, log capture, and local analysis.
 
 ---
 
-## 🔥 What Is Echidra?
+## 🔍 What is Echidra?
 
-Echidra is a modular honeypot designed for high-fidelity attacker interaction, advanced deception, and real-time intelligence — going far beyond SSH. 
+Echidra is a honeypot that simulates common network services to observe and record malicious behavior.  
+It’s designed to be lightweight, extendable, and usable in real-world environments — not just demos.
 
-Emulated Protocols: **SSH, FTP, HTTP(S), SMTP, RDP, Telnet, SNMP**  
-Core Features: **Deception Layer, Correlation Engine, AI Analytics, Real-Time Alerts**
+## ✅ Core Features
+
+- Emulates multiple protocols: SSH, FTP, HTTP, Telnet
+- Captures full interaction sessions per IP
+- Deception layer with fake files and trap commands
+- Local alerts via SMTP or Webhooks
+- Basic dashboard with GeoIP and timeline view
+- PostgreSQL-based storage (JSON logs)
+- Works with Docker or systemd
 
 ---
 
@@ -22,42 +31,47 @@ Core Features: **Deception Layer, Correlation Engine, AI Analytics, Real-Time Al
 
 ---
 
-## 🧩 Key Features
+## 🧱 Tech Stack
 
-- Emulate 10+ services realistically (SSH, FTP, HTTP, etc.)
-- Detect honeypot fingerprinting attempts
-- Capture full session transcripts
-- Deception Layer: Fake file systems, trap commands, dummy leaks
-- Auto-generate reports (PDF/JSON)
-- Alerting via SMTP/Webhooks
-- Dashboard with GeoIP, timeline & clustering
-
----
-
-## ⚙️ Tech Stack
-
-| Layer              | Stack                                |
-|-------------------|---------------------------------------|
-| Runtime           | Python (asyncio) + Bash               |
-| Dashboard         | Node.js (Express) + Chart.js/D3.js    |
-| DB & Analytics    | PostgreSQL + GeoIP + User-Agent Parser |
-| Deployment        | Docker or systemd                     |
-| Alerting          | Nodemailer, Slack/Discord Webhooks    |
+| Component       | Stack                          |
+|----------------|-------------------------------|
+Core Runtime	|Python 3.11 (asyncio) – Honeypot core|
+|Dashboard Frontend|	HTML + CSS + JavaScript + Chart.js|
+|Dashboard Backend|	Node.js + Express|
+|Storage	|PostgreSQL + JSONB|
+|Deployment|	Docker Compose or systemd|
+|Alerting|	SMTP + Webhooks (Discord/Slack)|
+|Auth	|JWT + bcrypt (login/signup)|
 
 ---
 
 ## 📁 Folder Structure (Planned)
 
+<pre>
+```
 Echidra/
-├── capture_layer/ # Service emulators
-├── detection_layer/ # Signatures, rate limits
-├── correlation_engine/ # Attack grouping
-├── deception_layer/ # Dummy file systems
-├── alerts/ # Email + webhook
-├── dashboard/ # Web UI
-├── db/ # Postgres schema, queries
-├── docs/ # Architecture, licensing
-├── scripts/ # Setup, deploy
+├── capture_layer/ # Protocol emulators
+├── deception_layer/ # Fake files, traps
+├── detection_layer/ # Basic rules, rate-limits
+├── correlation_engine/ # Session/IP grouping
+├── alerts/ # Email + webhook alerts
+├── dashboard/ # Web interface (Node.js)
+├── db/ # PostgreSQL schema
+├── scripts/ # Setup and deployment
+├── docs/ # Architecture, setup notes
 ├── LICENSE
 └── README.md
+</pre>
+  
+---
+
+## 🚀 Quick Start
+```bash
+git clone https://github.com/Qyleron/Echidra.git
+cd Echidra
+docker compose up
+
+Visit http://localhost:8080 for the web interface.
+Logs and captured data are stored in PostgreSQL for further analysis.
+
 
