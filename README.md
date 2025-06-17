@@ -74,5 +74,10 @@ docker compose up
 Visit http://localhost:8080 for the web interface
 
 Logs and captured data are stored in PostgreSQL for further analysis.
+
+---
   
+## 📝 License
+
+This project is licensed under the Apache 2.0 License — see the [LICENSE](./LICENSE) file for details.
 
