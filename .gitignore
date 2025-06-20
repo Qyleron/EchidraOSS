@@ -1,11 +1,13 @@
 __pycache__/
-*.pyc
+*.py[cod]
 .env
 .DS_Store
-dashboard/node_modules/
-# Logs
 *.log
-
-# Editor junk
+dashboard/node_modules/
 .vscode/
 .idea/
+.env
+venv/
+node_modules/
+*.sqlite3
+*.db
