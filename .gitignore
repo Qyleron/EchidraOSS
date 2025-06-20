@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.env
+.DS_Store
+dashboard/node_modules/
+# Logs
+*.log
+
+# Editor junk
+.vscode/
+.idea/

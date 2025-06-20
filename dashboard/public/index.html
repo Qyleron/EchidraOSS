@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Echidra Dashboard</title>
+</head>
+<body>
+  <h1>Echidra OSS Dashboard</h1>
+  <canvas id="chart"></canvas>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script>
+    const ctx = document.getElementById("chart").getContext("2d");
+    new Chart(ctx, {
+      type: "bar",
+      data: {
+        labels: ["Jan", "Feb", "Mar"],
+        datasets: [{ label: "Hits", data: [12, 19, 3] }]
+      }
+    });
+  </script>
+</body>
+</html>
