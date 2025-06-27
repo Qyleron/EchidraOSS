@@ -12,3 +12,13 @@ CREATE TABLE IF NOT EXISTS sessions (
   data JSONB,
   timestamp TIMESTAMPTZ DEFAULT now()
 );
+
+
+CREATE TABLE IF NOT EXISTS interactions (
+  id SERIAL PRIMARY KEY,
+  ip TEXT,
+  port INT,
+  service TEXT,
+  data TEXT,
+  timestamp TIMESTAMPTZ DEFAULT now()
+);
