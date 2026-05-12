@@ -25,7 +25,8 @@ async def main():
 
     # Tell the manager: "If you see a SIGINT (Ctrl+C) or SIGTERM, run shutdown_signal"
     loop.add_signal_handler(signal.SIGINT, shutdown_signal)
-    loop.add_signal_handler(signal.SIGTERM, shutdown_signal)
+    if hasattr(signal, 'SIGTERM'):
+        loop.add_signal_handler(signal.SIGTERM, shutdown_signal)
 
     # 2. RUNNING PHASE
     # 'create_task' starts the server in the background.
