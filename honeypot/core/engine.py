@@ -108,7 +108,7 @@ class InteractionEngine:
                 return f"cat: missing file operand\n{session.prompt()}"
 
             target = args[0]
-            #  Attempt to retrieve virtual file content from session
+            # Attempt to retrieve virtual file content from session
             content = session.files.get(target)
             if content is None:
                 return f"cat: {target}: No such file or directory\n{session.prompt()}"
@@ -123,7 +123,7 @@ class InteractionEngine:
             return "\x1b[2J\x1b[H" + session.prompt()
 
         # Fallback: Standard bash error for unimplemented commands
-        return f"bash: {command}: command not found\n{session.prompt()}"
+        return f"bash: {cmd}: command not found\n{session.prompt()}"
 
     def _extract_ls_target(self, args: list[str]) -> str | None:
         """
