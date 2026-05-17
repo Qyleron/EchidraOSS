@@ -1,3 +1,17 @@
+import os
+
+from honeypot.core.persona import Persona, get_persona, validate_persona
+
+
+"""
+Runtime configuration for the honeypot process.
+
+For now, values are simple Python constants so the backend stays easy to run.
+Later, organization-specific persona values can come from the HTML/UI and a
+database, while the server and shell engine keep using get_active_persona().
+"""
+
+
 # --- THE ADDRESS ---
 # "0.0.0.0" is a special code that means "listen on every available network interface."
 # If your computer has Wi-Fi and an Ethernet cable, it will listen for connections 
@@ -21,3 +35,27 @@ MAX_CONNECTIONS = 100
 # If a user connects but stays silent for more than 60 seconds, the server 
 # will "hang up" (close the connection) to save resources.
 READ_TIMEOUT = 60
+
+# --- THE PERSONA ---
+# OSS deployments choose one persona at deployment time. Today this is hardcoded
+# or set by environment. Later, the HTML/UI can replace get_active_persona()
+# with database-backed organization config without changing the shell engine.
+PERSONA_ID = os.getenv("ECHIDRA_PERSONA", "generic_linux")
+
+
+def get_active_persona() -> Persona:
+    """
+    Return the persona used for new honeypot sessions.
+
+    Current behavior:
+    - Read PERSONA_ID from ECHIDRA_PERSONA or use generic_linux.
+    - Load one of the hardcoded preset personas.
+    - Validate it before any session uses it.
+
+    Future UI behavior:
+    - Replace this function's inside with database/UI config lookup.
+    - Keep returning a valid Persona object to avoid changing ConnectionHandler.
+    """
+    persona = get_persona(PERSONA_ID)
+    validate_persona(persona)
+    return persona
