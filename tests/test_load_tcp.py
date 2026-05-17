@@ -7,8 +7,16 @@ import honeypot.network.server as server_module
 from honeypot.network.server import TCPServer
 
 
+"""
+This file checks a simple load scenario.
+It does not measure performance precisely; it only verifies that many clients
+can connect, run a command, and exit without breaking the server.
+"""
+
+
 @pytest_asyncio.fixture
 async def running_server(monkeypatch):
+    """Start the real TCP server on a random localhost port."""
     monkeypatch.setattr(server_module, "HOST", "127.0.0.1")
     monkeypatch.setattr(server_module, "PORT", 0)
 
@@ -32,10 +40,12 @@ async def running_server(monkeypatch):
 
 
 async def read_prompt(reader):
+    """Read one full fake-shell response ending at the prompt."""
     return await asyncio.wait_for(reader.readuntil(b"$ "), timeout=2)
 
 
 async def run_client(host, port):
+    """Simulate one short client session."""
     reader, writer = await asyncio.open_connection(host, port)
 
     await read_prompt(reader)
@@ -58,6 +68,7 @@ async def run_client(host, port):
 
 @pytest.mark.asyncio
 async def test_25_concurrent_clients_complete_successfully(running_server):
+    """Twenty-five clients should complete the same command flow in parallel."""
     host, port, _ = running_server
 
     await asyncio.wait_for(

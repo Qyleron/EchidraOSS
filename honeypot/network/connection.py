@@ -3,7 +3,7 @@ import asyncio
 # These are internal tools used to process what the hacker types
 from honeypot.core.engine import InteractionEngine
 from honeypot.core.session import SessionState
-from honeypot.network.config import READ_TIMEOUT
+from honeypot.network.config import READ_TIMEOUT, get_active_persona
 
 
 class ConnectionHandler:
@@ -23,7 +23,8 @@ class ConnectionHandler:
         self.peer = writer.get_extra_info("peername")
 
         # SessionState stores facts about this specific visitor (like history)
-        self.session = SessionState(self.peer)
+        self.persona = get_active_persona()
+        self.session = SessionState(self.peer, persona=self.persona)
 
         # InteractionEngine is the 'brain' that decides what to say back
         self.engine = InteractionEngine()

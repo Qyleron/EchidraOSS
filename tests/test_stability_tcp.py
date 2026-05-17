@@ -7,8 +7,15 @@ import honeypot.network.server as server_module
 from honeypot.network.server import TCPServer
 
 
+"""
+These tests check that the TCP server stays usable around edge cases:
+disconnects, bad shell input, repeated commands, and shutdown behavior.
+"""
+
+
 @pytest_asyncio.fixture
 async def running_server(monkeypatch):
+    """Start a temporary real server for stability tests."""
     monkeypatch.setattr(server_module, "HOST", "127.0.0.1")
     monkeypatch.setattr(server_module, "PORT", 0)
 
@@ -32,10 +39,12 @@ async def running_server(monkeypatch):
 
 
 async def read_prompt(reader):
+    """Read until the prompt so each test sees one complete response."""
     return await asyncio.wait_for(reader.readuntil(b"$ "), timeout=1)
 
 
 async def wait_for_no_tasks(server):
+    """Poll until ConnectionHandler tasks have cleaned themselves up."""
     for _ in range(50):
         if not server.tasks:
             return
@@ -46,6 +55,7 @@ async def wait_for_no_tasks(server):
 
 @pytest.mark.asyncio
 async def test_client_disconnects_after_banner_cleans_up_task(running_server):
+    """A client that disconnects early should not leave a task behind."""
     host, port, server = running_server
 
     reader, writer = await asyncio.open_connection(host, port)
@@ -59,6 +69,7 @@ async def test_client_disconnects_after_banner_cleans_up_task(running_server):
 
 @pytest.mark.asyncio
 async def test_unknown_command_returns_prompt_and_session_stays_alive(running_server):
+    """After an unknown command, the same client should still be usable."""
     host, port, _ = running_server
 
     reader, writer = await asyncio.open_connection(host, port)
@@ -85,6 +96,7 @@ async def test_unknown_command_returns_prompt_and_session_stays_alive(running_se
 
 @pytest.mark.asyncio
 async def test_malformed_shell_input_returns_syntax_error(running_server):
+    """Bad quoting should produce a syntax error instead of crashing."""
     host, port, _ = running_server
 
     reader, writer = await asyncio.open_connection(host, port)
@@ -104,6 +116,7 @@ async def test_malformed_shell_input_returns_syntax_error(running_server):
 
 @pytest.mark.asyncio
 async def test_multiple_sequential_commands_preserve_prompt_behavior(running_server):
+    """Several commands in a row should each return output plus a prompt."""
     host, port, _ = running_server
 
     reader, writer = await asyncio.open_connection(host, port)
@@ -131,6 +144,7 @@ async def test_multiple_sequential_commands_preserve_prompt_behavior(running_ser
 
 @pytest.mark.asyncio
 async def test_shutdown_closes_active_client_tasks(running_server):
+    """Server shutdown should close active clients and clear task tracking."""
     host, port, server = running_server
 
     reader, writer = await asyncio.open_connection(host, port)
