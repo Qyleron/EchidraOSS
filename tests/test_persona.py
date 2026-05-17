@@ -2,6 +2,7 @@ import pytest
 
 from honeypot.core.persona import (
     PRESET_PERSONAS,
+    FakeCredential,
     FakeFile,
     Persona,
     get_persona,
@@ -24,7 +25,7 @@ def test_oss_persona_presets_are_available():
         "centos_database",
         "debian_mail_server",
         "generic_linux",
-        "windows_smb_server",
+        "samba_file_server",
     }
 
 
@@ -45,6 +46,11 @@ def test_unknown_persona_is_rejected_with_valid_options():
         get_persona("does_not_exist")
 
 
+def test_legacy_windows_smb_persona_id_maps_to_samba_file_server():
+    """Old configs should still load after the persona was renamed for clarity."""
+    assert get_persona("windows_smb_server") == get_persona("samba_file_server")
+
+
 def test_persona_validation_rejects_invalid_file_paths():
     """Fake files must use safe absolute Linux paths."""
     persona = Persona(
@@ -54,8 +60,87 @@ def test_persona_validation_rejects_invalid_file_paths():
         hostname="invalid",
         uname_output="Linux invalid",
         timezone="UTC",
+        username="admin",
+        home_dir="/home/admin",
         fake_filesystem=(FakeFile(path="../secret", content="nope"),),
     )
 
     with pytest.raises(ValueError, match="Invalid fake filesystem path"):
+        validate_persona(persona)
+
+
+def test_persona_validation_rejects_duplicate_file_paths():
+    """Duplicate fake files would be silently overwritten in file_map."""
+    persona = Persona(
+        persona_id="invalid",
+        os_banner="Linux invalid",
+        ssh_banner="SSH-2.0-OpenSSH_9.0",
+        hostname="invalid",
+        uname_output="Linux invalid",
+        timezone="UTC",
+        username="admin",
+        home_dir="/home/admin",
+        fake_filesystem=(
+            FakeFile(path="/home/admin/readme.txt", content="one"),
+            FakeFile(path="/home/admin/readme.txt", content="two"),
+        ),
+    )
+
+    with pytest.raises(ValueError, match="Duplicate fake filesystem path"):
+        validate_persona(persona)
+
+
+def test_persona_validation_rejects_empty_fake_credentials():
+    """UI-submitted decoy credentials should not be empty placeholders."""
+    persona = Persona(
+        persona_id="invalid",
+        os_banner="Linux invalid",
+        ssh_banner="SSH-2.0-OpenSSH_9.0",
+        hostname="invalid",
+        uname_output="Linux invalid",
+        timezone="UTC",
+        username="admin",
+        home_dir="/home/admin",
+        fake_filesystem=(FakeFile(path="/home/admin/readme.txt", content="ok"),),
+        fake_credentials=(FakeCredential(username="", password="secret"),),
+    )
+
+    with pytest.raises(ValueError, match="Fake credential"):
+        validate_persona(persona)
+
+
+def test_persona_validation_rejects_empty_fake_credential_password():
+    """Empty decoy passwords should also be rejected."""
+    persona = Persona(
+        persona_id="invalid",
+        os_banner="Linux invalid",
+        ssh_banner="SSH-2.0-OpenSSH_9.0",
+        hostname="invalid",
+        uname_output="Linux invalid",
+        timezone="UTC",
+        username="admin",
+        home_dir="/home/admin",
+        fake_filesystem=(FakeFile(path="/home/admin/readme.txt", content="ok"),),
+        fake_credentials=(FakeCredential(username="user", password=""),),
+    )
+
+    with pytest.raises(ValueError, match="Fake credential"):
+        validate_persona(persona)
+
+
+def test_persona_validation_requires_home_directory_content():
+    """A persona should expose at least one fake file under its home directory."""
+    persona = Persona(
+        persona_id="invalid",
+        os_banner="Linux invalid",
+        ssh_banner="SSH-2.0-OpenSSH_9.0",
+        hostname="invalid",
+        uname_output="Linux invalid",
+        timezone="UTC",
+        username="admin",
+        home_dir="/home/admin",
+        fake_filesystem=(FakeFile(path="/etc/passwd", content="root:x:0:0\n"),),
+    )
+
+    with pytest.raises(ValueError, match="home_dir"):
         validate_persona(persona)

@@ -41,6 +41,7 @@ READ_TIMEOUT = 60
 # or set by environment. Later, the HTML/UI can replace get_active_persona()
 # with database-backed organization config without changing the shell engine.
 PERSONA_ID = os.getenv("ECHIDRA_PERSONA", "generic_linux")
+_cached_persona: Persona | None = None
 
 
 def get_active_persona() -> Persona:
@@ -55,7 +56,19 @@ def get_active_persona() -> Persona:
     Future UI behavior:
     - Replace this function's inside with database/UI config lookup.
     - Keep returning a valid Persona object to avoid changing ConnectionHandler.
+    - Call clear_active_persona_cache() after changing persona config at runtime.
     """
-    persona = get_persona(PERSONA_ID)
-    validate_persona(persona)
-    return persona
+    global _cached_persona
+
+    if _cached_persona is None:
+        persona = get_persona(PERSONA_ID)
+        validate_persona(persona)
+        _cached_persona = persona
+
+    return _cached_persona
+
+
+def clear_active_persona_cache() -> None:
+    """Force get_active_persona() to reload and revalidate config next time."""
+    global _cached_persona
+    _cached_persona = None
