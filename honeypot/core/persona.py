@@ -37,8 +37,8 @@ class Persona:
     hostname: str
     uname_output: str
     timezone: str
-    username: str = "admin"
-    home_dir: str = "/home/admin"
+    username: str
+    home_dir: str
     fake_filesystem: tuple[FakeFile, ...] = field(default_factory=tuple)
     running_processes: tuple[str, ...] = field(default_factory=tuple)
     fake_users: tuple[str, ...] = field(default_factory=tuple)
@@ -74,7 +74,10 @@ PRESET_PERSONAS: dict[str, Persona] = {
             "x86_64 GNU/Linux"
         ),
         timezone="UTC",
+        # Generic Linux starts in an admin-looking home while exposing root
+        # identity, a common honeypot lure for post-compromise exploration.
         username="root",
+        home_dir="/home/admin",
         fake_filesystem=(
             _file("/home/admin/readme.txt", "Welcome to the system.\n"),
             _file("/home/admin/notes.txt", "TODO: rotate credentials\n"),
@@ -183,8 +186,9 @@ PRESET_PERSONAS: dict[str, Persona] = {
         open_ports_visible=(25, 110, 143, 587, 993),
         fake_credentials=(_credential("mailadmin", "MailAdmin2024!"),),
     ),
-    "windows_smb_server": Persona(
-        persona_id="windows_smb_server",
+    # Linux host exposing Windows-style file shares through Samba.
+    "samba_file_server": Persona(
+        persona_id="samba_file_server",
         os_banner="Linux filesrv-01 5.15.0-91-generic x86_64",
         ssh_banner="SSH-2.0-OpenSSH_for_Windows_8.1",
         hostname="filesrv-01",
@@ -213,8 +217,14 @@ PRESET_PERSONAS: dict[str, Persona] = {
 }
 
 
+PERSONA_ALIASES: dict[str, str] = {
+    "windows_smb_server": "samba_file_server",
+}
+
+
 def get_persona(persona_id: str = "generic_linux") -> Persona:
     """Look up a preset persona by ID and raise a clear error if it is unknown."""
+    persona_id = PERSONA_ALIASES.get(persona_id, persona_id)
     try:
         return PRESET_PERSONAS[persona_id]
     except KeyError as exc:
@@ -245,10 +255,31 @@ def validate_persona(persona: Persona) -> None:
     if not persona.home_dir.startswith("/"):
         raise ValueError("Persona home_dir must be an absolute Linux path")
 
+    seen_paths = set()
+    home_path = PurePosixPath(persona.home_dir)
+    has_home_content = False
+
     for fake_file in persona.fake_filesystem:
         path = PurePosixPath(fake_file.path)
         if not fake_file.path.startswith("/") or ".." in path.parts:
             raise ValueError(f"Invalid fake filesystem path: {fake_file.path}")
+        if fake_file.path in seen_paths:
+            raise ValueError(f"Duplicate fake filesystem path: {fake_file.path}")
+
+        seen_paths.add(fake_file.path)
+
+        try:
+            path.relative_to(home_path)
+            has_home_content = True
+        except ValueError:
+            pass
+
+    if not has_home_content:
+        raise ValueError("Persona home_dir must contain at least one fake file")
+
+    for credential in persona.fake_credentials:
+        if not credential.username or not credential.password:
+            raise ValueError("Fake credential username and password cannot be empty")
 
     for port in persona.open_ports_visible:
         if port < 1 or port > 65535:

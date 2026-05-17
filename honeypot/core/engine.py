@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import shlex
+from pathlib import PurePosixPath
 
 from honeypot.core.session import SessionState
 
@@ -142,13 +143,28 @@ class InteractionEngine:
         return None
 
     def _resolve_path(self, session: SessionState, path: str) -> str:
-        if path.startswith("/"):
-            return path
+        if not path or path == ".":
+            raw_path = session.cwd
+        elif path == "~":
+            raw_path = session.persona.home_dir
+        elif path.startswith("~/"):
+            raw_path = f"{session.persona.home_dir}/{path[2:]}"
+        elif path.startswith("/"):
+            raw_path = path
+        else:
+            raw_path = f"{session.cwd}/{path}"
 
-        if session.cwd == "/":
-            return f"/{path}"
+        parts = []
+        for part in PurePosixPath(raw_path).parts:
+            if part in ("", "/", "."):
+                continue
+            if part == "..":
+                if parts:
+                    parts.pop()
+                continue
+            parts.append(part)
 
-        return f"{session.cwd}/{path}"
+        return "/" + "/".join(parts)
 
     def _ls(self, session: SessionState, path: str) -> str:
         """
