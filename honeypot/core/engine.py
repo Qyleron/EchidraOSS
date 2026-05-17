@@ -25,7 +25,7 @@ class InteractionEngine:
             A string containing the OS spoofing info and the initial command prompt.
         """
         return (
-            "Linux fake-host 5.15.0-91-generic x86_64\n"
+            f"{session.persona.os_banner}\n"
             "Last login: Fri May  7 21:00:00 2026 from unknown\n"
             f"{session.prompt()}"
         )
@@ -72,14 +72,15 @@ class InteractionEngine:
         # Help system
         if cmd in ("help", "?"):
             return (
-                "Available commands: ls, cat, pwd, whoami, id, uname -a, help, exit\n"
+                "Available commands: ls, cat, pwd, whoami, id, uname -a, "
+                "hostname, ps, netstat, help, exit\n"
                 f"{session.prompt()}"
             )
         
 
-        # Identity simulation (Hardcoded to root to entice attackers)
+        # Identity simulation
         if cmd == "whoami":
-            return f"root\n{session.prompt()}"
+            return f"{session.persona.username}\n{session.prompt()}"
 
         # Directory simulation using SessionState's Current Working Directory (cwd)
         if cmd == "pwd":
@@ -91,10 +92,16 @@ class InteractionEngine:
 
         # Specific flag handling (uname -a)
         if cmd == "uname" and args == ["-a"]:
-            return (
-                "Linux fake-host 5.15.0-91-generic #101-Ubuntu SMP x86_64 GNU/Linux\n"
-                f"{session.prompt()}"
-            )
+            return f"{session.persona.uname_output}\n{session.prompt()}"
+
+        if cmd == "hostname":
+            return f"{session.persona.hostname}\n{session.prompt()}"
+
+        if cmd == "ps":
+            return f"{self._ps(session)}{session.prompt()}"
+
+        if cmd in ("netstat", "ss"):
+            return f"{self._visible_ports(session)}{session.prompt()}"
 
         # List files logic
         if cmd == "ls":
@@ -107,7 +114,7 @@ class InteractionEngine:
             if not args:
                 return f"cat: missing file operand\n{session.prompt()}"
 
-            target = args[0]
+            target = self._resolve_path(session, args[0])
             # Attempt to retrieve virtual file content from session
             content = session.files.get(target)
             if content is None:
@@ -134,6 +141,15 @@ class InteractionEngine:
                 return arg
         return None
 
+    def _resolve_path(self, session: SessionState, path: str) -> str:
+        if path.startswith("/"):
+            return path
+
+        if session.cwd == "/":
+            return f"/{path}"
+
+        return f"{session.cwd}/{path}"
+
     def _ls(self, session: SessionState, path: str) -> str:
         """
         Simulates a static filesystem structure.
@@ -141,21 +157,48 @@ class InteractionEngine:
         Note: In a production honeypot, this would ideally be replaced 
         by a dynamic virtual filesystem.
         """
-
-        # Hardcoded map of directory contents
-
-        listings = {
-            "/": "bin  boot  dev  etc  home  tmp  var",
-            "/home": "admin",
-            "/home/admin": "notes.txt  readme.txt  .ssh",
-            "/etc": "hosts  passwd  ssh",
-            "/var": "log",
-            "/var/log": "auth.log  syslog",
-            # Ensure the current directory always has content
-            session.cwd: "notes.txt  readme.txt  .ssh",
-        }
+        path = self._resolve_path(session, path)
+        listings = self._build_listings(session)
 
         if path in listings:
             return listings[path] + "\n"
 
         return f"ls: cannot access '{path}': No such file or directory\n"
+
+    def _build_listings(self, session: SessionState) -> dict[str, str]:
+        directories: dict[str, set[str]] = {
+            "/": {"bin", "boot", "dev", "etc", "home", "tmp", "var"},
+        }
+
+        for file_path in session.files:
+            parts = [part for part in file_path.strip("/").split("/") if part]
+            current = "/"
+
+            for index, part in enumerate(parts):
+                is_file = index == len(parts) - 1
+                directories.setdefault(current, set()).add(part)
+
+                if not is_file:
+                    current = (
+                        f"/{part}"
+                        if current == "/"
+                        else f"{current}/{part}"
+                    )
+                    directories.setdefault(current, set())
+
+        return {
+            path: "  ".join(sorted(children))
+            for path, children in directories.items()
+        }
+
+    def _ps(self, session: SessionState) -> str:
+        lines = ["PID TTY          TIME CMD"]
+        for index, process in enumerate(session.persona.running_processes, start=101):
+            lines.append(f"{index} ?        00:00:00 {process}")
+        return "\n".join(lines) + "\n"
+
+    def _visible_ports(self, session: SessionState) -> str:
+        lines = ["Proto Local Address           State"]
+        for port in session.persona.open_ports_visible:
+            lines.append(f"tcp   0.0.0.0:{port:<5}          LISTEN")
+        return "\n".join(lines) + "\n"

@@ -1,5 +1,7 @@
 import time
 
+from honeypot.core.persona import Persona, get_persona
+
 
 class SessionState:
     """
@@ -7,32 +9,25 @@ class SessionState:
     It stores where they are, what they've done, and what files they can see.
     """
 
-    def __init__(self, peer):
+    def __init__(self, peer, persona: Persona | None = None):
         # 1. IDENTITY & TIMING
         self.peer = peer   # The IP address or ID of the person connecting
         self.start_time = time.time()  # When the session began (Unix timestamp)
         self.last_active = self.start_time  # Updated every time they type a command
+        self.persona = persona or get_persona()
+        self.persona_id = self.persona.persona_id
 
         # 2. ACTIVITY TRACKING
         self.commands = []  # A list to store every command typed
         self.command_count = 0  # A simple counter for the total number of commands
 
         # 3. ENVIRONMENT STATE
-        self.cwd = "/home/admin"  # 'Current Working Directory' - where the user is 'standing'
+        self.cwd = self.persona.home_dir  # 'Current Working Directory' - where the user is 'standing'
         self.mode = "unknown"     # Can be used to track if they are in 'read' or 'edit' mode
 
         # 4. VIRTUAL FILE SYSTEM
         # Instead of real files on your hard drive, these exist only in the code's memory.
-        self.files = {
-            "/home/admin/readme.txt": "Welcome to the system.\n",
-            "/home/admin/notes.txt": "TODO: rotate credentials\n",
-            "/etc/passwd": (
-                "root:x:0:0:root:/root:/bin/bash\n"
-                "admin:x:1000:1000:admin:/home/admin:/bin/bash\n"
-            ),
-            "/etc/hosts": "127.0.0.1 localhost\n",
-            "/var/log/auth.log": "",
-        }
+        self.files = self.persona.file_map()
 
     def log_command(self, command: str) -> None:
         """
