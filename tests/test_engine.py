@@ -126,3 +126,28 @@ def test_engine_lists_persona_filesystem_paths():
 
     assert "index.php" in response
     assert "wp-config.php" in response
+
+
+def test_engine_normalizes_cat_paths():
+    """cat should resolve shell-style path components before lookup."""
+    engine = InteractionEngine()
+    session = create_session()
+
+    parent_path = engine.process("cat /home/admin/../admin/notes.txt", session)
+    slash_path = engine.process("cat /home//admin/./notes.txt", session)
+    home_path = engine.process("cat ~/notes.txt", session)
+
+    assert "TODO: rotate credentials" in parent_path
+    assert "TODO: rotate credentials" in slash_path
+    assert "TODO: rotate credentials" in home_path
+
+
+def test_engine_normalizes_ls_paths_without_escaping_root():
+    """Path traversal should collapse at fake root, like a normal Linux path."""
+    engine = InteractionEngine()
+    session = create_session()
+
+    response = engine.process("ls /../../etc", session)
+
+    assert "hosts" in response
+    assert "passwd" in response

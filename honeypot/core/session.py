@@ -15,7 +15,6 @@ class SessionState:
         self.start_time = time.time()  # When the session began (Unix timestamp)
         self.last_active = self.start_time  # Updated every time they type a command
         self.persona = persona or get_persona()
-        self.persona_id = self.persona.persona_id
 
         # 2. ACTIVITY TRACKING
         self.commands = []  # A list to store every command typed
@@ -50,3 +49,8 @@ class SessionState:
         Generates the text the user sees before they type (e.g., /home/admin$ )
         """
         return f"{self.cwd}$ "
+
+    @property
+    def persona_id(self) -> str:
+        """Expose the active persona ID without storing a duplicate copy."""
+        return self.persona.persona_id

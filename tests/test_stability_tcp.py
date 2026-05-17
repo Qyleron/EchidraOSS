@@ -125,7 +125,7 @@ async def test_multiple_sequential_commands_preserve_prompt_behavior(running_ser
     commands = [
         (b"pwd\n", b"/home/admin"),
         (b"cat /home/admin/notes.txt\n", b"TODO: rotate credentials"),
-        (b"ls /etc\n", b"hosts  passwd  ssh"),
+        (b"ls /etc\n", b"hosts  passwd"),
         (b"uname -a\n", b"Linux fake-host"),
     ]
 

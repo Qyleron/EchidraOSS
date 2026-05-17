@@ -23,8 +23,7 @@ class ConnectionHandler:
         self.peer = writer.get_extra_info("peername")
 
         # SessionState stores facts about this specific visitor (like history)
-        self.persona = get_active_persona()
-        self.session = SessionState(self.peer, persona=self.persona)
+        self.session = SessionState(self.peer, persona=get_active_persona())
 
         # InteractionEngine is the 'brain' that decides what to say back
         self.engine = InteractionEngine()
