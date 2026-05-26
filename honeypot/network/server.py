@@ -64,10 +64,11 @@ class TCPServer:
             self.server.close()
             await self.server.wait_closed()
         
-        # Cancel active client sessions and wait for cleanup
-        for task in list(self.tasks):
+        # Cancel a stable snapshot so callbacks cannot change what we await.
+        tasks = list(self.tasks)
+        for task in tasks:
             task.cancel()
-   
-        await asyncio.gather(*self.tasks, return_exceptions=True)
+
+        await asyncio.gather(*tasks, return_exceptions=True)
 
         print("[+] Shutdown complete.")
