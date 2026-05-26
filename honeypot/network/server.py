@@ -1,28 +1,27 @@
 import asyncio
 
-# Importing external settings and the 'worker' class (ConnectionHandler)
+# TCP listener configuration and per-client session handler
 from honeypot.network.connection import ConnectionHandler
 from honeypot.network.config import HOST, PORT, MAX_CONNECTIONS
 
 
 class TCPServer:
     """
-    TCP ingress layer: The 'Front Door' of the honeypot.
-    It accepts incoming connections and passes them to a handler.
+    TCP ingress layer for the honeypot.
+
+    Accepts client connections, enforces the active connection limit, and tracks
+    session tasks so they can be cancelled during shutdown.
     """
 
     def __init__(self):
         self.server = None
-        # We keep track of active connections (tasks) in a set
-        # so we can manage them and close them all at once later.
+        # Active connection tasks are tracked so shutdown can cancel them
         self.tasks = set()
 
     async def start(self):
-        """
-        Step 1: Boots up the server and keeps it running forever.
-        """
-        # Create the server object and tell it which function to run 
-        # whenever someone connects (self.handle_client)
+        """Start the TCP server and serve clients until cancelled."""
+
+        # asyncio calls handle_client for each accepted connection
         self.server = await asyncio.start_server(
             self.handle_client,
             HOST,
@@ -32,50 +31,43 @@ class TCPServer:
         addr = self.server.sockets[0].getsockname()
         print(f"[+] Server listening on {addr}")
 
-        # 'serve_forever' keeps the script from finishing immediately
+        # Keep serving until the task is cancelled during shutdown.
         async with self.server:
             await self.server.serve_forever()
 
     async def handle_client(self, reader, writer):
-        """
-        Step 2: Triggered every time a new user connects.
-        """
-        # SECURITY CHECK: Is the building full?
+        """Accept one client and start its ConnectionHandler task."""
+
+        # Refuse new clients once the configured session limit is reached
         if len(self.tasks) >= MAX_CONNECTIONS:
             print("[!] Connection refused: max limit reached")
             writer.close()
             await writer.wait_closed()
             return
 
-        # Create a 'Handler' object to talk to this specific user
+        
         handler = ConnectionHandler(reader, writer)
 
-        # We wrap the handler's work in a 'Task' so it runs in the 
-        # background without blocking other new connections.
+        # Run the client session concurrently with future connections
         task = asyncio.create_task(handler.handle())
-
-        # Register the task so we know it's active
         self.tasks.add(task)
-
-        # When the conversation ends, automatically remove it from our set
         task.add_done_callback(self.tasks.discard)
+        
 
     async def shutdown(self):
-        """
-        Step 3: Gracefully turn off the lights.
-        """
+        """Stop accepting clients and cancel active session tasks."""
+
         print("\n[!] Shutting down server...")
 
-        # Stop accepting NEW connections
+        # Stop accepting new connections
         if self.server:
             self.server.close()
             await self.server.wait_closed()
         
-        # Tell all CURRENT conversations to stop immediately
+        # Cancel active client sessions and wait for cleanup
         for task in list(self.tasks):
             task.cancel()
    
-        # Wait for all tasks to acknowledge the cancellation
         await asyncio.gather(*self.tasks, return_exceptions=True)
 
         print("[+] Shutdown complete.")
