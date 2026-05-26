@@ -8,60 +8,50 @@ from honeypot.core.session import SessionState
 
 class InteractionEngine:
     """
-    The core logic controller for the honeypot's terminal simulation.
-    
-    This engine acts as a 'fake shell' that parses attacker input and generates 
-    standard Linux-like responses. It maintains the illusion of a real system 
-    while remaining isolated and safe.
+    Fake shell engine for the honeypot terminal simulation.
+
+    Parses visitor input, records commands, and returns controlled Linux-like
+    responses without executing host commands or reading host files.
     """
 
     def build_banner(self, session: SessionState) -> str:
-        """
-        Generates the initial SSH/Terminal login banner.
-        
-        Args:
-            session: The current user session object containing state data.
-            
-        Returns:
-            A string containing the OS spoofing info and the initial command prompt.
-        """
+        """Return the initial fake login banner and prompt for a session."""
+
         return (
             f"{session.persona.os_banner}\n"
             "Last login: Fri May  7 21:00:00 2026 from unknown\n"
             f"{session.prompt()}"
         )
 
+
     def process(self, raw_input: str, session: SessionState) -> str:
         """
-        Main execution loop for incoming commands.
-        
-        Logic Flow:
-        1. Cleanup input and log it for forensics.
-        2. Tokenize input using shlex (handles quotes and spaces like a real shell).
-        3. Match the primary command against implemented 'fake' commands.
-        4. Return the simulated output + the next prompt.
+        Process one raw command string and return fake shell output plus the next prompt.
+
+        The engine logs non-empty commands, tokenizes shell-style input with shlex,
+        dispatches supported fake commands, and falls back to a bash-like error.
         """
         command = raw_input.strip()
 
-        # 1. Handle Empty Input: Just return a new prompt line
+        # Empty input returns a fresh prompt without logging a command
         if not command:
             return session.prompt()
 
-        # 2. Forensics: Log the raw command for later analysis
+        # Preserve the raw command for later analysis
         session.log_command(command)
 
-        # 3. Parsing: Use shlex to split "ls -la 'my folder'" into tokens
+        # Parse shell-style quoting and spacing
         try:
             tokens = shlex.split(command)
         except ValueError:
-            # Triggered if the attacker provides unbalanced quotes
+            # Unbalanced quotes should look like a shell syntax error, not a crash
             return f"bash: syntax error near unexpected token\n{session.prompt()}"
 
         if not tokens:
             return session.prompt()
 
-        cmd = tokens[0] # The actual executable (e.g., 'ls')
-        args = tokens[1:] # The arguments (e.g., ['-a'])
+        cmd = tokens[0] 
+        args = tokens[1:] 
 
         # --- COMMAND DISPATCHER ---
 
@@ -83,7 +73,7 @@ class InteractionEngine:
         if cmd == "whoami":
             return f"{session.persona.username}\n{session.prompt()}"
 
-        # Directory simulation using SessionState's Current Working Directory (cwd)
+        # Directory simulation using the session's current fake directory
         if cmd == "pwd":
             return f"{session.cwd}\n{session.prompt()}"
 
@@ -91,7 +81,7 @@ class InteractionEngine:
         if cmd == "id":
             return f"uid=0(root) gid=0(root) groups=0(root)\n{session.prompt()}"
 
-        # Specific flag handling (uname -a)
+        # Support the most common system fingerprinting form
         if cmd == "uname" and args == ["-a"]:
             return f"{session.persona.uname_output}\n{session.prompt()}"
 
@@ -104,39 +94,38 @@ class InteractionEngine:
         if cmd in ("netstat", "ss"):
             return f"{self._visible_ports(session)}{session.prompt()}"
 
-        # List files logic
+        # Directory listing from the virtual filesystem
         if cmd == "ls":
-            # Determine if user is listing current dir or a specific path
+            # Use the current directory when no explicit target is provided
             target = self._extract_ls_target(args) or session.cwd
             return f"{self._ls(session, target)}{session.prompt()}"
 
-        # Read file logic
+        # File reads are served only from persona-backed fake files
         if cmd == "cat":
             if not args:
                 return f"cat: missing file operand\n{session.prompt()}"
 
             target = self._resolve_path(session, args[0])
-            # Attempt to retrieve virtual file content from session
+            # Look up normalized paths in the session's virtual filesystem
             content = session.files.get(target)
             if content is None:
                 return f"cat: {target}: No such file or directory\n{session.prompt()}"
 
-            # Ensure proper formatting of output
+            # Match normal terminal output formatting
             if not content.endswith("\n"):
                 content += "\n"
             return f"{content}{session.prompt()}"
 
-        # Terminal control: Sends ANSI escape codes to clear the screen
+        # ANSI clear-screen sequence
         if cmd == "clear":
             return "\x1b[2J\x1b[H" + session.prompt()
 
-        # Fallback: Standard bash error for unimplemented commands
+        # Bash-like fallback for unsupported commands
         return f"bash: {cmd}: command not found\n{session.prompt()}"
 
     def _extract_ls_target(self, args: list[str]) -> str | None:
-        """
-        Helper to filter out flags (e.g., -la) and find the directory/file target.
-        """
+        """Return the first non-flag ls argument, if one was provided."""
+
         for arg in args:
             if not arg.startswith("-"):
                 return arg
@@ -167,12 +156,8 @@ class InteractionEngine:
         return "/" + "/".join(parts)
 
     def _ls(self, session: SessionState, path: str) -> str:
-        """
-        Simulates a static filesystem structure.
+        """Return a directory listing from the session's virtual filesystem."""
         
-        Note: In a production honeypot, this would ideally be replaced 
-        by a dynamic virtual filesystem.
-        """
         path = self._resolve_path(session, path)
         listings = self._build_listings(session)
 
