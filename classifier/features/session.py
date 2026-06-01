@@ -46,6 +46,8 @@ class SessionFeatures(BaseModel):
     discovery_command_count: int = Field(ge=0)
     file_read_count: int = Field(ge=0)
     sensitive_file_read_count: int = Field(ge=0)
+    decoy_files_surfaced: list[str]
+    decoy_files_surfaced_count: int = Field(ge=0)
     exit_command_present: bool
     inter_command_intervals_seconds: list[float]
     average_inter_command_interval_seconds: float | None
@@ -101,6 +103,8 @@ def extract_session_features(session: SessionRecord) -> SessionFeatures:
         discovery_command_count=discovery_command_count,
         file_read_count=file_read_count,
         sensitive_file_read_count=sensitive_file_read_count,
+        decoy_files_surfaced=session.decoy_files_surfaced,
+        decoy_files_surfaced_count=len(session.decoy_files_surfaced),
         exit_command_present=exit_command_present,
         inter_command_intervals_seconds=intervals,
         average_inter_command_interval_seconds=average_interval,
@@ -133,4 +137,3 @@ def _commands_per_minute(command_count: int, duration_seconds: float) -> float:
         return 0.0
 
     return command_count * 60 / duration_seconds
-

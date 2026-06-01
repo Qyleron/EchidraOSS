@@ -26,6 +26,7 @@ def valid_record():
                 "timestamp": 101.0,
             },
         ],
+        "decoy_files_surfaced": [],
     }
 
 
@@ -35,6 +36,16 @@ def test_schema_accepts_valid_completed_session():
 
     assert str(session.peer_ip) == "127.0.0.1"
     assert session.commands[0].cmd == "whoami"
+
+
+def test_schema_defaults_historical_records_to_no_surfaced_decoys():
+    """Older JSONL records should remain usable after telemetry expansion."""
+    record = valid_record()
+    del record["decoy_files_surfaced"]
+
+    session = SessionRecord.parse_obj(record)
+
+    assert session.decoy_files_surfaced == []
 
 
 def test_schema_rejects_unknown_end_reason():
@@ -85,4 +96,22 @@ def test_schema_rejects_commands_out_of_timestamp_order():
     })
 
     with pytest.raises(ValidationError, match="ordered by timestamp"):
+        SessionRecord.parse_obj(record)
+
+
+def test_schema_rejects_duplicate_surfaced_decoy_files():
+    """Persona context should list each exposed decoy at most once."""
+    record = valid_record()
+    record["decoy_files_surfaced"] = ["/etc/passwd", "/etc/passwd"]
+
+    with pytest.raises(ValidationError, match="duplicates"):
+        SessionRecord.parse_obj(record)
+
+
+def test_schema_rejects_unsafe_surfaced_decoy_paths():
+    """Surfaced decoys should remain normalized fake filesystem paths."""
+    record = valid_record()
+    record["decoy_files_surfaced"] = ["../etc/passwd"]
+
+    with pytest.raises(ValidationError, match="safe absolute paths"):
         SessionRecord.parse_obj(record)

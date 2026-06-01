@@ -171,11 +171,13 @@ Each record includes:
 - `started_at`, `ended_at`, and `duration_seconds`
 - `end_reason`: `logout`, `timeout`, `disconnect`, `shutdown`, or `error`
 - `command_count` and timestamped `commands`
+- `decoy_files_surfaced`: unique fake files exposed through successful reads or listings
 
 Before persistence, each completed record is validated against the canonical
 Pydantic contract in `classifier/schemas/session.py`. The v1 contract rejects
 unknown fields, invalid lifecycle reasons, mismatched command counts, and
-timestamps that fall outside the session window.
+timestamps that fall outside the session window. Surfaced decoys must be
+unique safe absolute paths.
 
 ---
 
@@ -189,6 +191,7 @@ validated TCP shell session into measurements for later rules and scoring:
 - Unique and repeated command counts
 - Discovery command count
 - File-read and sensitive-path-read counts
+- Surfaced decoy paths and their count for persona-aware reporting
 - Exit-command presence and normalized command names
 
 This layer does not assign actor labels, risk levels, or recommended actions.
