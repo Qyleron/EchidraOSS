@@ -3,7 +3,8 @@ import asyncio
 # Core session state and fake-shell response generation
 from honeypot.core.engine import InteractionEngine
 from honeypot.core.session import SessionState
-from honeypot.network.config import READ_TIMEOUT, get_active_persona
+from honeypot.logging.session_logger import SessionLogger
+from honeypot.network.config import READ_TIMEOUT, SESSION_LOG_PATH, get_active_persona
 
 
 class ConnectionHandler:
@@ -12,7 +13,12 @@ class ConnectionHandler:
     and connection cleanup.
     """
 
-    def __init__(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
+    def __init__(
+        self,
+        reader: asyncio.StreamReader,
+        writer: asyncio.StreamWriter,
+        session_logger: SessionLogger | None = None,
+    ):
         self.reader = reader
         self.writer = writer
         self.peer = writer.get_extra_info("peername")
@@ -21,12 +27,14 @@ class ConnectionHandler:
         # Each connection gets isolated state and the currently configured persona
         self.session = SessionState(self.peer, persona=get_active_persona())
         self.engine = InteractionEngine()
+        self.session_logger = session_logger or SessionLogger(SESSION_LOG_PATH)
         self._closed = False
 
     async def handle(self):  
         """Run the client command loop until timeout, disconnect, exit, or shutdown."""
         print(f"[+] Connection from {self.peer}")
         graceful = False  # True when the client exits through the fake shell
+        end_reason = "disconnect"
 
         try:
             # Send the initial fake login/banner text
@@ -44,6 +52,7 @@ class ConnectionHandler:
                     # Client stayed idle past READ_TIMEOUT
                     print(f"[!] Timeout: {self.peer}")
                     await self._send("Session timed out.\n")
+                    end_reason = "timeout"
                     break
                 
                 # Empty reads indicate that the client disconnected
@@ -60,7 +69,8 @@ class ConnectionHandler:
                 # "__CLOSE__" is the engine's internal signal for a shell logout
                 if response == "__CLOSE__":
                     await self._send("logout\nConnection closed by remote host.\n")
-                    graceful = True  
+                    graceful = True
+                    end_reason = "logout"
                     break
                 
                 # Send command output and the next prompt
@@ -69,14 +79,22 @@ class ConnectionHandler:
         except asyncio.CancelledError:
             # Server shutdown cancels active handler tasks
             print(f"[!] Connection cancelled: {self.peer}")
+            end_reason = "shutdown"
 
         except Exception as e:
             # Keep one failed session from crashing the server
             print(f"[!] Error with {self.peer}: {e}")
+            end_reason = "error"
 
         finally:
             # Always close the transport after the session ends
             await self.close(fast=not graceful)
+            self.session.finalize(end_reason)
+            try:
+                self.session_logger.log(self.session)
+            except Exception as e:
+                # Logging failures should not keep dead connections open.
+                print(f"[!] Failed to persist session {self.session.session_id}: {e}")
 
     async def _send(self, text: str):
         """Send text to the connected client."""
