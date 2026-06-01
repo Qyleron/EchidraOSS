@@ -1,4 +1,5 @@
 import time
+import uuid
 
 from honeypot.core.persona import Persona, get_persona
 
@@ -14,9 +15,12 @@ class SessionState:
     def __init__(self, peer, persona: Persona | None = None):
 
         # Identity and timing
-        self.peer = peer   
-        self.start_time = time.time()  
-        self.last_active = self.start_time  
+        self.session_id = str(uuid.uuid4())
+        self.peer = peer
+        self.start_time = time.time()
+        self.last_active = self.start_time
+        self.end_time = None
+        self.end_reason = None
         self.persona = persona or get_persona()
 
         # Activity tracking
@@ -47,6 +51,40 @@ class SessionState:
     def prompt(self) -> str:
         """Return the current fake shell prompt."""
         return f"{self.cwd}$ "
+
+    def finalize(self, reason: str) -> None:
+        """Mark the session complete without overwriting its first end reason."""
+        if self.end_time is None:
+            self.end_time = time.time()
+            self.end_reason = reason
+
+    def to_record(self) -> dict:
+        """Return a structured record suitable for persistence and analysis."""
+        if self.end_time is None or self.end_reason is None:
+            raise ValueError("Cannot serialize an active session")
+
+        peer_ip = None
+        peer_port = None
+        if isinstance(self.peer, tuple):
+            if self.peer:
+                peer_ip = self.peer[0]
+            if len(self.peer) > 1:
+                peer_port = self.peer[1]
+
+        return {
+            "schema_version": 1,
+            "session_id": self.session_id,
+            "protocol": "tcp_shell",
+            "peer_ip": peer_ip,
+            "peer_port": peer_port,
+            "persona_id": self.persona_id,
+            "started_at": self.start_time,
+            "ended_at": self.end_time,
+            "duration_seconds": self.end_time - self.start_time,
+            "end_reason": self.end_reason,
+            "command_count": self.command_count,
+            "commands": list(self.commands),
+        }
 
     @property
     def persona_id(self) -> str:
