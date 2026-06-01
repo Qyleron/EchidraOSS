@@ -4,7 +4,12 @@ from classifier.features.session import extract_session_features
 from classifier.schemas.session import SessionRecord
 
 
-def create_session(commands, duration_seconds=10.0, end_reason="logout"):
+def create_session(
+    commands,
+    duration_seconds=10.0,
+    end_reason="logout",
+    decoy_files_surfaced=None,
+):
     """Build a validated session with predictable timestamps for feature tests."""
     started_at = 100.0
     command_events = [
@@ -28,6 +33,7 @@ def create_session(commands, duration_seconds=10.0, end_reason="logout"):
         "end_reason": end_reason,
         "command_count": len(command_events),
         "commands": command_events,
+        "decoy_files_surfaced": decoy_files_surfaced or [],
     })
 
 
@@ -58,6 +64,9 @@ def test_extracts_discovery_and_file_read_features():
         ("cat /etc/passwd", 3.0),
         ("cat /home/admin/readme.txt", 4.0),
         ("cat /var/www/html/wp-config.php", 5.0),
+    ], decoy_files_surfaced=[
+        "/etc/passwd",
+        "/var/www/html/wp-config.php",
     ])
 
     features = extract_session_features(session)
@@ -65,6 +74,11 @@ def test_extracts_discovery_and_file_read_features():
     assert features.discovery_command_count == 2
     assert features.file_read_count == 3
     assert features.sensitive_file_read_count == 2
+    assert features.decoy_files_surfaced_count == 2
+    assert features.decoy_files_surfaced == [
+        "/etc/passwd",
+        "/var/www/html/wp-config.php",
+    ]
     assert features.exit_command_present is False
 
 
@@ -90,4 +104,3 @@ def test_handles_malformed_shell_input_as_observed_command():
 
     assert features.command_names == ["cat"]
     assert features.file_read_count == 1
-

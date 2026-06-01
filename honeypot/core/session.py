@@ -26,6 +26,7 @@ class SessionState:
         # Activity tracking
         self.commands = []  
         self.command_count = 0  
+        self.decoy_files_surfaced = []
 
         # Fake shell environment
         self.cwd = self.persona.home_dir  
@@ -51,6 +52,11 @@ class SessionState:
     def prompt(self) -> str:
         """Return the current fake shell prompt."""
         return f"{self.cwd}$ "
+
+    def record_decoy_file_surfaced(self, path: str) -> None:
+        """Track a decoy file once after its name or content reaches the visitor."""
+        if path not in self.decoy_files_surfaced:
+            self.decoy_files_surfaced.append(path)
 
     def finalize(self, reason: str) -> None:
         """Mark the session complete without overwriting its first end reason."""
@@ -84,6 +90,7 @@ class SessionState:
             "end_reason": self.end_reason,
             "command_count": self.command_count,
             "commands": list(self.commands),
+            "decoy_files_surfaced": list(self.decoy_files_surfaced),
         }
 
     @property
