@@ -89,6 +89,18 @@ def test_cat_missing_file():
     )
 
     assert "No such file" in response
+    assert session.decoy_files_surfaced == []
+
+
+def test_cat_existing_file_records_surfaced_decoy_once():
+    """Successful file reads should preserve persona-aware exposure context."""
+    engine = InteractionEngine()
+    session = create_session()
+
+    engine.process("cat /etc/passwd", session)
+    engine.process("cat /etc/passwd", session)
+
+    assert session.decoy_files_surfaced == ["/etc/passwd"]
 
 
 def test_engine_uses_persona_identity_and_environment():
@@ -126,6 +138,10 @@ def test_engine_lists_persona_filesystem_paths():
 
     assert "index.php" in response
     assert "wp-config.php" in response
+    assert session.decoy_files_surfaced == [
+        "/var/www/html/index.php",
+        "/var/www/html/wp-config.php",
+    ]
 
 
 def test_engine_normalizes_cat_paths():

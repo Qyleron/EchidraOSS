@@ -1,3 +1,4 @@
+from pathlib import PurePosixPath
 from typing import Literal
 from uuid import UUID
 
@@ -29,6 +30,7 @@ class SessionRecord(BaseModel):
     end_reason: Literal["logout", "timeout", "disconnect", "shutdown", "error"]
     command_count: int = Field(ge=0)
     commands: list[CommandEvent]
+    decoy_files_surfaced: list[str] = Field(default_factory=list)
 
     @root_validator
     def validate_session_consistency(cls, values):
@@ -38,6 +40,7 @@ class SessionRecord(BaseModel):
         duration_seconds = values.get("duration_seconds")
         commands = values.get("commands")
         command_count = values.get("command_count")
+        decoy_files_surfaced = values.get("decoy_files_surfaced")
 
         if started_at is not None and ended_at is not None:
             if ended_at < started_at:
@@ -66,6 +69,16 @@ class SessionRecord(BaseModel):
 
         if commands is not None and command_count != len(commands):
             raise ValueError("command_count must match commands")
+
+        if decoy_files_surfaced is not None:
+            if len(decoy_files_surfaced) != len(set(decoy_files_surfaced)):
+                raise ValueError("decoy_files_surfaced cannot contain duplicates")
+
+            for path in decoy_files_surfaced:
+                if not path.startswith("/") or ".." in PurePosixPath(path).parts:
+                    raise ValueError(
+                        "decoy_files_surfaced must contain safe absolute paths"
+                    )
 
         return values
 

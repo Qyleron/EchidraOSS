@@ -111,6 +111,8 @@ class InteractionEngine:
             if content is None:
                 return f"cat: {target}: No such file or directory\n{session.prompt()}"
 
+            session.record_decoy_file_surfaced(target)
+
             # Match normal terminal output formatting
             if not content.endswith("\n"):
                 content += "\n"
@@ -162,6 +164,7 @@ class InteractionEngine:
         listings = self._build_listings(session)
 
         if path in listings:
+            self._record_listed_decoy_files(session, path)
             return listings[path] + "\n"
 
         return f"ls: cannot access '{path}': No such file or directory\n"
@@ -191,6 +194,12 @@ class InteractionEngine:
             path: "  ".join(sorted(children))
             for path, children in directories.items()
         }
+
+    def _record_listed_decoy_files(self, session: SessionState, directory: str) -> None:
+        """Track direct child files whose names were exposed by a listing."""
+        for file_path in session.files:
+            if str(PurePosixPath(file_path).parent) == directory:
+                session.record_decoy_file_surfaced(file_path)
 
     def _ps(self, session: SessionState) -> str:
         lines = ["PID TTY          TIME CMD"]

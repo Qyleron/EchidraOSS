@@ -17,6 +17,7 @@ def test_session_initialization():
     assert session.cwd == "/home/admin"
     assert session.command_count == 0
     assert isinstance(session.files, dict)
+    assert session.decoy_files_surfaced == []
 
 
 def test_command_logging():
@@ -47,6 +48,7 @@ def test_finalized_session_returns_structured_record():
     """Completed sessions should expose the stable shape used by JSONL logs."""
     session = SessionState(("127.0.0.1", 4444))
     session.log_command("whoami")
+    session.record_decoy_file_surfaced("/etc/passwd")
 
     session.finalize("logout")
     record = session.to_record()
@@ -60,4 +62,15 @@ def test_finalized_session_returns_structured_record():
     assert record["end_reason"] == "logout"
     assert record["command_count"] == 1
     assert record["commands"][0]["cmd"] == "whoami"
+    assert record["decoy_files_surfaced"] == ["/etc/passwd"]
     assert record["duration_seconds"] >= 0
+
+
+def test_surfaced_decoy_files_are_recorded_once():
+    """Repeated exposures should not duplicate dashboard persona context."""
+    session = SessionState(("127.0.0.1", 4444))
+
+    session.record_decoy_file_surfaced("/etc/passwd")
+    session.record_decoy_file_surfaced("/etc/passwd")
+
+    assert session.decoy_files_surfaced == ["/etc/passwd"]
