@@ -24,6 +24,9 @@ MAX_CONNECTIONS = 100
 # Seconds to wait for a client command before closing the session
 READ_TIMEOUT = 60
 
+# Append-only structured records consumed by the future classifier
+SESSION_LOG_PATH = os.getenv("ECHIDRA_SESSION_LOG", "logs/sessions.jsonl")
+
 # --- THE PERSONA ---
 # OSS deployments choose one persona at deployment time. Today this is hardcoded
 # or set by environment. Later, the HTML/UI can replace get_active_persona()

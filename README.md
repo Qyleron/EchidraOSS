@@ -30,14 +30,16 @@ Echidra currently includes:
 - Fake banners, hostnames, users, files, processes, and ports
 - Fake shell command handling
 - Per-session command history and state
+- Append-only JSONL logging for completed attacker sessions
 - Path normalization for Linux-like file access
 - Timeout, disconnect, and graceful shutdown behavior
 - Unit, integration, stability, and basic concurrency tests
 
 Next major upgrade:
 
-- Persistent structured logging of attacker sessions
+- Expand feature extraction as new protocol collectors arrive
 - Behavioral Classifier for bot-versus-human and intent analysis
+- Safeguard Advisor recommendations for external security tools
 
 ---
 
@@ -83,17 +85,18 @@ raw honeypot events
 - Fake filesystem backed by controlled in-memory data
 - Safe command simulation without executing real shell commands
 - Session-specific state for each connected visitor
+- Structured session logs with IDs, timing, end reasons, and command history
 - Basic support for concurrent clients
 - Test coverage for core behavior and TCP interaction
 
 ### Planned
 
-- Persistent structured logs
 - SSH, Telnet, FTP, and HTTP honeypot services
 - FastAPI Behavioral Classifier service
 - PostgreSQL storage for sessions, classifier runs, and manual labels
 - Dashboard and reporting views
 - Local alerts through SMTP or webhooks
+- Evidence-backed Safeguard Advisor recommendations for external security tools
 - Docker/systemd deployment support
 
 ---
@@ -138,6 +141,59 @@ Classifier output will include:
 - Feature summary
 - Matched rules
 
+### Safeguard Advisor Boundary
+
+Echidra will recommend preventive and safeguarding actions with supporting
+evidence. It will not directly block IP addresses, modify firewalls, disable
+accounts, or change production systems.
+
+External tools such as firewalls, WAFs, SIEM/SOAR platforms, IAM systems, and
+ticketing tools remain responsible for executing approved actions.
+
+---
+
+## Structured Session Logs
+
+Echidra appends one JSON object per completed connection to:
+
+```text
+logs/sessions.jsonl
+```
+
+Set `ECHIDRA_SESSION_LOG` to use a different path. JSON Lines keeps each
+session independently readable and makes the file easy to stream into the
+planned classifier or an external ingestion tool.
+
+Each record includes:
+
+- `schema_version`, `session_id`, and `protocol`
+- `peer_ip`, `peer_port`, and `persona_id`
+- `started_at`, `ended_at`, and `duration_seconds`
+- `end_reason`: `logout`, `timeout`, `disconnect`, `shutdown`, or `error`
+- `command_count` and timestamped `commands`
+
+Before persistence, each completed record is validated against the canonical
+Pydantic contract in `classifier/schemas/session.py`. The v1 contract rejects
+unknown fields, invalid lifecycle reasons, mismatched command counts, and
+timestamps that fall outside the session window.
+
+---
+
+## Session Features
+
+The deterministic extractor in `classifier/features/session.py` converts each
+validated TCP shell session into measurements for later rules and scoring:
+
+- Session duration, command count, and commands per minute
+- Inter-command intervals and their average
+- Unique and repeated command counts
+- Discovery command count
+- File-read and sensitive-path-read counts
+- Exit-command presence and normalized command names
+
+This layer does not assign actor labels, risk levels, or recommended actions.
+Those decisions belong to the planned intelligence layer.
+
 ---
 
 ## Tech Stack
@@ -148,7 +204,7 @@ Classifier output will include:
 | Fake shell engine | Python |
 | Classifier API | FastAPI, planned |
 | Rule engine | YAML rules, planned |
-| Schemas | Pydantic, planned |
+| Schemas | Pydantic |
 | Storage | PostgreSQL + JSONB, planned |
 | Dashboard | HTML, CSS, JavaScript, D3.js, planned |
 | Deployment | Docker Compose or systemd, planned |
@@ -167,13 +223,17 @@ echidra_oss/
 │   │   ├── server.py
 │   │   ├── connection.py
 │   │   └── config.py
+│   ├── logging/
+│   │   └── session_logger.py
 │   └── core/
 │       ├── persona.py
 │       ├── session.py
 │       └── engine.py
 ├── classifier/              # planned
 │   ├── schemas/
+│   │   └── session.py
 │   ├── features/
+│   │   └── session.py
 │   ├── rules/
 │   ├── scoring/
 │   └── api/
@@ -224,15 +284,16 @@ Commands are parsed and answered by the interaction engine. Files are fake entri
 
 ## Roadmap
 
-1. Add persistent structured session logging.
-2. Define the canonical session schema.
-3. Build feature extraction for timing, authentication, commands, protocols, files, and network events.
+1. Add persistent structured session logging. **Implemented**
+2. Define the canonical session schema. **Implemented**
+3. Build feature extraction for timing, authentication, commands, protocols, files, and network events. **TCP shell foundation implemented**
 4. Implement editable YAML classification rules.
 5. Add risk scoring, evidence generation, and MITRE mapping.
-6. Expose real-time and post-session classification through FastAPI.
-7. Store classifier runs and manual labels in PostgreSQL.
-8. Collect and label real sessions for evaluation.
-9. Build dashboard/reporting views.
+6. Add Safeguard Advisor recommendations for external security tools.
+7. Expose real-time and post-session classification through FastAPI.
+8. Store classifier runs and manual labels in PostgreSQL.
+9. Collect and label real sessions for evaluation.
+10. Build dashboard/reporting views.
 
 ---
 

@@ -1,7 +1,10 @@
 import asyncio
+import json
 
 import pytest
 
+import honeypot.network.connection as connection_module
+from honeypot.logging.session_logger import SessionLogger
 from honeypot.network.connection import ConnectionHandler
 
 
@@ -57,6 +60,22 @@ class FakeReader:
         return b""
 
 
+class SlowReader:
+    """Reader that stays idle long enough to trigger the configured timeout."""
+
+    async def readline(self):
+        await asyncio.sleep(1)
+        return b""
+
+
+def read_records(log_path):
+    """Load JSONL records written by one connection test."""
+    return [
+        json.loads(line)
+        for line in log_path.read_text(encoding="utf-8").splitlines()
+    ]
+
+
 @pytest.mark.asyncio
 async def test_connection_exit():
     """A client that sends exit should receive logout text and close cleanly."""
@@ -86,3 +105,55 @@ async def test_connection_whoami():
     output = writer.buffer.decode()
 
     assert "root" in output
+
+
+@pytest.mark.asyncio
+async def test_connection_logs_logout_reason(tmp_path):
+    """Shell logout should persist commands and the explicit logout reason."""
+    log_path = tmp_path / "sessions.jsonl"
+    handler = ConnectionHandler(
+        FakeReader(["whoami", "exit"]),
+        FakeWriter(),
+        session_logger=SessionLogger(str(log_path)),
+    )
+
+    await handler.handle()
+
+    record = read_records(log_path)[0]
+
+    assert record["end_reason"] == "logout"
+    assert [command["cmd"] for command in record["commands"]] == [
+        "whoami",
+        "exit",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_connection_logs_disconnect_reason(tmp_path):
+    """A client disappearing without logout should be recorded as a disconnect."""
+    log_path = tmp_path / "sessions.jsonl"
+    handler = ConnectionHandler(
+        FakeReader([]),
+        FakeWriter(),
+        session_logger=SessionLogger(str(log_path)),
+    )
+
+    await handler.handle()
+
+    assert read_records(log_path)[0]["end_reason"] == "disconnect"
+
+
+@pytest.mark.asyncio
+async def test_connection_logs_timeout_reason(tmp_path, monkeypatch):
+    """Idle clients should be recorded separately from explicit disconnects."""
+    monkeypatch.setattr(connection_module, "READ_TIMEOUT", 0.001)
+    log_path = tmp_path / "sessions.jsonl"
+    handler = ConnectionHandler(
+        SlowReader(),
+        FakeWriter(),
+        session_logger=SessionLogger(str(log_path)),
+    )
+
+    await handler.handle()
+
+    assert read_records(log_path)[0]["end_reason"] == "timeout"
