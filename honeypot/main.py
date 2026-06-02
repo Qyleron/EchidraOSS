@@ -1,8 +1,15 @@
 import asyncio
+import logging
 import signal
 
 # TCPServer owns listener startup, connection handling, and shutdown
 from honeypot.network.server import TCPServer
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
+logger = logging.getLogger(__name__)
 
 
 async def main():
@@ -13,7 +20,7 @@ async def main():
 
 
     def shutdown_signal():
-        print("\n[!] Received shutdown signal")
+        logger.info("Received shutdown signal")
         stop_event.set()
 
 
@@ -27,7 +34,7 @@ async def main():
     await stop_event.wait()
 
 
-    print("[*] Shutting down gracefully...")
+    logger.info("Shutting down gracefully...")
     await server.shutdown()
 
     server_task.cancel()
@@ -40,4 +47,4 @@ if __name__ == "__main__":
         asyncio.run(main())
     except KeyboardInterrupt:
         # Fallback if signal-based shutdown is bypassed
-        print("[!] Forced exit")
+        logger.warning("Forced exit")

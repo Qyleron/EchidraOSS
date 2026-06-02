@@ -68,6 +68,13 @@ class SlowReader:
         return b""
 
 
+class LongReader:
+    """Reader that simulates a too-long line arriving from the client."""
+
+    async def readline(self):
+        raise asyncio.LimitOverrunError("line too long", 0)
+
+
 def read_records(log_path):
     """Load JSONL records written by one connection test."""
     return [
@@ -157,3 +164,20 @@ async def test_connection_logs_timeout_reason(tmp_path, monkeypatch):
     await handler.handle()
 
     assert read_records(log_path)[0]["end_reason"] == "timeout"
+
+
+@pytest.mark.asyncio
+async def test_connection_handles_long_input_error(tmp_path):
+    """The handler should catch overly long lines without crashing the server."""
+    log_path = tmp_path / "sessions.jsonl"
+    writer = FakeWriter()
+    handler = ConnectionHandler(
+        LongReader(),
+        writer,
+        session_logger=SessionLogger(str(log_path)),
+    )
+
+    await handler.handle()
+
+    assert read_records(log_path)[0]["end_reason"] == "error"
+    assert "Input too long" in writer.buffer.decode()

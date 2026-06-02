@@ -39,14 +39,14 @@ class SessionState:
     def log_command(self, command: str) -> None:
         """Record a command and refresh session activity metadata."""
 
+        timestamp = time.time()
         self.commands.append({
             "cmd": command,
-            "timestamp": time.time(),
+            "timestamp": timestamp,
         })
 
-        
         self.command_count += 1
-        self.last_active = time.time()
+        self.last_active = timestamp
 
 
     def prompt(self) -> str:
@@ -73,9 +73,11 @@ class SessionState:
         peer_port = None
         if isinstance(self.peer, tuple):
             if self.peer:
-                peer_ip = self.peer[0]
+                peer_ip = str(self.peer[0])
             if len(self.peer) > 1:
                 peer_port = self.peer[1]
+        elif self.peer is not None:
+            peer_ip = str(self.peer)
 
         return {
             "schema_version": 1,
