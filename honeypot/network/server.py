@@ -1,8 +1,11 @@
 import asyncio
+import logging
 
 # TCP listener configuration and per-client session handler
 from honeypot.network.connection import ConnectionHandler
 from honeypot.network.config import HOST, PORT, MAX_CONNECTIONS
+
+logger = logging.getLogger(__name__)
 
 
 class TCPServer:
@@ -29,7 +32,7 @@ class TCPServer:
         )
 
         addr = self.server.sockets[0].getsockname()
-        print(f"[+] Server listening on {addr}")
+        logger.info("Server listening on %s", addr)
 
         # Keep serving until the task is cancelled during shutdown.
         async with self.server:
@@ -40,7 +43,7 @@ class TCPServer:
 
         # Refuse new clients once the configured session limit is reached
         if len(self.tasks) >= MAX_CONNECTIONS:
-            print("[!] Connection refused: max limit reached")
+            logger.warning("Connection refused: max limit reached")
             writer.close()
             await writer.wait_closed()
             return
@@ -57,7 +60,7 @@ class TCPServer:
     async def shutdown(self):
         """Stop accepting clients and cancel active session tasks."""
 
-        print("\n[!] Shutting down server...")
+        logger.info("Shutting down server...")
 
         # Stop accepting new connections
         if self.server:
@@ -71,4 +74,4 @@ class TCPServer:
 
         await asyncio.gather(*tasks, return_exceptions=True)
 
-        print("[+] Shutdown complete.")
+        logger.info("Shutdown complete.")

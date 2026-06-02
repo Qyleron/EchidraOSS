@@ -1,10 +1,13 @@
 import asyncio
+import logging
 
 # Core session state and fake-shell response generation
 from honeypot.core.engine import InteractionEngine
 from honeypot.core.session import SessionState
 from honeypot.logging.session_logger import SessionLogger
 from honeypot.network.config import READ_TIMEOUT, SESSION_LOG_PATH, get_active_persona
+
+logger = logging.getLogger(__name__)
 
 
 class ConnectionHandler:
@@ -32,7 +35,7 @@ class ConnectionHandler:
 
     async def handle(self):  
         """Run the client command loop until timeout, disconnect, exit, or shutdown."""
-        print(f"[+] Connection from {self.peer}")
+        logger.info("Connection from %s", self.peer)
         graceful = False  # True when the client exits through the fake shell
         end_reason = "disconnect"
 
@@ -50,14 +53,19 @@ class ConnectionHandler:
                     )
                 except asyncio.TimeoutError:
                     # Client stayed idle past READ_TIMEOUT
-                    print(f"[!] Timeout: {self.peer}")
+                    logger.warning("Timeout: %s", self.peer)
                     await self._send("Session timed out.\n")
                     end_reason = "timeout"
+                    break
+                except asyncio.LimitOverrunError as exc:
+                    logger.warning("Input too long from %s: %s", self.peer, exc)
+                    await self._send("Input too long. Connection closed.\n")
+                    end_reason = "error"
                     break
                 
                 # Empty reads indicate that the client disconnected
                 if not data:
-                    print(f"[-] Disconnected: {self.peer}")
+                    logger.info("Disconnected: %s", self.peer)
                     break
                 
                 # Decode defensively so malformed input cannot crash the handler
@@ -78,12 +86,12 @@ class ConnectionHandler:
 
         except asyncio.CancelledError:
             # Server shutdown cancels active handler tasks
-            print(f"[!] Connection cancelled: {self.peer}")
+            logger.warning("Connection cancelled: %s", self.peer)
             end_reason = "shutdown"
 
         except Exception as e:
             # Keep one failed session from crashing the server
-            print(f"[!] Error with {self.peer}: {e}")
+            logger.exception("Error with %s", self.peer)
             end_reason = "error"
 
         finally:
@@ -94,7 +102,11 @@ class ConnectionHandler:
                 self.session_logger.log(self.session)
             except Exception as e:
                 # Logging failures should not keep dead connections open.
-                print(f"[!] Failed to persist session {self.session.session_id}: {e}")
+                logger.exception(
+                    "Failed to persist session %s: %s",
+                    self.session.session_id,
+                    e,
+                )
 
     async def _send(self, text: str):
         """Send text to the connected client."""
@@ -128,4 +140,4 @@ class ConnectionHandler:
             # Ignore close errors after the connection is already being torn down
             pass
 
-        print(f"[x] Connection closed: {self.peer}")
+        logger.info("Connection closed: %s", self.peer)

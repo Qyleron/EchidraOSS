@@ -44,6 +44,15 @@ def test_last_active_updates():
     assert session.last_active > old_time
 
 
+def test_last_active_matches_command_timestamp():
+    """The saved command timestamp should match the last active timestamp."""
+    session = SessionState(("127.0.0.1", 4444))
+
+    session.log_command("whoami")
+
+    assert session.commands[0]["timestamp"] == session.last_active
+
+
 def test_finalized_session_returns_structured_record():
     """Completed sessions should expose the stable shape used by JSONL logs."""
     session = SessionState(("127.0.0.1", 4444))
