@@ -1,9 +1,13 @@
+rules_version: 1.0.0
 rules:
   - id: automated_discovery_burst
     name: Automated discovery burst
     actor_label: automated_scanner
     confidence: 0.72
     risk_score: 35
+    mitre_tags:
+      - T1087
+      - T1082
     evidence:
       - High command rate with repeated discovery commands.
       - No clean exit command was observed.
@@ -23,6 +27,9 @@ rules:
     actor_label: commodity_bot
     confidence: 0.78
     risk_score: 55
+    mitre_tags:
+      - T1005
+      - T1552.001
     evidence:
       - Session attempted to read sensitive-looking fake files.
       - Decoy file exposure gives persona-specific context.
@@ -39,6 +46,8 @@ rules:
     actor_label: skilled_human_operator
     confidence: 0.64
     risk_score: 45
+    mitre_tags:
+      - T1059
     evidence:
       - Commands arrived at a slower interactive cadence.
       - Session used multiple unique commands.
