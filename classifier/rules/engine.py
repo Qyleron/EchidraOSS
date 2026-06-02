@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from collections.abc import Iterable
 from typing import Any, Literal
 
 import yaml
@@ -9,6 +10,20 @@ from pydantic import BaseModel, Field, root_validator, validator
 from classifier.features.session import SessionFeatures
 
 
+ACTOR_LABELS = (
+    "automated_scanner",
+    "brute_force_bot",
+    "commodity_bot",
+    "script_kiddie",
+    "skilled_human_operator",
+)
+ActorLabel = Literal[
+    "automated_scanner",
+    "brute_force_bot",
+    "commodity_bot",
+    "script_kiddie",
+    "skilled_human_operator",
+]
 RuleOperator = Literal[
     "contains",
     "equals",
@@ -28,6 +43,16 @@ class RuleCondition(BaseModel):
     operator: RuleOperator
     value: Any
 
+    @root_validator
+    def validate_operator_value_shape(cls, values):
+        operator = values.get("operator")
+        value = values.get("value")
+
+        if operator == "in" and not _is_non_string_iterable(value):
+            raise ValueError("in operator value must be a non-string iterable")
+
+        return values
+
     class Config:
         extra = "forbid"
 
@@ -37,7 +62,7 @@ class ClassificationRule(BaseModel):
 
     id: str = Field(min_length=1)
     name: str = Field(min_length=1)
-    actor_label: str = Field(min_length=1)
+    actor_label: ActorLabel
     confidence: float = Field(ge=0, le=1)
     risk_score: int = Field(ge=0, le=100)
     mitre_tags: list[str] = Field(default_factory=list)
@@ -83,7 +108,7 @@ class RuleMatch(BaseModel):
 
     rule_id: str
     name: str
-    actor_label: str
+    actor_label: ActorLabel
     confidence: float = Field(ge=0, le=1)
     risk_score: int = Field(ge=0, le=100)
     mitre_tags: list[str]
@@ -161,6 +186,8 @@ def _condition_matches(
     expected = condition.value
 
     if condition.operator == "contains":
+        if not _is_non_string_iterable(actual):
+            raise ValueError(f"Feature field is not iterable: {condition.field}")
         return expected in actual
     if condition.operator == "equals":
         return actual == expected
@@ -178,3 +205,7 @@ def _condition_matches(
         return actual != expected
 
     raise ValueError(f"Unsupported operator: {condition.operator}")
+
+
+def _is_non_string_iterable(value: Any) -> bool:
+    return isinstance(value, Iterable) and not isinstance(value, (str, bytes))

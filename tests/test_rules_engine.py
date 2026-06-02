@@ -122,6 +122,39 @@ def test_ruleset_rejects_duplicate_rule_ids():
         RuleSet(rules=[make_rule(), make_rule()])
 
 
+def test_rule_rejects_unknown_actor_labels():
+    with pytest.raises(ValidationError, match="unexpected value"):
+        make_rule(actor_label="commodity_bto")
+
+
+def test_in_operator_requires_iterable_expected_value():
+    with pytest.raises(ValidationError, match="non-string iterable"):
+        make_rule(
+            conditions=[
+                {
+                    "field": "actor_label",
+                    "operator": "in",
+                    "value": "commodity_bot",
+                },
+            ],
+        )
+
+
+def test_contains_operator_rejects_non_iterable_feature_values():
+    rule = make_rule(
+        conditions=[
+            {
+                "field": "command_count",
+                "operator": "contains",
+                "value": 55,
+            },
+        ],
+    )
+
+    with pytest.raises(ValueError, match="Feature field is not iterable"):
+        evaluate_rules(make_features(), [rule])
+
+
 def test_default_yaml_rules_load_and_match_expected_features():
     rules = load_rules("classifier/rules/default_rules.yaml")
 

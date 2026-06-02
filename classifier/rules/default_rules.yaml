@@ -1,4 +1,4 @@
-rules_version: 1.0.0
+rules_version: "1.0.0"
 rules:
   - id: automated_discovery_burst
     name: Automated discovery burst
