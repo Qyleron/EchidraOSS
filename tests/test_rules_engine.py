@@ -45,6 +45,7 @@ def make_rule(**overrides):
         "actor_label": "commodity_bot",
         "confidence": 0.78,
         "risk_score": 55,
+        "mitre_tags": ["T1005"],
         "evidence": ["Sensitive fake file was read."],
         "conditions": [
             {
@@ -67,6 +68,7 @@ def test_rule_evaluation_returns_matching_rules():
     assert len(result.matched_rules) == 1
     assert result.best_match.rule_id == "sensitive_file_probe"
     assert result.best_match.actor_label == "commodity_bot"
+    assert result.best_match.mitre_tags == ["T1005"]
 
 
 def test_rule_evaluation_skips_non_matching_rules():
@@ -125,6 +127,8 @@ def test_default_yaml_rules_load_and_match_expected_features():
 
     result = evaluate_rules(make_features(), rules)
 
+    assert rules.rules_version == "1.0.0"
+    assert result.rules_version == "1.0.0"
     assert {match.rule_id for match in result.matched_rules} == {
         "automated_discovery_burst",
         "sensitive_file_probe",
