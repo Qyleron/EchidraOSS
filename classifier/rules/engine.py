@@ -40,8 +40,15 @@ class ClassificationRule(BaseModel):
     actor_label: str = Field(min_length=1)
     confidence: float = Field(ge=0, le=1)
     risk_score: int = Field(ge=0, le=100)
+    mitre_tags: list[str] = Field(default_factory=list)
     evidence: list[str] = Field(default_factory=list)
     conditions: list[RuleCondition] = Field(min_items=1)
+
+    @validator("mitre_tags", each_item=True)
+    def mitre_tags_must_not_be_empty(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("mitre_tags items cannot be empty")
+        return value
 
     @validator("evidence", each_item=True)
     def evidence_items_must_not_be_empty(cls, value: str) -> str:
@@ -56,6 +63,7 @@ class ClassificationRule(BaseModel):
 class RuleSet(BaseModel):
     """Top-level YAML document containing all editable rules."""
 
+    rules_version: str = "unversioned"
     rules: list[ClassificationRule] = Field(min_items=1)
 
     @root_validator
@@ -78,6 +86,7 @@ class RuleMatch(BaseModel):
     actor_label: str
     confidence: float = Field(ge=0, le=1)
     risk_score: int = Field(ge=0, le=100)
+    mitre_tags: list[str]
     evidence: list[str]
 
     class Config:
@@ -87,6 +96,7 @@ class RuleMatch(BaseModel):
 class RuleEvaluation(BaseModel):
     """Deterministic result of applying a ruleset to session features."""
 
+    rules_version: str = "unversioned"
     matched_rules: list[RuleMatch]
 
     @property
@@ -120,6 +130,7 @@ def evaluate_rules(
 ) -> RuleEvaluation:
     """Return all rules whose conditions match the supplied features."""
     rule_list = rules.rules if isinstance(rules, RuleSet) else rules
+    rules_version = rules.rules_version if isinstance(rules, RuleSet) else "unversioned"
     matches = []
 
     for rule in rule_list:
@@ -131,11 +142,12 @@ def evaluate_rules(
                     actor_label=rule.actor_label,
                     confidence=rule.confidence,
                     risk_score=rule.risk_score,
+                    mitre_tags=list(rule.mitre_tags),
                     evidence=list(rule.evidence),
                 )
             )
 
-    return RuleEvaluation(matched_rules=matches)
+    return RuleEvaluation(rules_version=rules_version, matched_rules=matches)
 
 
 def _condition_matches(

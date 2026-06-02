@@ -33,13 +33,14 @@ Echidra currently includes:
 - Append-only JSONL logging for completed attacker sessions
 - Path normalization for Linux-like file access
 - Editable YAML classification rules with deterministic matching
+- Risk scoring, evidence aggregation, and MITRE tag mapping for matched rules
 - Timeout, disconnect, and graceful shutdown behavior
 - Unit, integration, stability, and basic concurrency tests
 
 Next major upgrade:
 
 - Expand feature extraction and rules as new protocol collectors arrive
-- Behavioral Classifier scoring for bot-versus-human and intent analysis
+- Behavior stage and intent mapping for classifier summaries
 - Safeguard Advisor recommendations for external security tools
 
 ---
@@ -88,6 +89,7 @@ raw honeypot events
 - Session-specific state for each connected visitor
 - Structured session logs with IDs, timing, end reasons, and command history
 - YAML rule loading and matching over extracted session features
+- Aggregated classifier summaries with risk levels, evidence, and MITRE tags
 - Basic support for concurrent clients
 - Test coverage for core behavior and TCP interaction
 
@@ -95,7 +97,7 @@ raw honeypot events
 
 - SSH, Telnet, FTP, and HTTP honeypot services
 - FastAPI Behavioral Classifier service
-- Risk scoring, evidence aggregation, and MITRE mapping
+- Behavior-stage and intent mapping
 - PostgreSQL storage for sessions, classifier runs, and manual labels
 - Dashboard and reporting views
 - Local alerts through SMTP or webhooks
@@ -134,12 +136,15 @@ Planned actor labels:
 
 Classifier output will include:
 
+- Classifier and rules version
 - Session ID and protocol
 - Actor type and confidence
+- Actor vote tally
 - Behavior stage and intent
 - Risk score and risk level
 - MITRE tags
 - Plain-English evidence
+- Persona context and surfaced decoy files
 - Recommended action
 - Feature summary
 - Matched rules
@@ -197,8 +202,10 @@ validated TCP shell session into measurements for later rules and scoring:
 - Surfaced decoy paths and their count for persona-aware reporting
 - Exit-command presence and normalized command names
 
-This layer does not assign actor labels, risk levels, or recommended actions.
-Those decisions belong to the planned intelligence layer.
+Rule evaluation and scoring assign initial actor labels, risk levels, evidence,
+MITRE tags, actor vote tallies, version metadata, and persona context from
+these features. Behavior-stage and recommendation decisions belong to the
+planned intelligence layer.
 
 ---
 
@@ -294,7 +301,7 @@ Commands are parsed and answered by the interaction engine. Files are fake entri
 2. Define the canonical session schema. **Implemented**
 3. Build feature extraction for timing, authentication, commands, protocols, files, and network events. **TCP shell foundation implemented**
 4. Implement editable YAML classification rules. **Implemented**
-5. Add risk scoring, evidence generation, and MITRE mapping.
+5. Add risk scoring, evidence generation, and MITRE mapping. **Implemented**
 6. Add Safeguard Advisor recommendations for external security tools.
 7. Expose real-time and post-session classification through FastAPI.
 8. Store classifier runs and manual labels in PostgreSQL.
