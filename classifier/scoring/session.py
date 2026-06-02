@@ -1,25 +1,15 @@
 from __future__ import annotations
 
-from collections import defaultdict
 from typing import Literal
 
 from pydantic import BaseModel, Field
 
 from classifier.features.session import SessionFeatures
-from classifier.rules.engine import RuleEvaluation, RuleMatch
+from classifier.rules.engine import ACTOR_LABELS, ActorLabel, RuleEvaluation, RuleMatch
 
 
 RiskLevel = Literal["none", "low", "medium", "high", "critical"]
 CLASSIFIER_VERSION = "1.0.0"
-ACTOR_LABELS = (
-    "automated_scanner",
-    "brute_force_bot",
-    "commodity_bot",
-    "script_kiddie",
-    "skilled_human_operator",
-)
-
-
 class EvidenceItem(BaseModel):
     """One normalized evidence sentence with its source rule."""
 
@@ -45,7 +35,7 @@ class ClassificationSummary(BaseModel):
 
     classifier_version: str
     rules_version: str
-    actor_label: str | None
+    actor_label: ActorLabel | None
     actor_votes: dict[str, int]
     confidence: float = Field(ge=0, le=1)
     risk_score: int = Field(ge=0, le=100)
@@ -116,8 +106,8 @@ def _combined_risk_score(matches: list[RuleMatch]) -> int:
     return round(sum(weighted_scores) / total_confidence)
 
 
-def _actor_vote(matches: list[RuleMatch]) -> tuple[str, float]:
-    votes: dict[str, float] = defaultdict(float)
+def _actor_vote(matches: list[RuleMatch]) -> tuple[ActorLabel, float]:
+    votes = {actor_label: 0.0 for actor_label in ACTOR_LABELS}
     for match in matches:
         votes[match.actor_label] += match.confidence
 
