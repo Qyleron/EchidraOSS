@@ -1,0 +1,54 @@
+rules:
+  - id: automated_discovery_burst
+    name: Automated discovery burst
+    actor_label: automated_scanner
+    confidence: 0.72
+    risk_score: 35
+    evidence:
+      - High command rate with repeated discovery commands.
+      - No clean exit command was observed.
+    conditions:
+      - field: commands_per_minute
+        operator: gte
+        value: 20
+      - field: discovery_command_count
+        operator: gte
+        value: 3
+      - field: exit_command_present
+        operator: equals
+        value: false
+
+  - id: sensitive_file_probe
+    name: Sensitive file probe
+    actor_label: commodity_bot
+    confidence: 0.78
+    risk_score: 55
+    evidence:
+      - Session attempted to read sensitive-looking fake files.
+      - Decoy file exposure gives persona-specific context.
+    conditions:
+      - field: sensitive_file_read_count
+        operator: gte
+        value: 1
+      - field: decoy_files_surfaced_count
+        operator: gte
+        value: 1
+
+  - id: interactive_low_and_slow
+    name: Interactive low and slow shell use
+    actor_label: skilled_human_operator
+    confidence: 0.64
+    risk_score: 45
+    evidence:
+      - Commands arrived at a slower interactive cadence.
+      - Session used multiple unique commands.
+    conditions:
+      - field: average_inter_command_interval_seconds
+        operator: gte
+        value: 2
+      - field: unique_command_count
+        operator: gte
+        value: 3
+      - field: command_count
+        operator: gte
+        value: 4
