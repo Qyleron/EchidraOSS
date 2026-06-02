@@ -122,7 +122,7 @@ def _actor_vote(matches: list[RuleMatch]) -> tuple[ActorLabel, float]:
 def _actor_vote_tally(matches: list[RuleMatch]) -> dict[str, int]:
     votes = {actor_label: 0 for actor_label in ACTOR_LABELS}
     for match in matches:
-        votes[match.actor_label] = votes.get(match.actor_label, 0) + 1
+        votes[match.actor_label] += 1
     return votes
 
 
