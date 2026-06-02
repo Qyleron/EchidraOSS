@@ -32,13 +32,14 @@ Echidra currently includes:
 - Per-session command history and state
 - Append-only JSONL logging for completed attacker sessions
 - Path normalization for Linux-like file access
+- Editable YAML classification rules with deterministic matching
 - Timeout, disconnect, and graceful shutdown behavior
 - Unit, integration, stability, and basic concurrency tests
 
 Next major upgrade:
 
-- Expand feature extraction as new protocol collectors arrive
-- Behavioral Classifier for bot-versus-human and intent analysis
+- Expand feature extraction and rules as new protocol collectors arrive
+- Behavioral Classifier scoring for bot-versus-human and intent analysis
 - Safeguard Advisor recommendations for external security tools
 
 ---
@@ -86,6 +87,7 @@ raw honeypot events
 - Safe command simulation without executing real shell commands
 - Session-specific state for each connected visitor
 - Structured session logs with IDs, timing, end reasons, and command history
+- YAML rule loading and matching over extracted session features
 - Basic support for concurrent clients
 - Test coverage for core behavior and TCP interaction
 
@@ -93,6 +95,7 @@ raw honeypot events
 
 - SSH, Telnet, FTP, and HTTP honeypot services
 - FastAPI Behavioral Classifier service
+- Risk scoring, evidence aggregation, and MITRE mapping
 - PostgreSQL storage for sessions, classifier runs, and manual labels
 - Dashboard and reporting views
 - Local alerts through SMTP or webhooks
@@ -206,7 +209,7 @@ Those decisions belong to the planned intelligence layer.
 | Honeypot runtime | Python 3.11, `asyncio` |
 | Fake shell engine | Python |
 | Classifier API | FastAPI, planned |
-| Rule engine | YAML rules, planned |
+| Rule engine | YAML rules |
 | Schemas | Pydantic |
 | Storage | PostgreSQL + JSONB, planned |
 | Dashboard | HTML, CSS, JavaScript, D3.js, planned |
@@ -290,7 +293,7 @@ Commands are parsed and answered by the interaction engine. Files are fake entri
 1. Add persistent structured session logging. **Implemented**
 2. Define the canonical session schema. **Implemented**
 3. Build feature extraction for timing, authentication, commands, protocols, files, and network events. **TCP shell foundation implemented**
-4. Implement editable YAML classification rules.
+4. Implement editable YAML classification rules. **Implemented**
 5. Add risk scoring, evidence generation, and MITRE mapping.
 6. Add Safeguard Advisor recommendations for external security tools.
 7. Expose real-time and post-session classification through FastAPI.
