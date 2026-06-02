@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from collections.abc import Iterable
-from typing import Any, Literal
+from typing import Any, Literal, get_args
 
 import yaml
 from pydantic import BaseModel, Field, root_validator, validator
@@ -10,13 +10,6 @@ from pydantic import BaseModel, Field, root_validator, validator
 from classifier.features.session import SessionFeatures
 
 
-ACTOR_LABELS = (
-    "automated_scanner",
-    "brute_force_bot",
-    "commodity_bot",
-    "script_kiddie",
-    "skilled_human_operator",
-)
 ActorLabel = Literal[
     "automated_scanner",
     "brute_force_bot",
@@ -24,6 +17,8 @@ ActorLabel = Literal[
     "script_kiddie",
     "skilled_human_operator",
 ]
+ACTOR_LABELS: tuple[str, ...] = tuple(get_args(ActorLabel))
+
 RuleOperator = Literal[
     "contains",
     "equals",
