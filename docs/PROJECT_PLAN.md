@@ -14,6 +14,7 @@ attacker connects
   -> features are extracted
   -> YAML rules are evaluated
   -> classifier summary is produced
+  -> existing JSONL logs can be batch-classified
   -> future API, database, alerts, and dashboard consume the summary
 ```
 
@@ -34,6 +35,7 @@ attacker connects
 - Compact feature summary inside classifier output
 - Post-session classifier pipeline from `SessionRecord` to summary
 - Raw dict and JSONL classification helpers for log/API ingestion
+- Batch JSONL classification helpers for existing session logs
 
 ## Where We Are
 
@@ -41,13 +43,14 @@ Echidra now has the core post-session classifier path in place. A completed
 session can be validated, converted into features, matched against the default
 YAML rules, and summarized into an explainable classifier result.
 
-The project is ready for the API/storage layer because classifier output is now
-structured enough for external consumers.
+Existing JSONL session logs can also be classified in batches. The project is
+ready for the API/storage layer because classifier output is now structured
+enough for external consumers.
 
 ## Next Work
 
 1. Add a FastAPI classifier endpoint for post-session classification.
-2. Add a batch JSONL classification command or helper for existing session logs.
+2. Add a CLI command for batch classification of session logs.
 3. Store classifier runs and manual labels in PostgreSQL.
 4. Add more feature extraction as new protocols arrive.
 5. Expand YAML rules for SSH, Telnet, FTP, and HTTP collectors.
@@ -68,6 +71,14 @@ The classifier summary includes:
 - Evidence
 - Matched rule IDs
 - Safeguard Advisor recommendations
+
+## Current Classification Entry Points
+
+- `classify_session` accepts a validated `SessionRecord`.
+- `classify_session_record` accepts a decoded session dictionary.
+- `classify_session_jsonl` accepts one JSONL log line.
+- `classify_session_jsonl_lines` accepts many JSONL lines.
+- `classify_session_jsonl_file` accepts a JSONL log path.
 
 ## Comment And Docstring Rule
 
