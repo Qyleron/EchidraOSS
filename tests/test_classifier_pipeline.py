@@ -7,6 +7,8 @@ from pydantic import ValidationError
 from classifier.pipeline import (
     classify_session,
     classify_session_jsonl,
+    classify_session_jsonl_file,
+    classify_session_jsonl_lines,
     classify_session_record,
 )
 from classifier.rules.engine import ClassificationRule, RuleSet
@@ -163,3 +165,51 @@ def test_classify_session_record_rejects_invalid_logs():
 
     with pytest.raises(ValidationError, match="command_count"):
         classify_session_record(record)
+
+
+def test_classify_session_jsonl_rejects_malformed_json():
+    """Malformed JSON input should raise JSONDecodeError without crashing."""
+    malformed_json = '{"session_id": "truncated-no-closing'
+
+    with pytest.raises(json.JSONDecodeError):
+        classify_session_jsonl(malformed_json)
+
+
+def test_classify_session_jsonl_lines_classifies_multiple_records():
+    first_record = make_record()
+    second_record = make_record()
+
+    summaries = classify_session_jsonl_lines([
+        json.dumps(first_record),
+        "",
+        json.dumps(second_record),
+    ])
+
+    assert [summary.feature_summary.command_count for summary in summaries] == [
+        4,
+        4,
+    ]
+    assert [summary.intent for summary in summaries] == [
+        "credential_theft",
+        "credential_theft",
+    ]
+
+
+def test_classify_session_jsonl_file_classifies_existing_logs(tmp_path):
+    log_path = tmp_path / "sessions.jsonl"
+    records = [
+        make_record(),
+        make_record(),
+    ]
+    log_path.write_text(
+        "\n".join(json.dumps(record) for record in records) + "\n",
+        encoding="utf-8",
+    )
+
+    summaries = classify_session_jsonl_file(log_path)
+
+    assert len(summaries) == 2
+    assert [summary.rules_version for summary in summaries] == [
+        "1.0.0",
+        "1.0.0",
+    ]

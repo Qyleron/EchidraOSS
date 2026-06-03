@@ -35,6 +35,7 @@ Echidra currently includes:
 - Editable YAML classification rules with deterministic matching
 - Post-session classifier pipeline from session record to summary
 - Raw session dict and JSONL classification helpers for ingestion
+- Batch JSONL classification helpers for existing session logs
 - Risk scoring, evidence aggregation, and MITRE tag mapping for matched rules
 - Behavior stage and intent mapping for classifier summaries
 - Evidence-backed Safeguard Advisor recommendations for external security tools
@@ -95,6 +96,7 @@ raw honeypot events
 - YAML rule loading and matching over extracted session features
 - Post-session classification pipeline using the default YAML ruleset
 - Decoded session-record and JSONL-line helpers for future API/log ingestion
+- Batch JSONL log classification helpers for offline analysis
 - Aggregated classifier summaries with risk levels, evidence, MITRE tags,
   behavior stages, intents, feature summaries, and Safeguard Advisor
   recommendations
@@ -217,7 +219,8 @@ SIEM/SOAR platforms, firewalls, WAFs, IAM systems, and ticketing systems.
 The `classifier.pipeline.classify_session` helper runs the full post-session
 path from a validated session record through feature extraction, rule
 evaluation, and scoring. `classify_session_record` and `classify_session_jsonl`
-validate raw ingestion input before running that same path.
+validate raw ingestion input before running that same path. Batch helpers can
+classify many JSONL lines or a whole session log file.
 
 See [docs/PROJECT_PLAN.md](docs/PROJECT_PLAN.md) for the current build plan,
 status, next steps, and simplest end-to-end flow.
