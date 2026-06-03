@@ -33,6 +33,8 @@ Echidra currently includes:
 - Append-only JSONL logging for completed attacker sessions
 - Path normalization for Linux-like file access
 - Editable YAML classification rules with deterministic matching
+- Post-session classifier pipeline from session record to summary
+- Raw session dict and JSONL classification helpers for ingestion
 - Risk scoring, evidence aggregation, and MITRE tag mapping for matched rules
 - Behavior stage and intent mapping for classifier summaries
 - Evidence-backed Safeguard Advisor recommendations for external security tools
@@ -74,6 +76,7 @@ raw honeypot events
   -> risk scoring
   -> evidence generation
   -> advisory safeguard recommendations
+  -> post-session classification summary
   -> API response and database storage
 ```
 
@@ -90,6 +93,8 @@ raw honeypot events
 - Session-specific state for each connected visitor
 - Structured session logs with IDs, timing, end reasons, and command history
 - YAML rule loading and matching over extracted session features
+- Post-session classification pipeline using the default YAML ruleset
+- Decoded session-record and JSONL-line helpers for future API/log ingestion
 - Aggregated classifier summaries with risk levels, evidence, MITRE tags,
   behavior stages, intents, feature summaries, and Safeguard Advisor
   recommendations
@@ -209,6 +214,13 @@ persona context from these features. The scoring summary includes a compact
 feature summary for API and storage consumers. It also emits advisory,
 evidence-backed Safeguard Advisor recommendations for external tools such as
 SIEM/SOAR platforms, firewalls, WAFs, IAM systems, and ticketing systems.
+The `classifier.pipeline.classify_session` helper runs the full post-session
+path from a validated session record through feature extraction, rule
+evaluation, and scoring. `classify_session_record` and `classify_session_jsonl`
+validate raw ingestion input before running that same path.
+
+See [docs/PROJECT_PLAN.md](docs/PROJECT_PLAN.md) for the current build plan,
+status, next steps, and simplest end-to-end flow.
 
 ---
 
