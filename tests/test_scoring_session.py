@@ -40,6 +40,7 @@ def test_empty_rule_evaluation_returns_no_risk_summary():
     assert summary.behavior_stage == "none"
     assert summary.intent == "unknown"
     assert summary.safeguard_recommendations == []
+    assert summary.feature_summary is None
     assert summary.classifier_version == "1.0.0"
     assert summary.rules_version == "unversioned"
     assert summary.persona_context.persona_id is None
@@ -106,6 +107,17 @@ def test_summary_aggregates_risk_evidence_and_mitre_tags():
     assert summary.persona_context.decoy_files_surfaced == [
         "/var/www/html/wp-config.php",
     ]
+    assert summary.feature_summary is not None
+    assert summary.feature_summary.session_id == str(features.session_id)
+    assert summary.feature_summary.protocol == "tcp_shell"
+    assert summary.feature_summary.duration_seconds == 10.0
+    assert summary.feature_summary.command_count == 4
+    assert summary.feature_summary.commands_per_minute == 24.0
+    assert summary.feature_summary.discovery_command_count == 3
+    assert summary.feature_summary.file_read_count == 1
+    assert summary.feature_summary.sensitive_file_read_count == 1
+    assert summary.feature_summary.decoy_files_surfaced_count == 1
+    assert summary.feature_summary.exit_command_present is False
     assert summary.mitre_tags == ["T1087", "T1082", "T1005", "T1552.001"]
     assert [item.text for item in summary.evidence] == [
         "High command rate.",
@@ -219,6 +231,33 @@ def test_summary_recommends_decoy_review_for_collection_with_decoys():
     assert summary.safeguard_recommendations[0].supporting_evidence == [
         "/var/www/html/wp-config.php",
     ]
+
+
+def test_empty_rule_evaluation_includes_feature_summary_when_available():
+    features = make_features(
+        command_count=2,
+        commands_per_minute=12.0,
+        discovery_command_count=1,
+        file_read_count=0,
+        sensitive_file_read_count=0,
+        decoy_files_surfaced=[],
+        decoy_files_surfaced_count=0,
+        exit_command_present=True,
+    )
+
+    summary = summarize_rule_evaluation(
+        RuleEvaluation(matched_rules=[]),
+        features,
+    )
+
+    assert summary.feature_summary is not None
+    assert summary.feature_summary.session_id == str(features.session_id)
+    assert summary.feature_summary.command_count == 2
+    assert summary.feature_summary.discovery_command_count == 1
+    assert summary.feature_summary.file_read_count == 0
+    assert summary.feature_summary.sensitive_file_read_count == 0
+    assert summary.feature_summary.decoy_files_surfaced_count == 0
+    assert summary.feature_summary.exit_command_present is True
 
 
 def _risk_level_for_score(score):

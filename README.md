@@ -91,7 +91,8 @@ raw honeypot events
 - Structured session logs with IDs, timing, end reasons, and command history
 - YAML rule loading and matching over extracted session features
 - Aggregated classifier summaries with risk levels, evidence, MITRE tags,
-  behavior stages, intents, and Safeguard Advisor recommendations
+  behavior stages, intents, feature summaries, and Safeguard Advisor
+  recommendations
 - Basic support for concurrent clients
 - Test coverage for core behavior and TCP interaction
 
@@ -204,7 +205,8 @@ validated TCP shell session into measurements for later rules and scoring:
 
 Rule evaluation and scoring assign initial actor labels, risk levels, evidence,
 MITRE tags, actor vote tallies, behavior stage, intent, version metadata, and
-persona context from these features. The scoring summary also emits advisory,
+persona context from these features. The scoring summary includes a compact
+feature summary for API and storage consumers. It also emits advisory,
 evidence-backed Safeguard Advisor recommendations for external tools such as
 SIEM/SOAR platforms, firewalls, WAFs, IAM systems, and ticketing systems.
 
