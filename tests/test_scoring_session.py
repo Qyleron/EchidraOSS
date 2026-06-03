@@ -37,6 +37,9 @@ def test_empty_rule_evaluation_returns_no_risk_summary():
     assert summary.confidence == 0.0
     assert summary.risk_score == 0
     assert summary.risk_level == "none"
+    assert summary.behavior_stage == "none"
+    assert summary.intent == "unknown"
+    assert summary.safeguard_recommendations == []
     assert summary.classifier_version == "1.0.0"
     assert summary.rules_version == "unversioned"
     assert summary.persona_context.persona_id is None
@@ -86,6 +89,19 @@ def test_summary_aggregates_risk_evidence_and_mitre_tags():
     assert summary.confidence == 0.39
     assert summary.risk_score == 45
     assert summary.risk_level == "medium"
+    assert summary.behavior_stage == "credential_access"
+    assert summary.intent == "credential_theft"
+    assert [
+        recommendation.action
+        for recommendation in summary.safeguard_recommendations
+    ] == [
+        "rotate_exposed_credentials",
+    ]
+    assert summary.safeguard_recommendations[0].priority == "high"
+    assert (
+        summary.safeguard_recommendations[0].tool_category
+        == "IAM or secrets manager"
+    )
     assert summary.persona_context.persona_id == "ubuntu_web_server"
     assert summary.persona_context.decoy_files_surfaced == [
         "/var/www/html/wp-config.php",
@@ -108,6 +124,101 @@ def test_risk_level_thresholds_are_stable():
     assert _risk_level_for_score(40) == "medium"
     assert _risk_level_for_score(65) == "high"
     assert _risk_level_for_score(85) == "critical"
+
+
+def test_summary_maps_discovery_behavior_stage_and_intent():
+    evaluation = RuleEvaluation(matched_rules=[
+        make_match(
+            "automated_discovery_burst",
+            "automated_scanner",
+            0.72,
+            35,
+            mitre_tags=["T1087", "T1082"],
+        ),
+    ])
+
+    summary = summarize_rule_evaluation(evaluation)
+
+    assert summary.behavior_stage == "discovery"
+    assert summary.intent == "reconnaissance"
+
+
+def test_summary_maps_interactive_execution_stage_and_intent():
+    evaluation = RuleEvaluation(matched_rules=[
+        make_match(
+            "interactive_low_and_slow",
+            "skilled_human_operator",
+            0.64,
+            45,
+            mitre_tags=["T1059"],
+        ),
+    ])
+
+    summary = summarize_rule_evaluation(evaluation)
+
+    assert summary.behavior_stage == "execution"
+    assert summary.intent == "interactive_operation"
+    assert [
+        recommendation.action
+        for recommendation in summary.safeguard_recommendations
+    ] == [
+        "preserve_session_transcript",
+    ]
+
+
+def test_summary_recommends_escalation_for_high_risk_activity():
+    evaluation = RuleEvaluation(matched_rules=[
+        make_match(
+            "high_risk_collection",
+            "skilled_human_operator",
+            0.91,
+            88,
+            mitre_tags=["T1005"],
+            evidence=["Bulk sensitive data access."],
+        ),
+    ])
+
+    summary = summarize_rule_evaluation(evaluation)
+
+    assert [
+        recommendation.action
+        for recommendation in summary.safeguard_recommendations
+    ] == [
+        "escalate_incident_review",
+    ]
+    assert summary.safeguard_recommendations[0].priority == "critical"
+    assert summary.safeguard_recommendations[0].supporting_evidence == [
+        "Bulk sensitive data access.",
+    ]
+
+
+def test_summary_recommends_decoy_review_for_collection_with_decoys():
+    evaluation = RuleEvaluation(matched_rules=[
+        make_match(
+            "sensitive_file_probe",
+            "commodity_bot",
+            0.78,
+            55,
+            mitre_tags=["T1005"],
+            evidence=["Sensitive file read."],
+        ),
+    ])
+    features = make_features(
+        decoy_files_surfaced=["/var/www/html/wp-config.php"],
+        decoy_files_surfaced_count=1,
+    )
+
+    summary = summarize_rule_evaluation(evaluation, features)
+
+    assert [
+        recommendation.action
+        for recommendation in summary.safeguard_recommendations
+    ] == [
+        "review_decoy_exposure",
+    ]
+    assert summary.safeguard_recommendations[0].supporting_evidence == [
+        "/var/www/html/wp-config.php",
+    ]
 
 
 def _risk_level_for_score(score):

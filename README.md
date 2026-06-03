@@ -34,14 +34,14 @@ Echidra currently includes:
 - Path normalization for Linux-like file access
 - Editable YAML classification rules with deterministic matching
 - Risk scoring, evidence aggregation, and MITRE tag mapping for matched rules
+- Behavior stage and intent mapping for classifier summaries
+- Evidence-backed Safeguard Advisor recommendations for external security tools
 - Timeout, disconnect, and graceful shutdown behavior
 - Unit, integration, stability, and basic concurrency tests
 
 Next major upgrade:
 
 - Expand feature extraction and rules as new protocol collectors arrive
-- Behavior stage and intent mapping for classifier summaries
-- Safeguard Advisor recommendations for external security tools
 
 ---
 
@@ -73,6 +73,7 @@ raw honeypot events
   -> MITRE mapping
   -> risk scoring
   -> evidence generation
+  -> advisory safeguard recommendations
   -> API response and database storage
 ```
 
@@ -89,7 +90,8 @@ raw honeypot events
 - Session-specific state for each connected visitor
 - Structured session logs with IDs, timing, end reasons, and command history
 - YAML rule loading and matching over extracted session features
-- Aggregated classifier summaries with risk levels, evidence, and MITRE tags
+- Aggregated classifier summaries with risk levels, evidence, MITRE tags,
+  behavior stages, intents, and Safeguard Advisor recommendations
 - Basic support for concurrent clients
 - Test coverage for core behavior and TCP interaction
 
@@ -97,11 +99,9 @@ raw honeypot events
 
 - SSH, Telnet, FTP, and HTTP honeypot services
 - FastAPI Behavioral Classifier service
-- Behavior-stage and intent mapping
 - PostgreSQL storage for sessions, classifier runs, and manual labels
 - Dashboard and reporting views
 - Local alerts through SMTP or webhooks
-- Evidence-backed Safeguard Advisor recommendations for external security tools
 - Docker/systemd deployment support
 
 ---
@@ -203,9 +203,10 @@ validated TCP shell session into measurements for later rules and scoring:
 - Exit-command presence and normalized command names
 
 Rule evaluation and scoring assign initial actor labels, risk levels, evidence,
-MITRE tags, actor vote tallies, version metadata, and persona context from
-these features. Behavior-stage and recommendation decisions belong to the
-planned intelligence layer.
+MITRE tags, actor vote tallies, behavior stage, intent, version metadata, and
+persona context from these features. The scoring summary also emits advisory,
+evidence-backed Safeguard Advisor recommendations for external tools such as
+SIEM/SOAR platforms, firewalls, WAFs, IAM systems, and ticketing systems.
 
 ---
 
