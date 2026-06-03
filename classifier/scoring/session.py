@@ -54,6 +54,24 @@ class PersonaContext(BaseModel):
         extra = "forbid"
 
 
+class FeatureSummary(BaseModel):
+    """Compact feature snapshot included in classifier outputs."""
+
+    session_id: str
+    protocol: str
+    duration_seconds: float = Field(ge=0)
+    command_count: int = Field(ge=0)
+    commands_per_minute: float = Field(ge=0)
+    discovery_command_count: int = Field(ge=0)
+    file_read_count: int = Field(ge=0)
+    sensitive_file_read_count: int = Field(ge=0)
+    decoy_files_surfaced_count: int = Field(ge=0)
+    exit_command_present: bool
+
+    class Config:
+        extra = "forbid"
+
+
 class SafeguardRecommendation(BaseModel):
     """Advisory control recommendation for external security tools."""
 
@@ -80,6 +98,7 @@ class ClassificationSummary(BaseModel):
     behavior_stage: BehaviorStage
     intent: Intent
     persona_context: PersonaContext
+    feature_summary: FeatureSummary | None
     safeguard_recommendations: list[SafeguardRecommendation]
     mitre_tags: list[str]
     evidence: list[EvidenceItem]
@@ -106,6 +125,7 @@ def summarize_rule_evaluation(
             behavior_stage="none",
             intent="unknown",
             persona_context=_persona_context(features),
+            feature_summary=_feature_summary(features),
             safeguard_recommendations=[],
             mitre_tags=[],
             evidence=[],
@@ -142,6 +162,7 @@ def summarize_rule_evaluation(
         behavior_stage=behavior_stage,
         intent=intent,
         persona_context=persona_context,
+        feature_summary=_feature_summary(features),
         safeguard_recommendations=_safeguard_recommendations(
             risk_level=risk_level,
             behavior_stage=behavior_stage,
@@ -194,6 +215,24 @@ def _persona_context(features: SessionFeatures | None) -> PersonaContext:
     return PersonaContext(
         persona_id=features.persona_id,
         decoy_files_surfaced=list(features.decoy_files_surfaced),
+    )
+
+
+def _feature_summary(features: SessionFeatures | None) -> FeatureSummary | None:
+    if features is None:
+        return None
+
+    return FeatureSummary(
+        session_id=str(features.session_id),
+        protocol=features.protocol,
+        duration_seconds=features.duration_seconds,
+        command_count=features.command_count,
+        commands_per_minute=features.commands_per_minute,
+        discovery_command_count=features.discovery_command_count,
+        file_read_count=features.file_read_count,
+        sensitive_file_read_count=features.sensitive_file_read_count,
+        decoy_files_surfaced_count=features.decoy_files_surfaced_count,
+        exit_command_present=features.exit_command_present,
     )
 
 
