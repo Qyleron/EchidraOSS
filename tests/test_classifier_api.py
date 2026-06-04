@@ -2,6 +2,7 @@ import importlib
 import pytest
 from fastapi import HTTPException
 from fastapi.routing import APIRoute
+from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 from classifier.api import app
@@ -27,34 +28,41 @@ def test_health_endpoint_reports_ok():
 
 
 def test_classify_session_route_uses_classifier_summary_contract():
-    route = route_for("/classify/session", "POST")
+    client = TestClient(app)
+    response = client.post("/classify/session", json=make_record())
 
-    assert route.response_model is ClassificationSummary
+    assert response.status_code == 200
+    ClassificationSummary.parse_obj(response.json())
 
 
 def test_classify_session_endpoint_returns_classifier_summary():
-    route = route_for("/classify/session", "POST")
-    session = SessionRecord.parse_obj(make_record())
+    client = TestClient(app)
+    payload = make_record()
 
-    summary = route.endpoint(session)
+    response = client.post("/classify/session", json=payload)
+    body = response.json()
 
-    assert summary.classifier_version == "1.0.0"
-    assert summary.rules_version == "1.0.0"
-    assert summary.actor_label == "commodity_bot"
-    assert summary.risk_level == "medium"
-    assert summary.intent == "credential_theft"
-    assert summary.matched_rule_ids == [
+    assert response.status_code == 200
+    assert body["classifier_version"] == "1.0.0"
+    assert body["rules_version"] == "1.0.0"
+    assert body["actor_label"] == "commodity_bot"
+    assert body["risk_level"] == "medium"
+    assert body["intent"] == "credential_theft"
+    assert body["matched_rule_ids"] == [
         "sensitive_file_probe",
         "interactive_low_and_slow",
     ]
-    assert summary.feature_summary.command_count == 4
+    assert body["feature_summary"]["command_count"] == 4
 
 
 def test_classify_session_endpoint_rejects_invalid_session_record():
+    client = TestClient(app)
     record = make_record(command_count=99)
 
-    with pytest.raises(ValidationError, match="command_count must match commands"):
-        SessionRecord.parse_obj(record)
+    response = client.post("/classify/session", json=record)
+
+    assert response.status_code == 422
+    assert "command_count must match commands" in response.text
 
 
 def test_classify_session_endpoint_maps_classify_session_value_error_to_http_exception(monkeypatch):
