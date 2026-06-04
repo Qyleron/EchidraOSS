@@ -15,6 +15,7 @@ attacker connects
   -> YAML rules are evaluated
   -> classifier summary is produced
   -> existing JSONL logs can be batch-classified
+  -> CLI can emit classifier summaries to stdout or a JSONL report file
   -> future API, database, alerts, and dashboard consume the summary
 ```
 
@@ -23,7 +24,8 @@ attacker connects
 - Fake Linux TCP shell with safe command simulation
 - Persona-based fake users, hostnames, files, processes, and ports
 - Per-session command history and lifecycle state
-- Append-only JSONL logging for completed sessions
+- Append-only JSONL logging for completed sessions, with each record written as
+  one serialized line
 - Canonical Pydantic session schema
 - Session feature extraction for timing, command rate, discovery, file reads,
   sensitive file reads, decoys, exits, and command names
@@ -36,6 +38,8 @@ attacker connects
 - Post-session classifier pipeline from `SessionRecord` to summary
 - Raw dict and JSONL classification helpers for log/API ingestion
 - Batch JSONL classification helpers for existing session logs
+- CLI command for batch classification of session logs to stdout or a file
+- CLI errors identify malformed JSONL input by line number
 
 ## Where We Are
 
@@ -43,20 +47,19 @@ Echidra now has the core post-session classifier path in place. A completed
 session can be validated, converted into features, matched against the default
 YAML rules, and summarized into an explainable classifier result.
 
-Existing JSONL session logs can also be classified in batches. The project is
-ready for the API/storage layer because classifier output is now structured
-enough for external consumers.
+Existing JSONL session logs can also be classified in batches through code or
+the CLI. The project is ready for the API/storage layer because classifier
+output is now structured enough for external consumers.
 
 ## Next Work
 
 1. Add a FastAPI classifier endpoint for post-session classification.
-2. Add a CLI command for batch classification of session logs.
-3. Store classifier runs and manual labels in PostgreSQL.
-4. Add more feature extraction as new protocols arrive.
-5. Expand YAML rules for SSH, Telnet, FTP, and HTTP collectors.
-6. Add local alert delivery through SMTP or webhooks.
-7. Build dashboard/reporting views.
-8. Collect labeled sessions for evaluation and tuning.
+2. Store classifier runs and manual labels in PostgreSQL.
+3. Add more feature extraction as new protocols arrive.
+4. Expand YAML rules for SSH, Telnet, FTP, and HTTP collectors.
+5. Add local alert delivery through SMTP or webhooks.
+6. Build dashboard/reporting views.
+7. Collect labeled sessions for evaluation and tuning.
 
 ## Current Classifier Output
 
@@ -79,6 +82,8 @@ The classifier summary includes:
 - `classify_session_jsonl` accepts one JSONL log line.
 - `classify_session_jsonl_lines` accepts many JSONL lines.
 - `classify_session_jsonl_file` accepts a JSONL log path.
+- `python -m classifier.cli classify-jsonl <path>` prints JSONL summaries.
+- `python -m classifier.cli classify-jsonl <path> --output <path>` writes them.
 
 ## Comment And Docstring Rule
 
