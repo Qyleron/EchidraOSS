@@ -22,9 +22,12 @@ def route_for(path, method):
 
 
 def test_health_endpoint_reports_ok():
-    route = route_for("/health", "GET")
+    client = TestClient(app)
 
-    assert route.endpoint() == {"status": "ok"}
+    response = client.get("/health")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
 
 
 def test_classify_session_route_uses_classifier_summary_contract():
