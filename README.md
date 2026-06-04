@@ -38,6 +38,7 @@ Echidra currently includes:
 - Raw session dict and JSONL classification helpers for ingestion
 - Batch JSONL classification helpers for existing session logs
 - CLI command for batch JSONL session classification
+- FastAPI post-session classifier endpoint
 - Risk scoring, evidence aggregation, and MITRE tag mapping for matched rules
 - Behavior stage and intent mapping for classifier summaries
 - Evidence-backed Safeguard Advisor recommendations for external security tools
@@ -46,7 +47,7 @@ Echidra currently includes:
 
 Next major upgrade:
 
-- Expand feature extraction and rules as new protocol collectors arrive
+- Store classifier runs and manual labels in PostgreSQL
 
 ---
 
@@ -80,7 +81,8 @@ raw honeypot events
   -> evidence generation
   -> advisory safeguard recommendations
   -> post-session classification summary
-  -> API response and database storage
+  -> API response
+  -> database storage
 ```
 
 ---
@@ -100,6 +102,7 @@ raw honeypot events
 - Decoded session-record and JSONL-line helpers for future API/log ingestion
 - Batch JSONL log classification helpers for offline analysis
 - CLI support for printing classifier summaries from JSONL logs
+- FastAPI endpoint for post-session classification
 - Aggregated classifier summaries with risk levels, evidence, MITRE tags,
   behavior stages, intents, feature summaries, and Safeguard Advisor
   recommendations
@@ -109,7 +112,6 @@ raw honeypot events
 ### Planned
 
 - SSH, Telnet, FTP, and HTTP honeypot services
-- FastAPI Behavioral Classifier service
 - PostgreSQL storage for sessions, classifier runs, and manual labels
 - Dashboard and reporting views
 - Local alerts through SMTP or webhooks
@@ -239,6 +241,19 @@ python -m classifier.cli classify-jsonl logs/sessions.jsonl --output reports/cla
 If a historical log contains malformed JSONL, the CLI reports the bad line
 number and exits without a traceback.
 
+The post-session API exposes the same classifier contract over HTTP:
+
+```bash
+uvicorn classifier.api:app --reload
+```
+
+```text
+POST /classify/session
+```
+
+The request body is the canonical completed session record, and the response is
+the classifier summary used by CLI and storage consumers.
+
 See [docs/PROJECT_PLAN.md](docs/PROJECT_PLAN.md) for the current build plan,
 status, next steps, and simplest end-to-end flow.
 
@@ -250,7 +265,7 @@ status, next steps, and simplest end-to-end flow.
 |---|---|
 | Honeypot runtime | Python 3.11, `asyncio` |
 | Fake shell engine | Python |
-| Classifier API | FastAPI, planned |
+| Classifier API | FastAPI |
 | Rule engine | YAML rules |
 | Schemas | Pydantic |
 | Storage | PostgreSQL + JSONB, planned |
@@ -338,7 +353,7 @@ Commands are parsed and answered by the interaction engine. Files are fake entri
 4. Implement editable YAML classification rules. **Implemented**
 5. Add risk scoring, evidence generation, and MITRE mapping. **Implemented**
 6. Add Safeguard Advisor recommendations for external security tools.
-7. Expose real-time and post-session classification through FastAPI.
+7. Expose real-time and post-session classification through FastAPI. **Post-session API implemented**
 8. Store classifier runs and manual labels in PostgreSQL.
 9. Collect and label real sessions for evaluation.
 10. Build dashboard/reporting views.
