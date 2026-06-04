@@ -1,4 +1,6 @@
+import importlib
 import pytest
+from fastapi import HTTPException
 from fastapi.routing import APIRoute
 from pydantic import ValidationError
 
@@ -6,6 +8,8 @@ from classifier.api import app
 from classifier.schemas.session import SessionRecord
 from classifier.scoring.session import ClassificationSummary
 from tests.test_classifier_pipeline import make_record
+
+app_module = importlib.import_module("classifier.api.app")
 
 
 def route_for(path, method):
@@ -51,3 +55,19 @@ def test_classify_session_endpoint_rejects_invalid_session_record():
 
     with pytest.raises(ValidationError, match="command_count must match commands"):
         SessionRecord.parse_obj(record)
+
+
+def test_classify_session_endpoint_maps_classify_session_value_error_to_http_exception(monkeypatch):
+    route = route_for("/classify/session", "POST")
+    session = SessionRecord.parse_obj(make_record())
+
+    def failing_classify_session(_session):
+        raise ValueError("unsupported feature evaluation")
+
+    monkeypatch.setattr(app_module, "classify_session", failing_classify_session)
+
+    with pytest.raises(HTTPException) as exc_info:
+        route.endpoint(session)
+
+    assert exc_info.value.status_code == 400
+    assert exc_info.value.detail == "unsupported feature evaluation"
