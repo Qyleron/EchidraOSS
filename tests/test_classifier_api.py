@@ -2,7 +2,7 @@ import importlib
 import pytest
 from fastapi import HTTPException
 from fastapi.routing import APIRoute
-from fastapi.testclient import TestClient
+from httpx import ASGITransport, AsyncClient
 from pydantic import ValidationError
 
 from classifier.api import app
@@ -21,29 +21,30 @@ def route_for(path, method):
     raise AssertionError(f"route not found: {method} {path}")
 
 
-def test_health_endpoint_reports_ok():
-    client = TestClient(app)
-
-    response = client.get("/health")
+@pytest.mark.asyncio
+async def test_health_endpoint_reports_ok():
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        response = await client.get("/health")
 
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
 
 
-def test_classify_session_route_uses_classifier_summary_contract():
-    client = TestClient(app)
-    response = client.post("/classify/session", json=make_record())
+@pytest.mark.asyncio
+async def test_classify_session_route_uses_classifier_summary_contract():
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        response = await client.post("/classify/session", json=make_record())
 
     assert response.status_code == 200
     ClassificationSummary.parse_obj(response.json())
 
 
-def test_classify_session_endpoint_returns_classifier_summary():
-    client = TestClient(app)
-    payload = make_record()
-
-    response = client.post("/classify/session", json=payload)
-    body = response.json()
+@pytest.mark.asyncio
+async def test_classify_session_endpoint_returns_classifier_summary():
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        payload = make_record()
+        response = await client.post("/classify/session", json=payload)
+        body = response.json()
 
     assert response.status_code == 200
     assert body["classifier_version"] == "1.0.0"
@@ -58,11 +59,11 @@ def test_classify_session_endpoint_returns_classifier_summary():
     assert body["feature_summary"]["command_count"] == 4
 
 
-def test_classify_session_endpoint_rejects_invalid_session_record():
-    client = TestClient(app)
-    record = make_record(command_count=99)
-
-    response = client.post("/classify/session", json=record)
+@pytest.mark.asyncio
+async def test_classify_session_endpoint_rejects_invalid_session_record():
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        record = make_record(command_count=99)
+        response = await client.post("/classify/session", json=record)
 
     assert response.status_code == 422
     assert "command_count must match commands" in response.text
