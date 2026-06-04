@@ -254,6 +254,53 @@ POST /classify/session
 The request body is the canonical completed session record, and the response is
 the classifier summary used by CLI and storage consumers.
 
+Example request:
+
+```json
+{
+  "schema_version": "1.0",
+  "session_id": "sess-20250604-0001",
+  "protocol": "ssh",
+  "peer_ip": "203.0.113.45",
+  "peer_port": 49215,
+  "persona_id": "debian-bullseye-1",
+  "started_at": "2025-11-12T14:23:05Z",
+  "ended_at": "2025-11-12T14:26:32Z",
+  "duration_seconds": 207,
+  "end_reason": "client_disconnect",
+  "command_count": 7,
+  "commands": [
+    { "ts": "2025-11-12T14:23:15Z", "cmd": "whoami", "exit_code": 0 },
+    { "ts": "2025-11-12T14:23:27Z", "cmd": "ls -la /tmp", "exit_code": 0 },
+    { "ts": "2025-11-12T14:24:02Z", "cmd": "cat secret.txt", "exit_code": 1 }
+  ],
+  "decoy_files_surfaced": ["/tmp/secret.txt", "/var/www/html/index.php"],
+  "session_metadata": {
+    "observed_user": "unknown",
+    "source": "honeypot-1"
+  }
+}
+```
+
+Example response:
+
+```json
+{
+  "actor_type": "unknown",
+  "confidence": 0.92,
+  "risk_level": "high",
+  "evidence": [
+    "accessed_decoy_file:/tmp/secret.txt",
+    "failed_read:secret.txt",
+    "rapid_command_sequence"
+  ],
+  "metadata": {
+    "model_version": "classifier-0.3.1",
+    "scored_at": "2025-11-12T14:27:00Z"
+  }
+}
+```
+
 See [docs/PROJECT_PLAN.md](docs/PROJECT_PLAN.md) for the current build plan,
 status, next steps, and simplest end-to-end flow.
 
