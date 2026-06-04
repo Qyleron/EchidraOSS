@@ -40,6 +40,7 @@ attacker connects
 - Batch JSONL classification helpers for existing session logs
 - CLI command for batch classification of session logs to stdout or a file
 - CLI errors identify malformed JSONL input by line number
+- FastAPI post-session classifier endpoint for validated session records
 
 ## Where We Are
 
@@ -48,18 +49,18 @@ session can be validated, converted into features, matched against the default
 YAML rules, and summarized into an explainable classifier result.
 
 Existing JSONL session logs can also be classified in batches through code or
-the CLI. The project is ready for the API/storage layer because classifier
-output is now structured enough for external consumers.
+the CLI, and external consumers can classify a completed session through the
+FastAPI service. The project is ready for the storage layer because classifier
+output is now structured enough for API and database consumers.
 
 ## Next Work
 
-1. Add a FastAPI classifier endpoint for post-session classification.
-2. Store classifier runs and manual labels in PostgreSQL.
-3. Add more feature extraction as new protocols arrive.
-4. Expand YAML rules for SSH, Telnet, FTP, and HTTP collectors.
-5. Add local alert delivery through SMTP or webhooks.
-6. Build dashboard/reporting views.
-7. Collect labeled sessions for evaluation and tuning.
+1. Store classifier runs and manual labels in PostgreSQL.
+2. Add more feature extraction as new protocols arrive.
+3. Expand YAML rules for SSH, Telnet, FTP, and HTTP collectors.
+4. Add local alert delivery through SMTP or webhooks.
+5. Build dashboard/reporting views.
+6. Collect labeled sessions for evaluation and tuning.
 
 ## Current Classifier Output
 
@@ -84,6 +85,8 @@ The classifier summary includes:
 - `classify_session_jsonl_file` accepts a JSONL log path.
 - `python -m classifier.cli classify-jsonl <path>` prints JSONL summaries.
 - `python -m classifier.cli classify-jsonl <path> --output <path>` writes them.
+- `POST /classify/session` accepts a completed session record and returns a
+  classifier summary.
 
 ## Comment And Docstring Rule
 
