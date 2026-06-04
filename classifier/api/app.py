@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 
 from classifier.pipeline import classify_session
 from classifier.schemas.session import SessionRecord
@@ -29,7 +29,18 @@ def create_app() -> FastAPI:
     )
     def classify_session_endpoint(session: SessionRecord) -> ClassificationSummary:
         """Classify one completed session record."""
-        return classify_session(session)
+        try:
+            return classify_session(session)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=400,
+                detail=str(exc) or "validation error",
+            )
+        except Exception:
+            raise HTTPException(
+                status_code=500,
+                detail="internal server error",
+            )
 
     return api
 
