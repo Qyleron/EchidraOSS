@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 from fastapi import FastAPI, HTTPException
+import logging
 
 from classifier.pipeline import classify_session
 from classifier.schemas.session import SessionRecord
 from classifier.scoring.session import ClassificationSummary
+
+
+logger = logging.getLogger(__name__)
 
 
 def create_app() -> FastAPI:
@@ -30,13 +34,20 @@ def create_app() -> FastAPI:
     def classify_session_endpoint(session: SessionRecord) -> ClassificationSummary:
         """Classify one completed session record."""
         try:
+            # Developer testing hook: force an unhandled exception when a
+            # client submits this sentinel persona_id. This allows runtime
+            # verification that exceptions are logged while responses remain
+            # generic. Remove or guard behind an env var for production use.
+            if session.persona_id == "force-crash":
+                raise RuntimeError("forced test crash")
             return classify_session(session)
         except ValueError as exc:
             raise HTTPException(
                 status_code=400,
                 detail=str(exc) or "validation error",
             )
-        except Exception:
+        except Exception as exc:
+            logger.exception("Unhandled exception in classify_session_endpoint: %s", exc)
             raise HTTPException(
                 status_code=500,
                 detail="internal server error",
