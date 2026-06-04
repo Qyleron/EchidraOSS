@@ -26,6 +26,7 @@ def test_logger_appends_completed_sessions_as_jsonl(tmp_path):
         for line in log_path.read_text(encoding="utf-8").splitlines()
     ]
 
+    assert len(records) == 2
     assert [record["end_reason"] for record in records] == [
         "logout",
         "disconnect",
@@ -39,4 +40,3 @@ def test_logger_rejects_active_sessions(tmp_path):
 
     with pytest.raises(ValueError, match="active session"):
         logger.log(SessionState(("127.0.0.1", 4444)))
-

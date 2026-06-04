@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 
 from classifier.schemas.session import SessionRecord
@@ -15,7 +16,11 @@ class SessionLogger:
         """Append one completed session record to the configured JSONL file."""
         self.path.parent.mkdir(parents=True, exist_ok=True)
         record = SessionRecord.parse_obj(session.to_record())
+        line = json.dumps(json.loads(record.json()), sort_keys=True) + "\n"
 
-        with self.path.open("a", encoding="utf-8") as log_file:
-            json.dump(json.loads(record.json()), log_file, sort_keys=True)
-            log_file.write("\n")
+        flags = os.O_APPEND | os.O_CREAT | os.O_WRONLY
+        descriptor = os.open(self.path, flags, 0o644)
+        try:
+            os.write(descriptor, line.encode("utf-8"))
+        finally:
+            os.close(descriptor)

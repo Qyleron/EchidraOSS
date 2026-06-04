@@ -31,11 +31,13 @@ Echidra currently includes:
 - Fake shell command handling
 - Per-session command history and state
 - Append-only JSONL logging for completed attacker sessions
+- Serialized single-line writes for session log records
 - Path normalization for Linux-like file access
 - Editable YAML classification rules with deterministic matching
 - Post-session classifier pipeline from session record to summary
 - Raw session dict and JSONL classification helpers for ingestion
 - Batch JSONL classification helpers for existing session logs
+- CLI command for batch JSONL session classification
 - Risk scoring, evidence aggregation, and MITRE tag mapping for matched rules
 - Behavior stage and intent mapping for classifier summaries
 - Evidence-backed Safeguard Advisor recommendations for external security tools
@@ -97,6 +99,7 @@ raw honeypot events
 - Post-session classification pipeline using the default YAML ruleset
 - Decoded session-record and JSONL-line helpers for future API/log ingestion
 - Batch JSONL log classification helpers for offline analysis
+- CLI support for printing classifier summaries from JSONL logs
 - Aggregated classifier summaries with risk levels, evidence, MITRE tags,
   behavior stages, intents, feature summaries, and Safeguard Advisor
   recommendations
@@ -220,7 +223,21 @@ The `classifier.pipeline.classify_session` helper runs the full post-session
 path from a validated session record through feature extraction, rule
 evaluation, and scoring. `classify_session_record` and `classify_session_jsonl`
 validate raw ingestion input before running that same path. Batch helpers can
-classify many JSONL lines or a whole session log file.
+classify many JSONL lines or a whole session log file. The same batch path is
+available from the command line:
+
+```bash
+python -m classifier.cli classify-jsonl logs/sessions.jsonl
+```
+
+Write summaries to a file:
+
+```bash
+python -m classifier.cli classify-jsonl logs/sessions.jsonl --output reports/classifier-runs.jsonl
+```
+
+If a historical log contains malformed JSONL, the CLI reports the bad line
+number and exits without a traceback.
 
 See [docs/PROJECT_PLAN.md](docs/PROJECT_PLAN.md) for the current build plan,
 status, next steps, and simplest end-to-end flow.
