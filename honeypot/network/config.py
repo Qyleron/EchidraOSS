@@ -26,17 +26,31 @@ def _int_from_env(name: str, default: int) -> int:
         raise ValueError(f"{name} must be an integer") from exc
 
 
+def _positive_int_from_env(name: str, default: int) -> int:
+    value = _int_from_env(name, default)
+    if value <= 0:
+        raise ValueError(f"{name} must be positive")
+    return value
+
+
+def _port_from_env(name: str, default: int) -> int:
+    value = _int_from_env(name, default)
+    if not 1 <= value <= 65535:
+        raise ValueError(f"{name} must be between 1 and 65535")
+    return value
+
+
 # Bind to all interfaces by default so the honeypot can accept remote traffic
 HOST = os.getenv("ECHIDRA_HOST", "0.0.0.0")
 
 # Non-privileged SSH-like test port
-PORT = _int_from_env("ECHIDRA_PORT", 2222)
+PORT = _port_from_env("ECHIDRA_PORT", 2222)
 
 # Maximum number of active client sessions
-MAX_CONNECTIONS = _int_from_env("ECHIDRA_MAX_CONNECTIONS", 100)
+MAX_CONNECTIONS = _positive_int_from_env("ECHIDRA_MAX_CONNECTIONS", 100)
 
 # Seconds to wait for a client command before closing the session
-READ_TIMEOUT = _int_from_env("ECHIDRA_READ_TIMEOUT", 60)
+READ_TIMEOUT = _positive_int_from_env("ECHIDRA_READ_TIMEOUT", 60)
 
 # Append-only structured records consumed by the future classifier
 SESSION_LOG_PATH = os.getenv("ECHIDRA_SESSION_LOG", "logs/sessions.jsonl")

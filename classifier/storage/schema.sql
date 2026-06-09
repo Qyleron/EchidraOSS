@@ -81,7 +81,9 @@ CREATE TABLE manual_labels (
     risk_level TEXT,
     behavior_stage TEXT,
     intent TEXT,
-    notes TEXT
+    notes TEXT,
+    labeled_by TEXT,
+    created_at TIMESTAMPTZ NOT NULL
 );
 
 CREATE INDEX manual_labels_session_id_idx
