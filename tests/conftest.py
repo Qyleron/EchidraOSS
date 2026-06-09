@@ -1,6 +1,18 @@
 import uuid
 
+import pytest
+
 from classifier.features.session import SessionFeatures
+
+
+def require_bound_server_address(server):
+    """Return a server's bound address or skip when sockets are unavailable."""
+    assert server.server is not None
+    sockets = server.server.sockets or ()
+    if not sockets:
+        pytest.skip("asyncio server did not expose a bound socket")
+
+    return sockets[0].getsockname()[:2]
 
 
 def make_features(**overrides):

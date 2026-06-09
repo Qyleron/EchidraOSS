@@ -39,6 +39,7 @@ Echidra currently includes:
 - Batch JSONL classification helpers for existing session logs
 - CLI command for batch JSONL session classification
 - FastAPI post-session classifier endpoint
+- PostgreSQL schema and repository for classifier runs and manual labels
 - Risk scoring, evidence aggregation, and MITRE tag mapping for matched rules
 - Behavior stage and intent mapping for classifier summaries
 - Evidence-backed Safeguard Advisor recommendations for external security tools
@@ -47,7 +48,7 @@ Echidra currently includes:
 
 Next major upgrade:
 
-- Store classifier runs and manual labels in PostgreSQL
+- Add API retrieval endpoints for classifier runs and manual labels
 
 ---
 
@@ -103,6 +104,7 @@ raw honeypot events
 - Batch JSONL log classification helpers for offline analysis
 - CLI support for printing classifier summaries from JSONL logs
 - FastAPI endpoint for post-session classification
+- PostgreSQL storage contract for classifier runs and manual labels
 - Aggregated classifier summaries with risk levels, evidence, MITRE tags,
   behavior stages, intents, feature summaries, and Safeguard Advisor
   recommendations
@@ -112,7 +114,6 @@ raw honeypot events
 ### Planned
 
 - SSH, Telnet, FTP, and HTTP honeypot services
-- PostgreSQL storage for sessions, classifier runs, and manual labels
 - Dashboard and reporting views
 - Local alerts through SMTP or webhooks
 - Docker/systemd deployment support
@@ -249,36 +250,58 @@ uvicorn classifier.api:app --reload
 
 ```text
 POST /classify/session
+POST /classify/session/store
 ```
 
-The request body is the canonical completed session record, and the response is
-the classifier summary used by CLI and storage consumers.
+Both endpoints accept the canonical completed session record. The first returns
+only the classifier summary; the second requires `ECHIDRA_DATABASE_URL`, stores
+the classifier run in PostgreSQL, and returns the run ID plus summary.
+
+For local configuration, copy the template and edit it for your machine:
+
+```bash
+cp .env.example .env
+```
+
+The real `.env` file is ignored by git. Echidra loads it automatically for
+local runs, so users can safely keep database URLs, ports, persona selection,
+and log paths out of commits.
+
+For PostgreSQL storage, set `ECHIDRA_DATABASE_URL` only in your local `.env`:
+
+```dotenv
+ECHIDRA_DATABASE_URL=postgresql://echidra:p%40ss%2Fword@localhost:5432/echidra
+```
+
+In a PostgreSQL URL, special characters in the username or password must be
+percent-encoded. For example, `p@ss/word` becomes `p%40ss%2Fword`. Do not paste
+your real `.env` into issue trackers, chats, or remote coding sessions.
+`.env.example` is the public template for OSS users; it documents the variable
+names and safe sample values, while each user creates their own private `.env`
+on their device.
 
 Example request:
 
 ```json
 {
-  "schema_version": "1.0",
-  "session_id": "sess-20250604-0001",
-  "protocol": "ssh",
+  "schema_version": 1,
+  "session_id": "8f28043f-6860-4857-8e3f-11a7cb16e6fd",
+  "protocol": "tcp_shell",
   "peer_ip": "203.0.113.45",
   "peer_port": 49215,
-  "persona_id": "debian-bullseye-1",
-  "started_at": "2025-11-12T14:23:05Z",
-  "ended_at": "2025-11-12T14:26:32Z",
-  "duration_seconds": 207,
-  "end_reason": "client_disconnect",
-  "command_count": 7,
+  "persona_id": "generic_linux",
+  "started_at": 100.0,
+  "ended_at": 113.0,
+  "duration_seconds": 13.0,
+  "end_reason": "disconnect",
+  "command_count": 4,
   "commands": [
-    { "ts": "2025-11-12T14:23:15Z", "cmd": "whoami", "exit_code": 0 },
-    { "ts": "2025-11-12T14:23:27Z", "cmd": "ls -la /tmp", "exit_code": 0 },
-    { "ts": "2025-11-12T14:24:02Z", "cmd": "cat secret.txt", "exit_code": 1 }
+    { "cmd": "whoami", "timestamp": 101.0 },
+    { "cmd": "hostname", "timestamp": 103.0 },
+    { "cmd": "ls", "timestamp": 106.0 },
+    { "cmd": "cat /etc/passwd", "timestamp": 109.0 }
   ],
-  "decoy_files_surfaced": ["/tmp/secret.txt", "/var/www/html/index.php"],
-  "session_metadata": {
-    "observed_user": "unknown",
-    "source": "honeypot-1"
-  }
+  "decoy_files_surfaced": ["/etc/passwd"]
 }
 ```
 
@@ -286,19 +309,40 @@ Example response:
 
 ```json
 {
-  "actor_type": "unknown",
-  "confidence": 0.92,
-  "risk_level": "high",
-  "evidence": [
-    "accessed_decoy_file:/tmp/secret.txt",
-    "failed_read:secret.txt",
-    "rapid_command_sequence"
-  ],
-  "metadata": {
-    "model_version": "classifier-0.3.1",
-    "scored_at": "2025-11-12T14:27:00Z"
-  }
+  "classifier_version": "1.0.0",
+  "rules_version": "1.0.0",
+  "actor_label": "commodity_bot",
+  "confidence": 0.66,
+  "risk_score": 45,
+  "risk_level": "medium",
+  "behavior_stage": "credential_access",
+  "intent": "credential_theft",
+  "matched_rule_ids": ["sensitive_file_probe", "interactive_low_and_slow"]
 }
+```
+
+Create PostgreSQL tables before using the store endpoint:
+
+```bash
+python -m classifier.storage.cli init-db
+```
+
+The storage schema keeps relationships explicit:
+
+- `sessions` stores one compact session row.
+- `session_events` stores ordered command and decoy exposure events.
+- `classifier_runs` references `sessions(id)` and stores one compact classifier
+  result.
+- `classifier_signals` stores variable-length classifier details such as actor
+  votes, matched rules, MITRE tags, evidence, features, and recommendations.
+- `manual_labels` references both `sessions(id)` and, when available,
+  `classifier_runs(id)`.
+
+For early local development, the schema intentionally drops and recreates these
+five tables. If you are okay losing local classifier data, rerun:
+
+```bash
+python -m classifier.storage.cli init-db
 ```
 
 See [docs/PROJECT_PLAN.md](docs/PROJECT_PLAN.md) for the current build plan,
@@ -315,7 +359,7 @@ status, next steps, and simplest end-to-end flow.
 | Classifier API | FastAPI |
 | Rule engine | YAML rules |
 | Schemas | Pydantic |
-| Storage | PostgreSQL + JSONB, planned |
+| Storage | PostgreSQL |
 | Dashboard | HTML, CSS, JavaScript, D3.js, planned |
 | Deployment | Docker Compose or systemd, planned |
 
@@ -340,13 +384,14 @@ echidra_oss/
 │       ├── session.py
 │       └── engine.py
 ├── classifier/              # planned
+│   ├── api/
 │   ├── schemas/
 │   │   └── session.py
 │   ├── features/
 │   │   └── session.py
 │   ├── rules/
 │   ├── scoring/
-│   └── api/
+│   └── storage/
 ├── tests/
 ├── assets/
 ├── README.md
@@ -356,6 +401,12 @@ echidra_oss/
 ---
 
 ## Quick Start
+
+Optional local config:
+
+```bash
+cp .env.example .env
+```
 
 Run the honeypot:
 
@@ -374,6 +425,10 @@ Use a specific persona:
 ```bash
 ECHIDRA_PERSONA=ubuntu_web_server python -m honeypot.main
 ```
+
+`.env.example` lists `ECHIDRA_PERSONA` only as a local preset selector. Keep
+full persona definitions in source-controlled code today, or move them to a
+dedicated persona YAML/JSON directory later if they become user-editable.
 
 The default listener is:
 
@@ -401,7 +456,7 @@ Commands are parsed and answered by the interaction engine. Files are fake entri
 5. Add risk scoring, evidence generation, and MITRE mapping. **Implemented**
 6. Add Safeguard Advisor recommendations for external security tools.
 7. Expose real-time and post-session classification through FastAPI. **Post-session API implemented**
-8. Store classifier runs and manual labels in PostgreSQL.
+8. Store classifier runs and manual labels in PostgreSQL. **Initial schema and write path implemented**
 9. Collect and label real sessions for evaluation.
 10. Build dashboard/reporting views.
 
