@@ -7,10 +7,11 @@ __pycache__/
 .codex/
 logs/
 .env
+.env.*
+!.env.example
 TESTS.md
 summation.txt
 Echidra_build-doc.pdf
 build_missing.txt
 echidra_presentation.html
 docs/PROJECT_PLAN.md
-

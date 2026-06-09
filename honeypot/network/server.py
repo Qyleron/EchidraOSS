@@ -31,8 +31,11 @@ class TCPServer:
             PORT,
         )
 
-        addr = self.server.sockets[0].getsockname()
-        logger.info("Server listening on %s", addr)
+        sockets = self.server.sockets or ()
+        if sockets:
+            logger.info("Server listening on %s", sockets[0].getsockname())
+        else:
+            logger.warning("Server started without exposing bound sockets")
 
         # Keep serving until the task is cancelled during shutdown.
         async with self.server:
