@@ -114,7 +114,9 @@ INSERT INTO manual_labels (
     risk_level,
     behavior_stage,
     intent,
-    notes
+    notes,
+    labeled_by,
+    created_at
 ) VALUES (
     %(id)s,
     %(classifier_run_id)s,
@@ -123,7 +125,9 @@ INSERT INTO manual_labels (
     %(risk_level)s,
     %(behavior_stage)s,
     %(intent)s,
-    %(notes)s
+    %(notes)s,
+    %(labeled_by)s,
+    %(created_at)s
 )
 """
 
@@ -310,6 +314,8 @@ def manual_label_insert_params(record: ManualLabelRecord) -> dict[str, Any]:
         "behavior_stage": record.behavior_stage,
         "intent": record.intent,
         "notes": record.notes,
+        "labeled_by": record.labeled_by,
+        "created_at": record.created_at,
     }
 
 

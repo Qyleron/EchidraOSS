@@ -178,13 +178,21 @@ def test_classifier_run_statements_include_parent_and_child_writes():
     record = ClassifierRunRecord.from_session_summary(session, summary)
 
     statements = classifier_run_statements(record)
-    sql_text = "\n".join(sql for sql, _params in statements)
+    statement_order = [
+        sql.lstrip().splitlines()[0]
+        for sql, _params in statements
+    ]
+    event_count = len(record.session_record["commands"]) + len(
+        record.session_record["decoy_files_surfaced"]
+    )
+    signal_count = len(classifier_signal_insert_params(record))
 
-    assert "DELETE FROM session_events" in sql_text
-    assert "INSERT INTO sessions" in sql_text
-    assert "INSERT INTO session_events" in sql_text
-    assert "INSERT INTO classifier_runs" in sql_text
-    assert "INSERT INTO classifier_signals" in sql_text
+    assert statement_order == (
+        ["DELETE FROM session_events", "INSERT INTO sessions ("]
+        + ["INSERT INTO session_events ("] * event_count
+        + ["INSERT INTO classifier_runs ("]
+        + ["INSERT INTO classifier_signals ("] * signal_count
+    )
 
 
 def test_manual_label_insert_params_match_storage_columns():
@@ -204,7 +212,8 @@ def test_manual_label_insert_params_match_storage_columns():
     assert params["session_id"] == label.session_id
     assert params["actor_label"] == "skilled_human_operator"
     assert params["notes"] == "Analyst confirmed interactive behavior."
-    assert "labeled_by" not in params
+    assert params["labeled_by"] == "analyst@example.com"
+    assert params["created_at"] == label.created_at
 
 
 def test_storage_cli_init_db_requires_database_url(monkeypatch, capsys):
