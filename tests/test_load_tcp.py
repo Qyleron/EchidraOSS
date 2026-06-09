@@ -5,6 +5,7 @@ import pytest_asyncio
 
 import honeypot.network.server as server_module
 from honeypot.network.server import TCPServer
+from tests.conftest import require_bound_server_address
 
 
 """
@@ -28,8 +29,7 @@ async def running_server(monkeypatch):
             break
         await asyncio.sleep(0.01)
 
-    assert server.server is not None
-    host, port = server.server.sockets[0].getsockname()[:2]
+    host, port = require_bound_server_address(server)
 
     try:
         yield host, port, server

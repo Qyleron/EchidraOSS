@@ -16,7 +16,8 @@ attacker connects
   -> classifier summary is produced
   -> existing JSONL logs can be batch-classified
   -> CLI can emit classifier summaries to stdout or a JSONL report file
-  -> future API, database, alerts, and dashboard consume the summary
+  -> API and PostgreSQL storage can consume the summary
+  -> future alerts and dashboard consume persisted runs
 ```
 
 ## Done
@@ -41,6 +42,9 @@ attacker connects
 - CLI command for batch classification of session logs to stdout or a file
 - CLI errors identify malformed JSONL input by line number
 - FastAPI post-session classifier endpoint for validated session records
+- Five-table PostgreSQL schema and repository for sessions, session events,
+  classifier runs, classifier signals, and manual labels
+- FastAPI classify-and-store endpoint gated by `ECHIDRA_DATABASE_URL`
 
 ## Where We Are
 
@@ -49,13 +53,17 @@ session can be validated, converted into features, matched against the default
 YAML rules, and summarized into an explainable classifier result.
 
 Existing JSONL session logs can also be classified in batches through code or
-the CLI, and external consumers can classify a completed session through the
-FastAPI service. The project is ready for the storage layer because classifier
-output is now structured enough for API and database consumers.
+the CLI, external consumers can classify a completed session through the
+FastAPI service, and configured deployments can persist sessions and classifier
+runs to PostgreSQL. Storage now uses five compact tables connected by foreign
+keys so analysis-heavy values live as typed event or signal rows instead of
+wide parent tables. Local `.env` loading is in place through a safe
+`.env.example` template. The project is ready for retrieval/listing APIs
+because the first storage contract is now in place.
 
 ## Next Work
 
-1. Store classifier runs and manual labels in PostgreSQL.
+1. Add API retrieval endpoints for classifier runs and manual labels.
 2. Add more feature extraction as new protocols arrive.
 3. Expand YAML rules for SSH, Telnet, FTP, and HTTP collectors.
 4. Add local alert delivery through SMTP or webhooks.
@@ -87,6 +95,8 @@ The classifier summary includes:
 - `python -m classifier.cli classify-jsonl <path> --output <path>` writes them.
 - `POST /classify/session` accepts a completed session record and returns a
   classifier summary.
+- `POST /classify/session/store` accepts a completed session record, stores the
+  classifier run in PostgreSQL, and returns the run ID plus summary.
 
 ## Comment And Docstring Rule
 
