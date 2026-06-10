@@ -13,6 +13,8 @@ from classifier.storage.models import (
     ClassifierRunRecord,
     ManualLabelInput,
     ManualLabelRecord,
+    StoredClassifierRun,
+    StoredClassifierSignal,
 )
 
 
@@ -131,6 +133,55 @@ INSERT INTO manual_labels (
 )
 """
 
+SELECT_CLASSIFIER_RUN_SQL = """
+SELECT
+    classifier_runs.id,
+    classifier_runs.session_id,
+    sessions.protocol,
+    sessions.peer_ip,
+    sessions.peer_port,
+    sessions.persona_id,
+    sessions.started_at,
+    sessions.ended_at,
+    sessions.end_reason,
+    classifier_runs.actor_label,
+    classifier_runs.confidence,
+    classifier_runs.risk_score,
+    classifier_runs.risk_level,
+    classifier_runs.behavior_stage,
+    classifier_runs.intent
+FROM classifier_runs
+JOIN sessions ON sessions.id = classifier_runs.session_id
+WHERE classifier_runs.id = %(id)s
+"""
+
+SELECT_CLASSIFIER_SIGNALS_SQL = """
+SELECT
+    signal_index,
+    signal_type,
+    signal_key,
+    signal_value
+FROM classifier_signals
+WHERE classifier_run_id = %(classifier_run_id)s
+ORDER BY signal_index
+"""
+
+SELECT_MANUAL_LABEL_SQL = """
+SELECT
+    id,
+    classifier_run_id,
+    session_id,
+    actor_label,
+    risk_level,
+    behavior_stage,
+    intent,
+    notes,
+    labeled_by,
+    created_at
+FROM manual_labels
+WHERE id = %(id)s
+"""
+
 
 class DatabaseNotConfiguredError(RuntimeError):
     """Raised when storage is requested without ECHIDRA_DATABASE_URL."""
@@ -177,6 +228,34 @@ class PostgresClassifierRepository:
             manual_label_insert_params(record),
         )
         return record
+
+    def get_classifier_run(self, run_id: UUID) -> StoredClassifierRun | None:
+        """Fetch one stored classifier run by ID."""
+        row = _fetch_one(
+            self.database_url,
+            SELECT_CLASSIFIER_RUN_SQL,
+            {"id": run_id},
+        )
+        if row is None:
+            return None
+
+        signal_rows = _fetch_all(
+            self.database_url,
+            SELECT_CLASSIFIER_SIGNALS_SQL,
+            {"classifier_run_id": run_id},
+        )
+        return stored_classifier_run_from_rows(row, signal_rows)
+
+    def get_manual_label(self, label_id: UUID) -> ManualLabelRecord | None:
+        """Fetch one manual analyst label by ID."""
+        row = _fetch_one(
+            self.database_url,
+            SELECT_MANUAL_LABEL_SQL,
+            {"id": label_id},
+        )
+        if row is None:
+            return None
+        return manual_label_from_row(row)
 
 
 def classifier_run_insert_params(record: ClassifierRunRecord) -> dict[str, Any]:
@@ -322,6 +401,22 @@ def manual_label_insert_params(record: ManualLabelRecord) -> dict[str, Any]:
     }
 
 
+def stored_classifier_run_from_rows(
+    run_row: dict[str, Any],
+    signal_rows: list[dict[str, Any]],
+) -> StoredClassifierRun:
+    """Build the API read model for one stored classifier run."""
+    return StoredClassifierRun(
+        **run_row,
+        signals=[StoredClassifierSignal(**row) for row in signal_rows],
+    )
+
+
+def manual_label_from_row(row: dict[str, Any]) -> ManualLabelRecord:
+    """Build the storage model for one manual label query result."""
+    return ManualLabelRecord(**row)
+
+
 def _execute_insert(database_url: str, sql: str, params: dict[str, Any]) -> None:
     _execute_statements(database_url, [(sql, params)])
 
@@ -346,6 +441,27 @@ def _execute_statements(
             with connection.cursor() as cursor:
                 for sql, params in statements:
                     cursor.execute(sql, params)
+
+
+def _fetch_one(
+    database_url: str,
+    sql: str,
+    params: dict[str, Any],
+) -> dict[str, Any] | None:
+    rows = _fetch_all(database_url, sql, params)
+    return rows[0] if rows else None
+
+
+def _fetch_all(
+    database_url: str,
+    sql: str,
+    params: dict[str, Any],
+) -> list[dict[str, Any]]:
+    psycopg = _load_psycopg()
+    with psycopg.connect(database_url) as connection:
+        with connection.cursor(row_factory=psycopg.rows.dict_row) as cursor:
+            cursor.execute(sql, params)
+            return list(cursor.fetchall())
 
 
 def _load_psycopg():

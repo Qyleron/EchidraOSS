@@ -96,6 +96,42 @@ class ManualLabelRecord(ManualLabelInput):
     created_at: datetime = Field(default_factory=_utc_now)
 
 
+class StoredClassifierSignal(BaseModel):
+    """One persisted classifier signal attached to a stored run."""
+
+    signal_index: int = Field(ge=0)
+    signal_type: str
+    signal_key: str
+    signal_value: str
+
+    class Config:
+        extra = "forbid"
+
+
+class StoredClassifierRun(BaseModel):
+    """Readable storage view for one classifier run and its parent session."""
+
+    id: UUID
+    session_id: UUID
+    protocol: str
+    peer_ip: str | None = None
+    peer_port: int | None = None
+    persona_id: str
+    started_at: float
+    ended_at: float
+    end_reason: str
+    actor_label: str | None = None
+    confidence: float = Field(ge=0, le=1)
+    risk_score: int = Field(ge=0, le=100)
+    risk_level: str
+    behavior_stage: str
+    intent: str
+    signals: list[StoredClassifierSignal] = Field(default_factory=list)
+
+    class Config:
+        extra = "forbid"
+
+
 class ClassifyAndStoreResponse(BaseModel):
     """API response for classify-and-store requests."""
 

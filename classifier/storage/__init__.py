@@ -6,6 +6,8 @@ from classifier.storage.models import (
     ClassifyAndStoreResponse,
     ManualLabelInput,
     ManualLabelRecord,
+    StoredClassifierRun,
+    StoredClassifierSignal,
 )
 from classifier.storage.repository import (
     DatabaseNotConfiguredError,
@@ -21,5 +23,7 @@ __all__ = [
     "ManualLabelInput",
     "ManualLabelRecord",
     "PostgresClassifierRepository",
+    "StoredClassifierRun",
+    "StoredClassifierSignal",
     "get_database_url",
 ]
