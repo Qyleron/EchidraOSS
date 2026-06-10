@@ -3,6 +3,7 @@ import importlib
 import pytest
 from fastapi import HTTPException
 from fastapi.routing import APIRoute
+from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 from classifier.api import app
@@ -143,3 +144,20 @@ def test_classify_and_store_endpoint_reports_missing_database(monkeypatch):
 
     assert exc_info.value.status_code == 503
     assert exc_info.value.detail == "ECHIDRA_DATABASE_URL must be set"
+
+
+def test_classify_session_endpoint_accepts_json_requests_via_test_client():
+    client = TestClient(app)
+    response = client.post("/classify/session", json=make_record())
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["classifier_version"] == "1.0.0"
+    assert body["rules_version"] == "1.0.0"
+    assert body["actor_label"] == "commodity_bot"
+    assert body["risk_level"] == "medium"
+    assert body["intent"] == "credential_theft"
+    assert body["matched_rule_ids"] == [
+        "sensitive_file_probe",
+        "interactive_low_and_slow",
+    ]
