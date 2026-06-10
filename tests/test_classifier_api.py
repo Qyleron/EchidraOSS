@@ -146,6 +146,26 @@ def test_classify_and_store_endpoint_reports_missing_database(monkeypatch):
     assert exc_info.value.detail == "ECHIDRA_DATABASE_URL must be set"
 
 
+def test_classify_and_store_endpoint_hides_persistence_failures(monkeypatch):
+    route = route_for("/classify/session/store", "POST")
+    session = SessionRecord.parse_obj(make_record())
+
+    class CrashingRepository:
+        def __init__(self):
+            pass
+
+        def save_classifier_run(self, stored_session, summary):
+            raise RuntimeError("failed to persist classifier run")
+
+    monkeypatch.setattr(app_module, "PostgresClassifierRepository", CrashingRepository)
+
+    with pytest.raises(HTTPException) as exc_info:
+        route.endpoint(session)
+
+    assert exc_info.value.status_code == 500
+    assert exc_info.value.detail == "internal server error"
+
+
 def test_classify_session_endpoint_accepts_json_requests_via_test_client():
     client = TestClient(app)
     response = client.post("/classify/session", json=make_record())
