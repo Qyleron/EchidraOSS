@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from uuid import UUID
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 
 from classifier.pipeline import classify_session
 from classifier.schemas.session import SessionRecord
@@ -70,6 +70,37 @@ def create_app() -> FastAPI:
         return ClassifyAndStoreResponse(run_id=run.id, summary=summary)
 
     @api.get(
+        "/classifier/runs",
+        response_model=list[StoredClassifierRun],
+        tags=["storage"],
+    )
+    def list_classifier_runs_endpoint(
+        session_id: UUID | None = None,
+        risk_level: str | None = None,
+        actor_label: str | None = None,
+        persona_id: str | None = None,
+        limit: int = Query(default=100, ge=1, le=500),
+    ) -> list[StoredClassifierRun]:
+        """Return stored classifier runs matching optional exact filters."""
+        try:
+            repository = PostgresClassifierRepository()
+            return repository.list_classifier_runs(
+                session_id=session_id,
+                risk_level=risk_level,
+                actor_label=actor_label,
+                persona_id=persona_id,
+                limit=limit,
+            )
+        except (DatabaseDriverMissingError, DatabaseNotConfiguredError) as exc:
+            raise HTTPException(status_code=503, detail=str(exc))
+        except Exception as exc:
+            logger.exception(
+                "Unhandled exception in list_classifier_runs_endpoint: %s",
+                exc,
+            )
+            raise HTTPException(status_code=500, detail="internal server error")
+
+    @api.get(
         "/classifier/runs/{run_id}",
         response_model=StoredClassifierRun,
         tags=["storage"],
@@ -91,6 +122,33 @@ def create_app() -> FastAPI:
         if run is None:
             raise HTTPException(status_code=404, detail="classifier run not found")
         return run
+
+    @api.get(
+        "/manual-labels",
+        response_model=list[ManualLabelRecord],
+        tags=["storage"],
+    )
+    def list_manual_labels_endpoint(
+        session_id: UUID | None = None,
+        classifier_run_id: UUID | None = None,
+        limit: int = Query(default=100, ge=1, le=500),
+    ) -> list[ManualLabelRecord]:
+        """Return stored manual labels matching optional exact filters."""
+        try:
+            repository = PostgresClassifierRepository()
+            return repository.list_manual_labels(
+                session_id=session_id,
+                classifier_run_id=classifier_run_id,
+                limit=limit,
+            )
+        except (DatabaseDriverMissingError, DatabaseNotConfiguredError) as exc:
+            raise HTTPException(status_code=503, detail=str(exc))
+        except Exception as exc:
+            logger.exception(
+                "Unhandled exception in list_manual_labels_endpoint: %s",
+                exc,
+            )
+            raise HTTPException(status_code=500, detail="internal server error")
 
     @api.get(
         "/manual-labels/{label_id}",

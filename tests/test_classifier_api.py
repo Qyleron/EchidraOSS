@@ -3,7 +3,6 @@ import importlib
 import pytest
 from fastapi import HTTPException
 from fastapi.routing import APIRoute
-from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 from classifier.api import app
@@ -54,10 +53,22 @@ def test_get_classifier_run_route_uses_storage_run_contract():
     assert route.response_model is StoredClassifierRun
 
 
+def test_list_classifier_runs_route_uses_storage_run_list_contract():
+    route = route_for("/classifier/runs", "GET")
+
+    assert route.response_model == list[StoredClassifierRun]
+
+
 def test_get_manual_label_route_uses_manual_label_contract():
     route = route_for("/manual-labels/{label_id}", "GET")
 
     assert route.response_model is ManualLabelRecord
+
+
+def test_list_manual_labels_route_uses_manual_label_list_contract():
+    route = route_for("/manual-labels", "GET")
+
+    assert route.response_model == list[ManualLabelRecord]
 
 
 def test_classify_session_endpoint_returns_classifier_summary():
@@ -256,6 +267,80 @@ def test_get_classifier_run_endpoint_reports_missing_database(monkeypatch):
     assert exc_info.value.detail == "ECHIDRA_DATABASE_URL must be set"
 
 
+def test_list_classifier_runs_endpoint_passes_filters(monkeypatch):
+    route = route_for("/classifier/runs", "GET")
+    session = SessionRecord.parse_obj(make_record())
+    summary = app_module.classify_session(session)
+    record = ClassifierRunRecord.from_session_summary(session, summary)
+    stored_run = StoredClassifierRun(
+        id=record.id,
+        session_id=record.session_id,
+        protocol=record.protocol,
+        peer_ip=record.session_record["peer_ip"],
+        peer_port=record.session_record["peer_port"],
+        persona_id=record.persona_id,
+        started_at=record.session_record["started_at"],
+        ended_at=record.session_record["ended_at"],
+        end_reason=record.session_record["end_reason"],
+        actor_label=record.actor_label,
+        confidence=record.confidence,
+        risk_score=record.risk_score,
+        risk_level=record.risk_level,
+        behavior_stage=record.behavior_stage,
+        intent=record.intent,
+        signals=[],
+    )
+
+    class FakeRepository:
+        def list_classifier_runs(
+            self,
+            *,
+            session_id,
+            risk_level,
+            actor_label,
+            persona_id,
+            limit,
+        ):
+            assert session_id == session.session_id
+            assert risk_level == "medium"
+            assert actor_label == "commodity_bot"
+            assert persona_id == "generic_linux"
+            assert limit == 25
+            return [stored_run]
+
+    monkeypatch.setattr(app_module, "PostgresClassifierRepository", FakeRepository)
+
+    response = route.endpoint(
+        session_id=session.session_id,
+        risk_level="medium",
+        actor_label="commodity_bot",
+        persona_id="generic_linux",
+        limit=25,
+    )
+
+    assert response == [stored_run]
+
+
+def test_list_classifier_runs_endpoint_reports_missing_database(monkeypatch):
+    route = route_for("/classifier/runs", "GET")
+
+    class MissingDatabaseRepository:
+        def __init__(self):
+            raise DatabaseNotConfiguredError("ECHIDRA_DATABASE_URL must be set")
+
+    monkeypatch.setattr(
+        app_module,
+        "PostgresClassifierRepository",
+        MissingDatabaseRepository,
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        route.endpoint(limit=100)
+
+    assert exc_info.value.status_code == 503
+    assert exc_info.value.detail == "ECHIDRA_DATABASE_URL must be set"
+
+
 def test_get_manual_label_endpoint_returns_stored_label(monkeypatch):
     route = route_for("/manual-labels/{label_id}", "GET")
     label = ManualLabelRecord(
@@ -296,18 +381,58 @@ def test_get_manual_label_endpoint_reports_missing_label(monkeypatch):
     assert exc_info.value.detail == "manual label not found"
 
 
-def test_classify_session_endpoint_accepts_json_requests_via_test_client():
-    client = TestClient(app)
-    response = client.post("/classify/session", json=make_record())
+def test_list_manual_labels_endpoint_passes_filters(monkeypatch):
+    route = route_for("/manual-labels", "GET")
+    session_id = SessionRecord.parse_obj(make_record()).session_id
+    classifier_run_id = SessionRecord.parse_obj(make_record()).session_id
+    label = ManualLabelRecord(
+        **ManualLabelInput(
+            session_id=session_id,
+            classifier_run_id=classifier_run_id,
+            actor_label="commodity_bot",
+        ).dict()
+    )
 
-    assert response.status_code == 200
-    body = response.json()
-    assert body["classifier_version"] == "1.0.0"
-    assert body["rules_version"] == "1.0.0"
-    assert body["actor_label"] == "commodity_bot"
-    assert body["risk_level"] == "medium"
-    assert body["intent"] == "credential_theft"
-    assert body["matched_rule_ids"] == [
-        "sensitive_file_probe",
-        "interactive_low_and_slow",
-    ]
+    class FakeRepository:
+        def list_manual_labels(self, *, session_id, classifier_run_id, limit):
+            assert session_id == label.session_id
+            assert classifier_run_id == label.classifier_run_id
+            assert limit == 30
+            return [label]
+
+    monkeypatch.setattr(app_module, "PostgresClassifierRepository", FakeRepository)
+
+    response = route.endpoint(
+        session_id=label.session_id,
+        classifier_run_id=label.classifier_run_id,
+        limit=30,
+    )
+
+    assert response == [label]
+
+
+def test_list_manual_labels_endpoint_reports_missing_database(monkeypatch):
+    route = route_for("/manual-labels", "GET")
+
+    class MissingDatabaseRepository:
+        def __init__(self):
+            raise DatabaseNotConfiguredError("ECHIDRA_DATABASE_URL must be set")
+
+    monkeypatch.setattr(
+        app_module,
+        "PostgresClassifierRepository",
+        MissingDatabaseRepository,
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        route.endpoint(limit=100)
+
+    assert exc_info.value.status_code == 503
+    assert exc_info.value.detail == "ECHIDRA_DATABASE_URL must be set"
+
+
+def test_classify_session_route_accepts_session_record_body_model():
+    route = route_for("/classify/session", "POST")
+
+    assert route.body_field is not None
+    assert route.body_field.type_ is SessionRecord

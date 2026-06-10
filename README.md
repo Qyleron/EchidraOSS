@@ -40,6 +40,8 @@ Echidra currently includes:
 - CLI command for batch JSONL session classification
 - FastAPI post-session classifier endpoint
 - PostgreSQL schema and repository for classifier runs and manual labels
+- API retrieval endpoints for stored classifier runs and manual labels
+- API list/filter endpoints for stored classifier runs and manual labels
 - Risk scoring, evidence aggregation, and MITRE tag mapping for matched rules
 - Behavior stage and intent mapping for classifier summaries
 - Evidence-backed Safeguard Advisor recommendations for external security tools
@@ -48,7 +50,7 @@ Echidra currently includes:
 
 Next major upgrade:
 
-- Add API retrieval endpoints for classifier runs and manual labels
+- Build dashboard/reporting views over persisted classifier data
 
 ---
 
@@ -251,11 +253,17 @@ uvicorn classifier.api:app --reload
 ```text
 POST /classify/session
 POST /classify/session/store
+GET /classifier/runs/{run_id}
+GET /classifier/runs
+GET /manual-labels/{label_id}
+GET /manual-labels
 ```
 
 Both endpoints accept the canonical completed session record. The first returns
 only the classifier summary; the second requires `ECHIDRA_DATABASE_URL`, stores
-the classifier run in PostgreSQL, and returns the run ID plus summary.
+the classifier run in PostgreSQL, and returns the run ID plus summary. The GET
+endpoints also require `ECHIDRA_DATABASE_URL` and return stored classifier run
+or manual label records by ID or by exact-match list filters.
 
 For local configuration, copy the template and edit it for your machine:
 
@@ -456,7 +464,7 @@ Commands are parsed and answered by the interaction engine. Files are fake entri
 5. Add risk scoring, evidence generation, and MITRE mapping. **Implemented**
 6. Add Safeguard Advisor recommendations for external security tools.
 7. Expose real-time and post-session classification through FastAPI. **Post-session API implemented**
-8. Store classifier runs and manual labels in PostgreSQL. **Initial schema and write path implemented**
+8. Store classifier runs and manual labels in PostgreSQL. **Schema, write path, ID retrieval, and list/filter APIs implemented**
 9. Collect and label real sessions for evaluation.
 10. Build dashboard/reporting views.
 

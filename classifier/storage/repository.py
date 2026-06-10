@@ -182,6 +182,42 @@ FROM manual_labels
 WHERE id = %(id)s
 """
 
+SELECT_CLASSIFIER_RUN_BASE_SQL = """
+SELECT
+    classifier_runs.id,
+    classifier_runs.session_id,
+    sessions.protocol,
+    sessions.peer_ip,
+    sessions.peer_port,
+    sessions.persona_id,
+    sessions.started_at,
+    sessions.ended_at,
+    sessions.end_reason,
+    classifier_runs.actor_label,
+    classifier_runs.confidence,
+    classifier_runs.risk_score,
+    classifier_runs.risk_level,
+    classifier_runs.behavior_stage,
+    classifier_runs.intent
+FROM classifier_runs
+JOIN sessions ON sessions.id = classifier_runs.session_id
+"""
+
+SELECT_MANUAL_LABEL_BASE_SQL = """
+SELECT
+    id,
+    classifier_run_id,
+    session_id,
+    actor_label,
+    risk_level,
+    behavior_stage,
+    intent,
+    notes,
+    labeled_by,
+    created_at
+FROM manual_labels
+"""
+
 
 class DatabaseNotConfiguredError(RuntimeError):
     """Raised when storage is requested without ECHIDRA_DATABASE_URL."""
@@ -256,6 +292,54 @@ class PostgresClassifierRepository:
         if row is None:
             return None
         return manual_label_from_row(row)
+
+    def list_classifier_runs(
+        self,
+        *,
+        session_id: UUID | None = None,
+        risk_level: str | None = None,
+        actor_label: str | None = None,
+        persona_id: str | None = None,
+        limit: int = 100,
+    ) -> list[StoredClassifierRun]:
+        """Fetch stored classifier runs matching optional exact filters."""
+        sql, params = classifier_run_list_query(
+            session_id=session_id,
+            risk_level=risk_level,
+            actor_label=actor_label,
+            persona_id=persona_id,
+            limit=limit,
+        )
+        rows = _fetch_all(self.database_url, sql, params)
+        return [
+            stored_classifier_run_from_rows(
+                row,
+                _fetch_all(
+                    self.database_url,
+                    SELECT_CLASSIFIER_SIGNALS_SQL,
+                    {"classifier_run_id": row["id"]},
+                ),
+            )
+            for row in rows
+        ]
+
+    def list_manual_labels(
+        self,
+        *,
+        session_id: UUID | None = None,
+        classifier_run_id: UUID | None = None,
+        limit: int = 100,
+    ) -> list[ManualLabelRecord]:
+        """Fetch stored manual labels matching optional exact filters."""
+        sql, params = manual_label_list_query(
+            session_id=session_id,
+            classifier_run_id=classifier_run_id,
+            limit=limit,
+        )
+        return [
+            manual_label_from_row(row)
+            for row in _fetch_all(self.database_url, sql, params)
+        ]
 
 
 def classifier_run_insert_params(record: ClassifierRunRecord) -> dict[str, Any]:
@@ -415,6 +499,75 @@ def stored_classifier_run_from_rows(
 def manual_label_from_row(row: dict[str, Any]) -> ManualLabelRecord:
     """Build the storage model for one manual label query result."""
     return ManualLabelRecord(**row)
+
+
+def classifier_run_list_query(
+    *,
+    session_id: UUID | None = None,
+    risk_level: str | None = None,
+    actor_label: str | None = None,
+    persona_id: str | None = None,
+    limit: int = 100,
+) -> tuple[str, dict[str, Any]]:
+    """Return SQL and parameters for listing stored classifier runs."""
+    filters: list[str] = []
+    params: dict[str, Any] = {"limit": limit}
+    if session_id is not None:
+        filters.append("classifier_runs.session_id = %(session_id)s")
+        params["session_id"] = session_id
+    if risk_level is not None:
+        filters.append("classifier_runs.risk_level = %(risk_level)s")
+        params["risk_level"] = risk_level
+    if actor_label is not None:
+        filters.append("classifier_runs.actor_label = %(actor_label)s")
+        params["actor_label"] = actor_label
+    if persona_id is not None:
+        filters.append("sessions.persona_id = %(persona_id)s")
+        params["persona_id"] = persona_id
+
+    return _list_query(
+        SELECT_CLASSIFIER_RUN_BASE_SQL,
+        filters,
+        "sessions.started_at DESC, classifier_runs.id DESC",
+        params,
+    )
+
+
+def manual_label_list_query(
+    *,
+    session_id: UUID | None = None,
+    classifier_run_id: UUID | None = None,
+    limit: int = 100,
+) -> tuple[str, dict[str, Any]]:
+    """Return SQL and parameters for listing stored manual labels."""
+    filters: list[str] = []
+    params: dict[str, Any] = {"limit": limit}
+    if session_id is not None:
+        filters.append("session_id = %(session_id)s")
+        params["session_id"] = session_id
+    if classifier_run_id is not None:
+        filters.append("classifier_run_id = %(classifier_run_id)s")
+        params["classifier_run_id"] = classifier_run_id
+
+    return _list_query(
+        SELECT_MANUAL_LABEL_BASE_SQL,
+        filters,
+        "created_at DESC, id DESC",
+        params,
+    )
+
+
+def _list_query(
+    base_sql: str,
+    filters: list[str],
+    order_by: str,
+    params: dict[str, Any],
+) -> tuple[str, dict[str, Any]]:
+    where_sql = ""
+    if filters:
+        where_sql = "\nWHERE " + "\n  AND ".join(filters)
+    sql = f"{base_sql.rstrip()}{where_sql}\nORDER BY {order_by}\nLIMIT %(limit)s"
+    return sql, params
 
 
 def _execute_insert(database_url: str, sql: str, params: dict[str, Any]) -> None:
