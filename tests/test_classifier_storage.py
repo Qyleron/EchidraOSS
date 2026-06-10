@@ -24,6 +24,8 @@ from classifier.storage.repository import (
     classifier_signal_insert_params,
     session_event_insert_params,
     session_insert_params,
+    manual_label_from_row,
+    stored_classifier_run_from_rows,
 )
 from tests.test_classifier_pipeline import make_record
 
@@ -214,6 +216,63 @@ def test_manual_label_insert_params_match_storage_columns():
     assert params["notes"] == "Analyst confirmed interactive behavior."
     assert params["labeled_by"] == "analyst@example.com"
     assert params["created_at"] == label.created_at
+
+
+def test_stored_classifier_run_from_rows_includes_session_and_signals():
+    session = SessionRecord.parse_obj(make_record())
+    summary = classify_session_record(make_record())
+    record = ClassifierRunRecord.from_session_summary(session, summary)
+    run_row = classifier_run_insert_params(record)
+    session_params = session_insert_params(record)
+    run_row.update(
+        {
+            "protocol": session_params["protocol"],
+            "peer_ip": session_params["peer_ip"],
+            "peer_port": session_params["peer_port"],
+            "persona_id": session_params["persona_id"],
+            "started_at": session_params["started_at"],
+            "ended_at": session_params["ended_at"],
+            "end_reason": session_params["end_reason"],
+        }
+    )
+    signal_rows = [
+        {
+            "signal_index": 0,
+            "signal_type": "version",
+            "signal_key": "classifier",
+            "signal_value": "1.0.0",
+        },
+        {
+            "signal_index": 1,
+            "signal_type": "matched_rule",
+            "signal_key": "rule_id",
+            "signal_value": "sensitive_file_probe",
+        },
+    ]
+
+    stored_run = stored_classifier_run_from_rows(run_row, signal_rows)
+
+    assert stored_run.id == record.id
+    assert stored_run.session_id == session.session_id
+    assert stored_run.protocol == "tcp_shell"
+    assert stored_run.peer_ip == "127.0.0.1"
+    assert stored_run.actor_label == "commodity_bot"
+    assert stored_run.signals[1].signal_value == "sensitive_file_probe"
+
+
+def test_manual_label_from_row_returns_storage_model():
+    label = ManualLabelRecord(
+        **ManualLabelInput(
+            session_id=uuid4(),
+            actor_label="commodity_bot",
+            notes="Confirmed from command sequence.",
+        ).dict()
+    )
+    row = manual_label_insert_params(label)
+
+    stored_label = manual_label_from_row(row)
+
+    assert stored_label == label
 
 
 def test_storage_cli_init_db_requires_database_url(monkeypatch, capsys):

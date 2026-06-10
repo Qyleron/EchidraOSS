@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from uuid import UUID
 
 from fastapi import FastAPI, HTTPException
 
@@ -13,7 +14,9 @@ from classifier.storage import (
     ClassifyAndStoreResponse,
     DatabaseDriverMissingError,
     DatabaseNotConfiguredError,
+    ManualLabelRecord,
     PostgresClassifierRepository,
+    StoredClassifierRun,
 )
 
 
@@ -65,6 +68,52 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=500, detail="internal server error")
 
         return ClassifyAndStoreResponse(run_id=run.id, summary=summary)
+
+    @api.get(
+        "/classifier/runs/{run_id}",
+        response_model=StoredClassifierRun,
+        tags=["storage"],
+    )
+    def get_classifier_run_endpoint(run_id: UUID) -> StoredClassifierRun:
+        """Return one stored classifier run by ID."""
+        try:
+            repository = PostgresClassifierRepository()
+            run = repository.get_classifier_run(run_id)
+        except (DatabaseDriverMissingError, DatabaseNotConfiguredError) as exc:
+            raise HTTPException(status_code=503, detail=str(exc))
+        except Exception as exc:
+            logger.exception(
+                "Unhandled exception in get_classifier_run_endpoint: %s",
+                exc,
+            )
+            raise HTTPException(status_code=500, detail="internal server error")
+
+        if run is None:
+            raise HTTPException(status_code=404, detail="classifier run not found")
+        return run
+
+    @api.get(
+        "/manual-labels/{label_id}",
+        response_model=ManualLabelRecord,
+        tags=["storage"],
+    )
+    def get_manual_label_endpoint(label_id: UUID) -> ManualLabelRecord:
+        """Return one stored manual analyst label by ID."""
+        try:
+            repository = PostgresClassifierRepository()
+            label = repository.get_manual_label(label_id)
+        except (DatabaseDriverMissingError, DatabaseNotConfiguredError) as exc:
+            raise HTTPException(status_code=503, detail=str(exc))
+        except Exception as exc:
+            logger.exception(
+                "Unhandled exception in get_manual_label_endpoint: %s",
+                exc,
+            )
+            raise HTTPException(status_code=500, detail="internal server error")
+
+        if label is None:
+            raise HTTPException(status_code=404, detail="manual label not found")
+        return label
 
     return api
 
