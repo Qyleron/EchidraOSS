@@ -331,8 +331,9 @@ def apply_schema(database_url: str, schema_path: str | Path) -> None:
     schema_sql = Path(schema_path).read_text(encoding="utf-8")
     psycopg = _load_psycopg()
     with psycopg.connect(database_url) as connection:
-        with connection.cursor() as cursor:
-            cursor.execute(schema_sql)
+        with connection.transaction():
+            with connection.cursor() as cursor:
+                cursor.execute(schema_sql)
 
 
 def _execute_statements(
@@ -341,9 +342,10 @@ def _execute_statements(
 ) -> None:
     psycopg = _load_psycopg()
     with psycopg.connect(database_url) as connection:
-        with connection.cursor() as cursor:
-            for sql, params in statements:
-                cursor.execute(sql, params)
+        with connection.transaction():
+            with connection.cursor() as cursor:
+                for sql, params in statements:
+                    cursor.execute(sql, params)
 
 
 def _load_psycopg():
