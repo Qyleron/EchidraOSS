@@ -22,9 +22,11 @@ from classifier.storage.repository import (
     classifier_run_statements,
     manual_label_insert_params,
     classifier_signal_insert_params,
+    classifier_run_list_query,
     session_event_insert_params,
     session_insert_params,
     manual_label_from_row,
+    manual_label_list_query,
     stored_classifier_run_from_rows,
 )
 from tests.test_classifier_pipeline import make_record
@@ -273,6 +275,56 @@ def test_manual_label_from_row_returns_storage_model():
     stored_label = manual_label_from_row(row)
 
     assert stored_label == label
+
+
+def test_classifier_run_list_query_applies_supported_filters():
+    session_id = uuid4()
+
+    sql, params = classifier_run_list_query(
+        session_id=session_id,
+        risk_level="high",
+        actor_label="commodity_bot",
+        persona_id="ubuntu_web_server",
+        limit=25,
+    )
+
+    assert "FROM classifier_runs" in sql
+    assert "JOIN sessions" in sql
+    assert "classifier_runs.session_id = %(session_id)s" in sql
+    assert "classifier_runs.risk_level = %(risk_level)s" in sql
+    assert "classifier_runs.actor_label = %(actor_label)s" in sql
+    assert "sessions.persona_id = %(persona_id)s" in sql
+    assert "ORDER BY sessions.started_at DESC, classifier_runs.id DESC" in sql
+    assert "LIMIT %(limit)s" in sql
+    assert params == {
+        "session_id": session_id,
+        "risk_level": "high",
+        "actor_label": "commodity_bot",
+        "persona_id": "ubuntu_web_server",
+        "limit": 25,
+    }
+
+
+def test_manual_label_list_query_applies_supported_filters():
+    session_id = uuid4()
+    classifier_run_id = uuid4()
+
+    sql, params = manual_label_list_query(
+        session_id=session_id,
+        classifier_run_id=classifier_run_id,
+        limit=10,
+    )
+
+    assert "FROM manual_labels" in sql
+    assert "session_id = %(session_id)s" in sql
+    assert "classifier_run_id = %(classifier_run_id)s" in sql
+    assert "ORDER BY created_at DESC, id DESC" in sql
+    assert "LIMIT %(limit)s" in sql
+    assert params == {
+        "session_id": session_id,
+        "classifier_run_id": classifier_run_id,
+        "limit": 10,
+    }
 
 
 def test_storage_cli_init_db_requires_database_url(monkeypatch, capsys):
