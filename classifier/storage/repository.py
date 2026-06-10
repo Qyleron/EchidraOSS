@@ -232,6 +232,9 @@ def session_insert_params(record: ClassifierRunRecord) -> dict[str, Any]:
 
 def session_event_insert_params(record: ClassifierRunRecord) -> list[dict[str, Any]]:
     """Return command and decoy exposure timeline rows for one session."""
+    commands = record.session_record.get("commands", []) or []
+    decoy_files = record.session_record.get("decoy_files_surfaced", []) or []
+
     events = [
         {
             "session_id": record.session_id,
@@ -240,7 +243,7 @@ def session_event_insert_params(record: ClassifierRunRecord) -> list[dict[str, A
             "event_value": command["cmd"],
             "observed_at": command["timestamp"],
         }
-        for index, command in enumerate(record.session_record["commands"])
+        for index, command in enumerate(commands)
     ]
     offset = len(events)
     events.extend(
@@ -251,7 +254,7 @@ def session_event_insert_params(record: ClassifierRunRecord) -> list[dict[str, A
             "event_value": path,
             "observed_at": None,
         }
-        for index, path in enumerate(record.session_record["decoy_files_surfaced"])
+        for index, path in enumerate(decoy_files)
     )
     return events
 
@@ -276,7 +279,7 @@ def classifier_signal_insert_params(
     add_signal("version", "classifier", record.classifier_version)
     add_signal("version", "rules", record.rules_version)
 
-    for actor_label, vote_count in record.summary["actor_votes"].items():
+    for actor_label, vote_count in record.summary.get("actor_votes", {}).items():
         add_signal("actor_vote", actor_label, str(vote_count))
 
     for rule_id in record.matched_rule_ids:
@@ -285,19 +288,19 @@ def classifier_signal_insert_params(
     for tag in record.mitre_tags:
         add_signal("mitre_tag", "attack_id", tag)
 
-    for item in record.summary["evidence"]:
-        add_signal("evidence", item["rule_id"], item["text"])
+    for item in record.summary.get("evidence", []):
+        add_signal("evidence", item.get("rule_id", ""), item.get("text", ""))
 
     feature_summary = record.summary.get("feature_summary")
     if feature_summary is not None:
         for key, value in feature_summary.items():
             add_signal("feature", key, str(value))
 
-    for recommendation in record.summary["safeguard_recommendations"]:
+    for recommendation in record.summary.get("safeguard_recommendations", []):
         add_signal(
             "recommendation",
-            recommendation["action"],
-            recommendation["priority"],
+            recommendation.get("action", "unknown"),
+            recommendation.get("priority", "unknown"),
         )
 
     return signals
