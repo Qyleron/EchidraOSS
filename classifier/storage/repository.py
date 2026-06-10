@@ -218,6 +218,10 @@ SELECT
 FROM manual_labels
 """
 
+# Limit validation constants
+MAX_LIMIT = 1000
+MAX_MANUAL_LABEL_LIMIT = 1000
+
 
 class DatabaseNotConfiguredError(RuntimeError):
     """Raised when storage is requested without ECHIDRA_DATABASE_URL."""
@@ -311,14 +315,37 @@ class PostgresClassifierRepository:
             limit=limit,
         )
         rows = _fetch_all(self.database_url, sql, params)
+        if not rows:
+            return []
+        
+        # Fetch all signals at once to avoid N+1 query
+        run_ids = [row["id"] for row in rows]
+        signal_sql = """
+        SELECT
+            classifier_run_id,
+            signal_index,
+            signal_type,
+            signal_key,
+            signal_value
+        FROM classifier_signals
+        WHERE classifier_run_id = ANY(%(run_ids)s)
+        ORDER BY classifier_run_id, signal_index
+        """
+        signal_rows = _fetch_all(self.database_url, signal_sql, {"run_ids": run_ids})
+        
+        # Group signals by classifier_run_id
+        signals_by_run_id: dict[UUID, list[dict[str, Any]]] = {}
+        for signal_row in signal_rows:
+            run_id = signal_row["classifier_run_id"]
+            if run_id not in signals_by_run_id:
+                signals_by_run_id[run_id] = []
+            signals_by_run_id[run_id].append(signal_row)
+        
+        # Build StoredClassifierRun objects with grouped signals
         return [
             stored_classifier_run_from_rows(
                 row,
-                _fetch_all(
-                    self.database_url,
-                    SELECT_CLASSIFIER_SIGNALS_SQL,
-                    {"classifier_run_id": row["id"]},
-                ),
+                signals_by_run_id.get(row["id"], []),
             )
             for row in rows
         ]
@@ -510,6 +537,11 @@ def classifier_run_list_query(
     limit: int = 100,
 ) -> tuple[str, dict[str, Any]]:
     """Return SQL and parameters for listing stored classifier runs."""
+    # Validate and clamp limit
+    if not isinstance(limit, int) or limit < 1:
+        raise ValueError(f"limit must be a positive integer, got {limit}")
+    limit = min(limit, MAX_LIMIT)
+    
     filters: list[str] = []
     params: dict[str, Any] = {"limit": limit}
     if session_id is not None:
@@ -540,6 +572,11 @@ def manual_label_list_query(
     limit: int = 100,
 ) -> tuple[str, dict[str, Any]]:
     """Return SQL and parameters for listing stored manual labels."""
+    # Validate and clamp limit
+    if not isinstance(limit, int) or limit < 1:
+        raise ValueError(f"limit must be a positive integer, got {limit}")
+    limit = min(limit, MAX_MANUAL_LABEL_LIMIT)
+    
     filters: list[str] = []
     params: dict[str, Any] = {"limit": limit}
     if session_id is not None:
