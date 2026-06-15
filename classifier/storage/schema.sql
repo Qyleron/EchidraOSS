@@ -3,6 +3,17 @@ DROP TABLE IF EXISTS classifier_signals;
 DROP TABLE IF EXISTS classifier_runs;
 DROP TABLE IF EXISTS session_events;
 DROP TABLE IF EXISTS sessions;
+DROP TABLE IF EXISTS dashboard_users;
+
+CREATE TABLE dashboard_users (
+    id UUID PRIMARY KEY,
+    email TEXT NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL
+);
+
+CREATE INDEX dashboard_users_email_idx
+    ON dashboard_users (email);
 
 CREATE TABLE sessions (
     id UUID PRIMARY KEY,

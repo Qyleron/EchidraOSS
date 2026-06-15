@@ -4,6 +4,7 @@ from classifier.storage.config import get_database_url
 from classifier.storage.models import (
     ClassifierRunRecord,
     ClassifyAndStoreResponse,
+    DashboardUserRecord,
     ManualLabelInput,
     ManualLabelRecord,
     StoredClassifierRun,
@@ -18,6 +19,7 @@ from classifier.storage.repository import (
 __all__ = [
     "ClassifierRunRecord",
     "ClassifyAndStoreResponse",
+    "DashboardUserRecord",
     "DatabaseDriverMissingError",
     "DatabaseNotConfiguredError",
     "ManualLabelInput",

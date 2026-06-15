@@ -1,9 +1,13 @@
+import hashlib
+import hmac
 import importlib
 
 import pytest
 from fastapi import HTTPException
+from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.routing import APIRoute
 from pydantic import ValidationError
+from starlette.responses import Response
 
 from classifier.api import app
 from classifier.schemas.session import SessionRecord
@@ -11,6 +15,7 @@ from classifier.scoring.session import ClassificationSummary
 from classifier.storage import (
     ClassifyAndStoreResponse,
     ClassifierRunRecord,
+    DashboardUserRecord,
     DatabaseNotConfiguredError,
     ManualLabelInput,
     ManualLabelRecord,
@@ -19,6 +24,31 @@ from classifier.storage import (
 from tests.test_classifier_pipeline import make_record
 
 app_module = importlib.import_module("classifier.api.app")
+
+
+@pytest.fixture(autouse=True)
+def clear_dashboard_session_secret(monkeypatch):
+    monkeypatch.delenv("ECHIDRA_SESSION_SECRET", raising=False)
+
+
+class FakeRequest:
+    def __init__(self, cookies=None, headers=None):
+        self.cookies = cookies or {}
+        self.headers = headers or {}
+
+
+def dashboard_cookie(email="analyst@example.com"):
+    user = DashboardUserRecord(email=email, password_hash="hash")
+    return {
+        app_module.DASHBOARD_AUTH_COOKIE:
+        app_module._dashboard_session_cookie_value(user)
+    }
+
+
+def dashboard_request(cookies=None, headers=None, authenticated=True):
+    if cookies is None and authenticated:
+        cookies = dashboard_cookie()
+    return FakeRequest(cookies=cookies, headers=headers)
 
 
 def route_for(path, method):
@@ -33,6 +63,239 @@ def test_health_endpoint_reports_ok():
     route = route_for("/health", "GET")
 
     assert route.endpoint() == {"status": "ok"}
+
+
+def test_dashboard_route_serves_dashboard_html():
+    route = route_for("/dashboard", "GET")
+
+    response = route.endpoint(dashboard_request())
+
+    assert isinstance(response, FileResponse)
+    assert str(response.path).endswith("dashboard/public/index.html")
+    assert response.media_type == "text/html"
+
+
+def test_auth_route_serves_auth_html():
+    route = route_for("/auth", "GET")
+
+    response = route.endpoint()
+
+    assert isinstance(response, FileResponse)
+    assert str(response.path).endswith("dashboard/public/auth.html")
+    assert response.media_type == "text/html"
+
+
+def test_dashboard_assets_are_whitelisted_and_served():
+    route = route_for("/assets/{filename}", "GET")
+
+    banner = route.endpoint("Qyleron_Banner.png")
+    logo = route.endpoint("qyleron_logo.png")
+
+    assert isinstance(banner, FileResponse)
+    assert str(banner.path).endswith("assets/Qyleron_Banner.png")
+    assert isinstance(logo, FileResponse)
+    assert str(logo.path).endswith("assets/qyleron_logo.png")
+
+    with pytest.raises(HTTPException) as exc_info:
+        route.endpoint("../README.md")
+
+    assert exc_info.value.status_code == 404
+
+
+def test_dashboard_route_reports_missing_asset(monkeypatch, tmp_path):
+    route = route_for("/dashboard", "GET")
+    missing_path = tmp_path / "missing-dashboard.html"
+
+    monkeypatch.setattr(app_module, "DASHBOARD_INDEX_PATH", missing_path)
+
+    with pytest.raises(HTTPException) as exc_info:
+        route.endpoint(dashboard_request())
+
+    assert exc_info.value.status_code == 404
+    assert exc_info.value.detail == "dashboard not found"
+
+
+def test_dashboard_route_redirects_to_auth_without_session_cookie():
+    route = route_for("/dashboard", "GET")
+
+    response = route.endpoint(dashboard_request(authenticated=False))
+
+    assert isinstance(response, RedirectResponse)
+    assert response.status_code == 303
+    assert response.headers["location"] == "/auth"
+
+
+def test_dashboard_route_accepts_valid_session_cookie():
+    route = route_for("/dashboard", "GET")
+
+    response = route.endpoint(dashboard_request())
+
+    assert isinstance(response, FileResponse)
+
+
+def test_signup_dashboard_user_hashes_password_and_sets_cookie(monkeypatch):
+    route = route_for("/auth/signup", "POST")
+    saved = {}
+
+    class FakeRepository:
+        def get_dashboard_user_by_email(self, email):
+            assert email == "analyst@example.com"
+            return None
+
+        def create_dashboard_user(self, *, email, password_hash):
+            saved["email"] = email
+            saved["password_hash"] = password_hash
+            return DashboardUserRecord(email=email, password_hash=password_hash)
+
+    monkeypatch.setattr(app_module, "PostgresClassifierRepository", FakeRepository)
+    response = Response()
+    payload = app_module.DashboardSignupInput(
+        email="Analyst@Example.com",
+        password="password1",
+    )
+
+    body = route.endpoint(payload, response)
+
+    assert body == {"authenticated": True, "email": "analyst@example.com"}
+    assert saved["email"] == "analyst@example.com"
+    assert saved["password_hash"] != "password1"
+    assert app_module._verify_password("password1", saved["password_hash"])
+    assert app_module.DASHBOARD_AUTH_COOKIE in response.headers["set-cookie"]
+
+
+def test_signup_dashboard_user_rejects_duplicate_email(monkeypatch):
+    route = route_for("/auth/signup", "POST")
+    user = DashboardUserRecord(
+        email="analyst@example.com",
+        password_hash=app_module._hash_password("password1"),
+    )
+
+    class FakeRepository:
+        def get_dashboard_user_by_email(self, email):
+            return user
+
+    monkeypatch.setattr(app_module, "PostgresClassifierRepository", FakeRepository)
+    payload = app_module.DashboardSignupInput(
+        email="analyst@example.com",
+        password="password1",
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        route.endpoint(payload, Response())
+
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.detail == "email already registered"
+
+
+def test_login_dashboard_user_sets_cookie_for_valid_credentials(monkeypatch):
+    route = route_for("/auth/login", "POST")
+    password_hash = app_module._hash_password("password1")
+    user = DashboardUserRecord(
+        email="analyst@example.com",
+        password_hash=password_hash,
+    )
+
+    class FakeRepository:
+        def get_dashboard_user_by_email(self, email):
+            assert email == "analyst@example.com"
+            return user
+
+    monkeypatch.setattr(app_module, "PostgresClassifierRepository", FakeRepository)
+    response = Response()
+    payload = app_module.DashboardLoginInput(
+        email="Analyst@Example.com",
+        password="password1",
+    )
+
+    body = route.endpoint(payload, response)
+
+    assert body == {"authenticated": True, "email": "analyst@example.com"}
+    assert app_module.DASHBOARD_AUTH_COOKIE in response.headers["set-cookie"]
+    assert "Max-Age=28800" in response.headers["set-cookie"]
+
+
+def test_login_dashboard_user_rejects_invalid_credentials(monkeypatch):
+    route = route_for("/auth/login", "POST")
+    password_hash = app_module._hash_password("password1")
+    user = DashboardUserRecord(
+        email="analyst@example.com",
+        password_hash=password_hash,
+    )
+
+    class FakeRepository:
+        def get_dashboard_user_by_email(self, email):
+            return user
+
+    monkeypatch.setattr(app_module, "PostgresClassifierRepository", FakeRepository)
+    payload = app_module.DashboardLoginInput(
+        email="analyst@example.com",
+        password="wrongpass1",
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        route.endpoint(payload, Response())
+
+    assert exc_info.value.status_code == 401
+    assert exc_info.value.detail == "invalid email or password"
+
+
+def test_dashboard_password_validation_requires_length_letter_and_number():
+    with pytest.raises(ValidationError, match="at least 8"):
+        app_module.DashboardSignupInput(email="a@example.com", password="short1")
+    with pytest.raises(ValidationError, match="letter"):
+        app_module.DashboardSignupInput(email="a@example.com", password="12345678")
+    with pytest.raises(ValidationError, match="number"):
+        app_module.DashboardSignupInput(email="a@example.com", password="password")
+    with pytest.raises(ValidationError, match="whitespace"):
+        app_module.DashboardSignupInput(email="a@example.com", password="password 1")
+    with pytest.raises(ValidationError, match="at most 128"):
+        app_module.DashboardSignupInput(
+            email="a@example.com",
+            password=f"a1{'x' * 127}",
+        )
+
+
+def test_dashboard_login_applies_password_format_validation():
+    with pytest.raises(ValidationError, match="at least 8"):
+        app_module.DashboardLoginInput(email="a@example.com", password="short1")
+
+
+def test_dashboard_email_validation_rejects_invalid_format():
+    invalid_emails = [
+        "not-an-email",
+        ".analyst@example.com",
+        "analyst..name@example.com",
+        "analyst@-example.com",
+        "analyst@example-.com",
+    ]
+
+    for email in invalid_emails:
+        with pytest.raises(ValidationError, match="valid email"):
+            app_module.DashboardSignupInput(email=email, password="password1")
+
+
+def test_dashboard_session_cookie_rejects_expired_value(monkeypatch):
+    issued_at = 1_000
+    user = DashboardUserRecord(email="analyst@example.com", password_hash="hash")
+    payload = f"{user.id}:{user.email}:{issued_at}"
+    signature = hmac.new(
+        app_module._dashboard_session_secret().encode("utf-8"),
+        payload.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+    monkeypatch.setattr(
+        app_module.time,
+        "time",
+        lambda: issued_at + app_module.SESSION_MAX_AGE_SECONDS + 1,
+    )
+
+    assert not app_module._verify_dashboard_session_cookie(f"{payload}:{signature}")
+
+
+def test_dashboard_cookie_secure_flag_reads_environment(monkeypatch):
+    monkeypatch.setenv("ECHIDRA_COOKIE_SECURE", "true")
+
+    assert app_module._dashboard_cookie_secure()
 
 
 def test_classify_session_route_uses_classifier_summary_contract():
@@ -223,7 +486,7 @@ def test_get_classifier_run_endpoint_returns_stored_run(monkeypatch):
 
     monkeypatch.setattr(app_module, "PostgresClassifierRepository", FakeRepository)
 
-    response = route.endpoint(record.id)
+    response = route.endpoint(record.id, dashboard_request())
 
     assert response == stored_run
 
@@ -240,7 +503,7 @@ def test_get_classifier_run_endpoint_reports_missing_run(monkeypatch):
     monkeypatch.setattr(app_module, "PostgresClassifierRepository", FakeRepository)
 
     with pytest.raises(HTTPException) as exc_info:
-        route.endpoint(run_id)
+        route.endpoint(run_id, dashboard_request())
 
     assert exc_info.value.status_code == 404
     assert exc_info.value.detail == "classifier run not found"
@@ -261,7 +524,7 @@ def test_get_classifier_run_endpoint_reports_missing_database(monkeypatch):
     )
 
     with pytest.raises(HTTPException) as exc_info:
-        route.endpoint(run_id)
+        route.endpoint(run_id, dashboard_request())
 
     assert exc_info.value.status_code == 503
     assert exc_info.value.detail == "ECHIDRA_DATABASE_URL must be set"
@@ -311,6 +574,7 @@ def test_list_classifier_runs_endpoint_passes_filters(monkeypatch):
     monkeypatch.setattr(app_module, "PostgresClassifierRepository", FakeRepository)
 
     response = route.endpoint(
+        dashboard_request(),
         session_id=session.session_id,
         risk_level="medium",
         actor_label="commodity_bot",
@@ -335,10 +599,20 @@ def test_list_classifier_runs_endpoint_reports_missing_database(monkeypatch):
     )
 
     with pytest.raises(HTTPException) as exc_info:
-        route.endpoint(limit=100)
+        route.endpoint(dashboard_request(), limit=100)
 
     assert exc_info.value.status_code == 503
     assert exc_info.value.detail == "ECHIDRA_DATABASE_URL must be set"
+
+
+def test_list_classifier_runs_endpoint_requires_dashboard_session():
+    route = route_for("/classifier/runs", "GET")
+
+    with pytest.raises(HTTPException) as exc_info:
+        route.endpoint(dashboard_request(authenticated=False), limit=100)
+
+    assert exc_info.value.status_code == 401
+    assert exc_info.value.detail == "dashboard auth required"
 
 
 def test_get_manual_label_endpoint_returns_stored_label(monkeypatch):
@@ -358,7 +632,7 @@ def test_get_manual_label_endpoint_returns_stored_label(monkeypatch):
 
     monkeypatch.setattr(app_module, "PostgresClassifierRepository", FakeRepository)
 
-    response = route.endpoint(label.id)
+    response = route.endpoint(label.id, dashboard_request())
 
     assert response == label
 
@@ -375,7 +649,7 @@ def test_get_manual_label_endpoint_reports_missing_label(monkeypatch):
     monkeypatch.setattr(app_module, "PostgresClassifierRepository", FakeRepository)
 
     with pytest.raises(HTTPException) as exc_info:
-        route.endpoint(label_id)
+        route.endpoint(label_id, dashboard_request())
 
     assert exc_info.value.status_code == 404
     assert exc_info.value.detail == "manual label not found"
@@ -403,6 +677,7 @@ def test_list_manual_labels_endpoint_passes_filters(monkeypatch):
     monkeypatch.setattr(app_module, "PostgresClassifierRepository", FakeRepository)
 
     response = route.endpoint(
+        dashboard_request(),
         session_id=label.session_id,
         classifier_run_id=label.classifier_run_id,
         limit=30,
@@ -425,7 +700,7 @@ def test_list_manual_labels_endpoint_reports_missing_database(monkeypatch):
     )
 
     with pytest.raises(HTTPException) as exc_info:
-        route.endpoint(limit=100)
+        route.endpoint(dashboard_request(), limit=100)
 
     assert exc_info.value.status_code == 503
     assert exc_info.value.detail == "ECHIDRA_DATABASE_URL must be set"

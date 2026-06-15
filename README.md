@@ -42,6 +42,8 @@ Echidra currently includes:
 - PostgreSQL schema and repository for classifier runs and manual labels
 - API retrieval endpoints for stored classifier runs and manual labels
 - API list/filter endpoints for stored classifier runs and manual labels
+- Responsive D3.js dashboard shell for persisted classifier runs
+- Database-backed signup/login and protected dashboard access
 - Risk scoring, evidence aggregation, and MITRE tag mapping for matched rules
 - Behavior stage and intent mapping for classifier summaries
 - Evidence-backed Safeguard Advisor recommendations for external security tools
@@ -50,7 +52,7 @@ Echidra currently includes:
 
 Next major upgrade:
 
-- Build dashboard/reporting views over persisted classifier data
+- Add aggregate reporting endpoints and richer dashboard summaries
 
 ---
 
@@ -257,6 +259,11 @@ GET /classifier/runs/{run_id}
 GET /classifier/runs
 GET /manual-labels/{label_id}
 GET /manual-labels
+GET /auth
+POST /auth/signup
+POST /auth/login
+POST /auth/logout
+GET /dashboard
 ```
 
 Both endpoints accept the canonical completed session record. The first returns
@@ -264,6 +271,14 @@ only the classifier summary; the second requires `ECHIDRA_DATABASE_URL`, stores
 the classifier run in PostgreSQL, and returns the run ID plus summary. The GET
 endpoints also require `ECHIDRA_DATABASE_URL` and return stored classifier run
 or manual label records by ID or by exact-match list filters.
+
+The dashboard route serves a responsive browser UI for the stored classifier
+run list, filters, risk distribution chart, and selected run detail view.
+Dashboard users sign up or log in at `/auth`; salted PBKDF2 password hashes are
+stored in PostgreSQL. A successful signup or login creates an eight-hour signed
+session that protects `/dashboard` and the storage read endpoints. Set
+`ECHIDRA_SESSION_SECRET` in production, and set `ECHIDRA_COOKIE_SECURE=true`
+when serving the dashboard over HTTPS.
 
 For local configuration, copy the template and edit it for your machine:
 

@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Echidra Auth | Qyleron</title>
+  <link rel="icon" href="/assets/qyleron_logo.png" type="image/png" />
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    :root {
+      color-scheme: dark;
+      --bg: #000000;
+      --panel: #0a0a0a;
+      --panel-strong: #111111;
+      --line: #1f1f1f;
+      --line-strong: #333333;
+      --text: #ffffff;
+      --muted: #999999;
+      --subtle: #666666;
+      --success: #22c55e;
+      --danger: #ef4444;
+      --focus: rgba(255, 255, 255, 0.14);
+      font-family: "SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      min-width: 320px;
+      min-height: 100vh;
+      display: grid;
+      grid-template-rows: auto 1fr;
+      overflow-x: hidden;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+    }
+
+    button,
+    input {
+      font: inherit;
+    }
+
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      z-index: -2;
+      opacity: 0.03;
+      background-image:
+        linear-gradient(90deg, #333333 1px, transparent 1px),
+        linear-gradient(#333333 1px, transparent 1px);
+      background-size: 50px 50px;
+    }
+
+    .topbar {
+      min-height: 68px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 20px;
+      padding: 12px 32px;
+      border-bottom: 1px solid var(--line);
+      background: var(--panel);
+    }
+
+    .brand-banner {
+      display: block;
+      width: clamp(112px, 16vw, 170px);
+      height: 42px;
+      object-fit: contain;
+      object-position: left center;
+    }
+
+    .product-name {
+      color: var(--muted);
+      font-size: 15px;
+      font-weight: 650;
+      white-space: nowrap;
+    }
+
+    .auth-shell {
+      min-height: 0;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+    }
+
+    .auth-container {
+      position: relative;
+      width: 100%;
+      max-width: 450px;
+      min-height: 510px;
+      padding: clamp(24px, 5vw, 44px);
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: var(--panel);
+      animation: fadeIn 0.65s ease forwards;
+    }
+
+    .auth-container::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(45deg, transparent, rgba(255, 255, 255, 0.025), transparent);
+      transform: translateX(-100%);
+      transition: transform 0.6s;
+      pointer-events: none;
+    }
+
+    .auth-container:hover::before {
+      transform: translateX(100%);
+    }
+
+    .form-heading {
+      margin-bottom: clamp(22px, 4vw, 30px);
+      text-align: center;
+    }
+
+    .form-heading h1 {
+      margin-bottom: 6px;
+      font-size: clamp(28px, 5vw, 36px);
+      line-height: 1.1;
+      font-weight: 740;
+      letter-spacing: -0.04em;
+    }
+
+    .form-heading p {
+      color: var(--muted);
+      font-size: 15px;
+    }
+
+    .tabs {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-bottom: 24px;
+      padding: 4px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel-strong);
+    }
+
+    .tab-button {
+      min-height: 38px;
+      border: 0;
+      border-radius: 6px;
+      background: transparent;
+      color: var(--muted);
+      cursor: pointer;
+      font-weight: 650;
+    }
+
+    .tab-button.active {
+      background: var(--text);
+      color: #000000;
+    }
+
+    .auth-form {
+      display: grid;
+      gap: 18px;
+    }
+
+    .auth-form.hidden {
+      display: none;
+    }
+
+    .form-group {
+      display: grid;
+      gap: 7px;
+    }
+
+    label {
+      color: #cccccc;
+      font-size: 14px;
+      font-weight: 520;
+    }
+
+    input {
+      width: 100%;
+      min-height: 46px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 12px 14px;
+      background: var(--panel-strong);
+      color: var(--text);
+      transition: border-color 0.2s ease, background 0.2s ease, box-shadow 0.2s ease;
+    }
+
+    input:focus {
+      outline: none;
+      border-color: var(--line-strong);
+      background: #1a1a1a;
+      box-shadow: 0 0 0 3px var(--focus);
+    }
+
+    input::placeholder {
+      color: var(--subtle);
+    }
+
+    .help-text {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .btn {
+      width: 100%;
+      min-height: 46px;
+      border: 0;
+      border-radius: 6px;
+      background: var(--text);
+      color: #000000;
+      cursor: pointer;
+      font-weight: 680;
+      transition: background 0.2s ease, color 0.2s ease, transform 0.2s ease;
+    }
+
+    .btn:hover {
+      background: #eeeeee;
+      transform: translateY(-1px);
+    }
+
+    .btn:disabled {
+      background: #333333;
+      color: #777777;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .message {
+      min-height: 0;
+      max-height: 0;
+      overflow: hidden;
+      border-radius: 6px;
+      text-align: center;
+      font-size: 14px;
+      opacity: 0;
+      transform: translateY(-8px);
+      transition: all 0.25s ease;
+    }
+
+    .message.show {
+      min-height: 44px;
+      max-height: 90px;
+      padding: 10px 12px;
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    .message.success {
+      border: 1px solid rgba(34, 197, 94, 0.3);
+      background: rgba(34, 197, 94, 0.1);
+      color: var(--success);
+    }
+
+    .message.error {
+      border: 1px solid rgba(239, 68, 68, 0.3);
+      background: rgba(239, 68, 68, 0.1);
+      color: var(--danger);
+    }
+
+    @keyframes fadeIn {
+      from {
+        opacity: 0;
+        transform: translateY(18px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    @media (max-width: 768px) {
+      .topbar {
+        padding: 10px 20px;
+      }
+
+      .auth-shell {
+        padding: 20px;
+      }
+    }
+
+    @media (max-width: 520px) {
+      .topbar {
+        min-height: 62px;
+        padding: 10px 14px;
+      }
+
+      .brand-banner {
+        width: 118px;
+        height: 36px;
+      }
+
+      .product-name {
+        font-size: 13px;
+      }
+
+      .auth-shell {
+        align-items: start;
+        padding: 16px 12px;
+      }
+
+      .auth-container {
+        min-height: auto;
+        padding: 22px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <img class="brand-banner" src="/assets/Qyleron_Banner.png" alt="Qyleron" />
+    <div class="product-name">EchidraOSS</div>
+  </header>
+
+  <main class="auth-shell">
+    <section class="auth-container" aria-label="Dashboard authentication">
+      <div class="form-heading">
+        <h1 id="formTitle">Login</h1>
+        <p id="formSubtitle">Access the Echidra dashboard.</p>
+      </div>
+
+      <div class="tabs" role="tablist" aria-label="Authentication mode">
+        <button id="loginTab" class="tab-button active" type="button">Login</button>
+        <button id="signupTab" class="tab-button" type="button">Signup</button>
+      </div>
+
+      <div id="authMessage" class="message" role="status"></div>
+
+      <form id="loginForm" class="auth-form">
+        <div class="form-group">
+          <label for="loginEmail">Email Address</label>
+          <input type="email" id="loginEmail" placeholder="analyst@example.com" autocomplete="email" maxlength="254" required />
+        </div>
+        <div class="form-group">
+          <label for="loginPassword">Password</label>
+          <input type="password" id="loginPassword" placeholder="Enter password" autocomplete="current-password" minlength="8" maxlength="128" required />
+        </div>
+        <button type="submit" class="btn" id="loginButton">Login</button>
+      </form>
+
+      <form id="signupForm" class="auth-form hidden">
+        <div class="form-group">
+          <label for="signupEmail">Email Address</label>
+          <input type="email" id="signupEmail" placeholder="analyst@example.com" autocomplete="email" maxlength="254" required />
+        </div>
+        <div class="form-group">
+          <label for="signupPassword">Password</label>
+          <input type="password" id="signupPassword" placeholder="Create password" autocomplete="new-password" minlength="8" maxlength="128" required />
+          <div class="help-text">Use 8-128 characters with a letter and a number, without spaces.</div>
+        </div>
+        <div class="form-group">
+          <label for="confirmPassword">Confirm Password</label>
+          <input type="password" id="confirmPassword" placeholder="Repeat password" autocomplete="new-password" minlength="8" maxlength="128" required />
+        </div>
+        <button type="submit" class="btn" id="signupButton">Signup</button>
+      </form>
+    </section>
+  </main>
+
+  <script>
+    const loginTab = document.getElementById("loginTab");
+    const signupTab = document.getElementById("signupTab");
+    const loginForm = document.getElementById("loginForm");
+    const signupForm = document.getElementById("signupForm");
+    const formTitle = document.getElementById("formTitle");
+    const formSubtitle = document.getElementById("formSubtitle");
+    const authMessage = document.getElementById("authMessage");
+
+    loginTab.addEventListener("click", () => setMode("login"));
+    signupTab.addEventListener("click", () => setMode("signup"));
+
+    loginForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const email = document.getElementById("loginEmail").value.trim();
+      const password = document.getElementById("loginPassword").value;
+      if (!validateCredentials(email, password)) {
+        return;
+      }
+      await submitAuth("/auth/login", { email, password }, "loginButton", "Login");
+    });
+
+    signupForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const email = document.getElementById("signupEmail").value.trim();
+      const password = document.getElementById("signupPassword").value;
+      const confirmPassword = document.getElementById("confirmPassword").value;
+      if (!validateCredentials(email, password)) {
+        return;
+      }
+      if (password !== confirmPassword) {
+        showMessage("Passwords do not match.");
+        return;
+      }
+      await submitAuth("/auth/signup", { email, password }, "signupButton", "Signup");
+    });
+
+    function setMode(mode) {
+      const isLogin = mode === "login";
+      loginTab.classList.toggle("active", isLogin);
+      signupTab.classList.toggle("active", !isLogin);
+      loginForm.classList.toggle("hidden", !isLogin);
+      signupForm.classList.toggle("hidden", isLogin);
+      formTitle.textContent = isLogin ? "Login" : "Signup";
+      formSubtitle.textContent = isLogin
+        ? "Access the Echidra dashboard."
+        : "Create a dashboard user.";
+      clearMessage();
+      setTimeout(() => {
+        document.getElementById(isLogin ? "loginEmail" : "signupEmail").focus();
+      }, 0);
+    }
+
+    function validateCredentials(email, password) {
+      if (!isValidEmail(email)) {
+        showMessage("Enter a valid email address.");
+        return false;
+      }
+      if (password.length < 8) {
+        showMessage("Password must be at least 8 characters.");
+        return false;
+      }
+      if (password.length > 128) {
+        showMessage("Password must be at most 128 characters.");
+        return false;
+      }
+      if (/\s/.test(password)) {
+        showMessage("Password must not contain spaces.");
+        return false;
+      }
+      if (!/[A-Za-z]/.test(password) || !/\d/.test(password)) {
+        showMessage("Password must include a letter and a number.");
+        return false;
+      }
+      return true;
+    }
+
+    function isValidEmail(email) {
+      if (email.length > 254 || email.startsWith(".") || email.includes("..")) {
+        return false;
+      }
+      const match = email.match(/^([A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+)@([A-Za-z0-9.-]+)$/);
+      if (!match || match[1].length > 64) {
+        return false;
+      }
+      const labels = match[2].split(".");
+      return labels.length > 1 && labels.every((label) => (
+        label && !label.startsWith("-") && !label.endsWith("-")
+      ));
+    }
+
+    async function submitAuth(url, payload, buttonId, idleText) {
+      const button = document.getElementById(buttonId);
+      button.disabled = true;
+      button.textContent = "Please wait...";
+      clearMessage();
+      try {
+        const response = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        if (!response.ok) {
+          const body = await response.json().catch(() => ({}));
+          const detail = Array.isArray(body.detail)
+            ? body.detail[0]?.msg
+            : body.detail;
+          showMessage(detail || "Authentication failed.");
+          return;
+        }
+        showMessage("Access granted. Redirecting...", "success");
+        window.location.assign("/dashboard");
+      } catch (error) {
+        showMessage("Unable to reach the server. Please try again.");
+      } finally {
+        button.disabled = false;
+        button.textContent = idleText;
+      }
+    }
+
+    function showMessage(message, type = "error") {
+      authMessage.textContent = message;
+      authMessage.className = `message ${type} show`;
+    }
+
+    function clearMessage() {
+      authMessage.textContent = "";
+      authMessage.className = "message";
+    }
+
+    document.addEventListener("DOMContentLoaded", () => {
+      document.getElementById("loginEmail").focus();
+    });
+  </script>
+</body>
+</html>
