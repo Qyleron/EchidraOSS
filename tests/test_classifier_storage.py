@@ -12,6 +12,7 @@ from classifier.storage.config import (
 )
 from classifier.storage.models import (
     ClassifierRunRecord,
+    DashboardUserRecord,
     ManualLabelInput,
     ManualLabelRecord,
 )
@@ -23,6 +24,8 @@ from classifier.storage.repository import (
     manual_label_insert_params,
     classifier_signal_insert_params,
     classifier_run_list_query,
+    dashboard_user_from_row,
+    dashboard_user_insert_params,
     session_event_insert_params,
     session_insert_params,
     manual_label_from_row,
@@ -275,6 +278,32 @@ def test_manual_label_from_row_returns_storage_model():
     stored_label = manual_label_from_row(row)
 
     assert stored_label == label
+
+
+def test_dashboard_user_insert_params_match_storage_columns():
+    user = DashboardUserRecord(
+        email="analyst@example.com",
+        password_hash="pbkdf2_sha256$1$salt$digest",
+    )
+
+    params = dashboard_user_insert_params(user)
+
+    assert params["id"] == user.id
+    assert params["email"] == "analyst@example.com"
+    assert params["password_hash"] == "pbkdf2_sha256$1$salt$digest"
+    assert params["created_at"] == user.created_at
+
+
+def test_dashboard_user_from_row_returns_storage_model():
+    user = DashboardUserRecord(
+        email="analyst@example.com",
+        password_hash="pbkdf2_sha256$1$salt$digest",
+    )
+    row = dashboard_user_insert_params(user)
+
+    stored_user = dashboard_user_from_row(row)
+
+    assert stored_user == user
 
 
 def test_classifier_run_list_query_applies_supported_filters():

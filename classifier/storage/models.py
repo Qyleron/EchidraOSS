@@ -96,6 +96,18 @@ class ManualLabelRecord(ManualLabelInput):
     created_at: datetime = Field(default_factory=_utc_now)
 
 
+class DashboardUserRecord(BaseModel):
+    """One dashboard user allowed to access persisted classifier data."""
+
+    id: UUID = Field(default_factory=uuid4)
+    email: str
+    password_hash: str
+    created_at: datetime = Field(default_factory=_utc_now)
+
+    class Config:
+        extra = "forbid"
+
+
 class StoredClassifierSignal(BaseModel):
     """One persisted classifier signal attached to a stored run."""
 

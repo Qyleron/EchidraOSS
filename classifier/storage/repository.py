@@ -11,6 +11,7 @@ from classifier.scoring.session import ClassificationSummary
 from classifier.storage.config import get_database_url
 from classifier.storage.models import (
     ClassifierRunRecord,
+    DashboardUserRecord,
     ManualLabelInput,
     ManualLabelRecord,
     StoredClassifierRun,
@@ -218,6 +219,30 @@ SELECT
 FROM manual_labels
 """
 
+INSERT_DASHBOARD_USER_SQL = """
+INSERT INTO dashboard_users (
+    id,
+    email,
+    password_hash,
+    created_at
+) VALUES (
+    %(id)s,
+    %(email)s,
+    %(password_hash)s,
+    %(created_at)s
+)
+"""
+
+SELECT_DASHBOARD_USER_BY_EMAIL_SQL = """
+SELECT
+    id,
+    email,
+    password_hash,
+    created_at
+FROM dashboard_users
+WHERE email = %(email)s
+"""
+
 # Limit validation constants
 MAX_LIMIT = 1000
 MAX_MANUAL_LABEL_LIMIT = 1000
@@ -368,6 +393,36 @@ class PostgresClassifierRepository:
             for row in _fetch_all(self.database_url, sql, params)
         ]
 
+    def create_dashboard_user(
+        self,
+        *,
+        email: str,
+        password_hash: str,
+    ) -> DashboardUserRecord:
+        """Persist one dashboard user for UI authentication."""
+        record = DashboardUserRecord(
+            id=uuid4(),
+            email=email,
+            password_hash=password_hash,
+        )
+        _execute_insert(
+            self.database_url,
+            INSERT_DASHBOARD_USER_SQL,
+            dashboard_user_insert_params(record),
+        )
+        return record
+
+    def get_dashboard_user_by_email(self, email: str) -> DashboardUserRecord | None:
+        """Fetch one dashboard user by normalized email."""
+        row = _fetch_one(
+            self.database_url,
+            SELECT_DASHBOARD_USER_BY_EMAIL_SQL,
+            {"email": email},
+        )
+        if row is None:
+            return None
+        return dashboard_user_from_row(row)
+
 
 def classifier_run_insert_params(record: ClassifierRunRecord) -> dict[str, Any]:
     """Return SQL parameters for the compact classifier_runs row."""
@@ -512,6 +567,16 @@ def manual_label_insert_params(record: ManualLabelRecord) -> dict[str, Any]:
     }
 
 
+def dashboard_user_insert_params(record: DashboardUserRecord) -> dict[str, Any]:
+    """Return SQL parameters for inserting a dashboard user row."""
+    return {
+        "id": record.id,
+        "email": record.email,
+        "password_hash": record.password_hash,
+        "created_at": record.created_at,
+    }
+
+
 def stored_classifier_run_from_rows(
     run_row: dict[str, Any],
     signal_rows: list[dict[str, Any]],
@@ -526,6 +591,11 @@ def stored_classifier_run_from_rows(
 def manual_label_from_row(row: dict[str, Any]) -> ManualLabelRecord:
     """Build the storage model for one manual label query result."""
     return ManualLabelRecord(**row)
+
+
+def dashboard_user_from_row(row: dict[str, Any]) -> DashboardUserRecord:
+    """Build the storage model for one dashboard user query result."""
+    return DashboardUserRecord(**row)
 
 
 def classifier_run_list_query(
