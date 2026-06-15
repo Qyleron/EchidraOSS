@@ -233,7 +233,7 @@
 
     .metrics {
       display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
+      grid-template-columns: repeat(5, minmax(0, 1fr));
       gap: 12px;
     }
 
@@ -453,6 +453,10 @@
       .content {
         grid-template-columns: 1fr;
       }
+
+      .metrics {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
     }
 
     @media (max-width: 768px) {
@@ -603,6 +607,10 @@
             <strong id="metricPersonas">0</strong>
           </div>
           <div class="metric">
+            <span>Average risk</span>
+            <strong id="metricAverageRisk">0</strong>
+          </div>
+          <div class="metric">
             <span>Manual labels</span>
             <strong id="metricLabels">0</strong>
           </div>
@@ -677,7 +685,7 @@
   <script>
     const state = {
       runs: [],
-      labels: [],
+      summary: null,
       selectedRunId: null,
       map: null,
       mapLayer: null,
@@ -758,19 +766,18 @@
       const query = buildQuery(filters);
       try {
         const runsUrl = query ? `/classifier/runs?${query}` : "/classifier/runs";
-        const labelsUrl = "/manual-labels?limit=500";
-        const [runs, labels] = await Promise.all([
+        const [runs, summary] = await Promise.all([
           fetchJson(runsUrl),
-          fetchJson(labelsUrl),
+          fetchJson("/reports/summary"),
         ]);
         state.runs = runs;
-        state.labels = labels;
+        state.summary = summary;
         state.selectedRunId = runs[0] ? runs[0].id : null;
         render();
-        setStatus("ready", `${runs.length} runs loaded`);
+        setStatus("ready", `${summary.total_runs} total runs`);
       } catch (error) {
         state.runs = [];
-        state.labels = [];
+        state.summary = null;
         state.selectedRunId = null;
         render();
         setStatus("error", error.message);
@@ -786,12 +793,14 @@
     }
 
     function renderMetrics() {
-      const elevated = state.runs.filter((run) => ["critical", "high"].includes(run.risk_level)).length;
-      const personas = new Set(state.runs.map((run) => run.persona_id).filter(Boolean));
-      document.getElementById("metricTotal").textContent = state.runs.length;
-      document.getElementById("metricElevated").textContent = elevated;
-      document.getElementById("metricPersonas").textContent = personas.size;
-      document.getElementById("metricLabels").textContent = state.labels.length;
+      const summary = state.summary || {};
+      document.getElementById("metricTotal").textContent = summary.total_runs || 0;
+      document.getElementById("metricElevated").textContent = summary.elevated_runs || 0;
+      document.getElementById("metricPersonas").textContent = summary.distinct_personas || 0;
+      document.getElementById("metricAverageRisk").textContent = Number(
+        summary.average_risk_score || 0
+      ).toFixed(1);
+      document.getElementById("metricLabels").textContent = summary.manual_labels || 0;
     }
 
     function renderMap() {
@@ -833,10 +842,11 @@
     }
 
     function renderChart() {
+      const riskCounts = state.summary?.risk_counts || {};
       const data = riskOrder.map((risk) => ({
         risk,
         label: risk[0].toUpperCase() + risk.slice(1),
-        count: state.runs.filter((run) => run.risk_level === risk).length,
+        count: riskCounts[risk] || 0,
       }));
       const svg = d3.select("#riskChart");
       const node = svg.node();

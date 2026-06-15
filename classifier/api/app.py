@@ -21,6 +21,7 @@ from classifier.schemas.session import SessionRecord
 from classifier.scoring.session import ClassificationSummary
 from classifier.storage import (
     ClassifyAndStoreResponse,
+    DashboardReportSummary,
     DashboardUserRecord,
     DatabaseDriverMissingError,
     DatabaseNotConfiguredError,
@@ -210,6 +211,26 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=500, detail="internal server error")
 
         return ClassifyAndStoreResponse(run_id=run.id, summary=summary)
+
+    @api.get(
+        "/reports/summary",
+        response_model=DashboardReportSummary,
+        tags=["reports"],
+    )
+    def dashboard_report_summary_endpoint(request: Request) -> DashboardReportSummary:
+        """Return database-wide aggregate values for the dashboard."""
+        _require_dashboard_auth(request)
+        try:
+            repository = PostgresClassifierRepository()
+            return repository.get_dashboard_report_summary()
+        except (DatabaseDriverMissingError, DatabaseNotConfiguredError) as exc:
+            raise HTTPException(status_code=503, detail=str(exc))
+        except Exception as exc:
+            logger.exception(
+                "Unhandled exception in dashboard_report_summary_endpoint: %s",
+                exc,
+            )
+            raise HTTPException(status_code=500, detail="internal server error")
 
     @api.get(
         "/classifier/runs",

@@ -16,3 +16,10 @@ def test_all_dashboard_html_pages_use_shared_branding_and_tablet_viewport():
         assert "EchidraOSS" in html
         assert '<div class="product-name">EchidraOSS</div>' in html
         assert "@media (max-width: 768px)" in html
+
+
+def test_dashboard_uses_database_wide_report_summary():
+    html = (DASHBOARD_PUBLIC_PATH / "index.html").read_text(encoding="utf-8")
+
+    assert 'fetchJson("/reports/summary")' in html
+    assert 'id="metricAverageRisk"' in html

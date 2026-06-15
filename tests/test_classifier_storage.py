@@ -12,6 +12,7 @@ from classifier.storage.config import (
 )
 from classifier.storage.models import (
     ClassifierRunRecord,
+    DashboardReportSummary,
     DashboardUserRecord,
     ManualLabelInput,
     ManualLabelRecord,
@@ -304,6 +305,43 @@ def test_dashboard_user_from_row_returns_storage_model():
     stored_user = dashboard_user_from_row(row)
 
     assert stored_user == user
+
+
+def test_dashboard_report_summary_combines_database_aggregates(monkeypatch):
+    overview = {
+        "total_runs": 12,
+        "elevated_runs": 4,
+        "distinct_personas": 3,
+        "manual_labels": 2,
+        "average_risk_score": 42.5,
+    }
+    grouped_rows = iter(
+        [
+            [{"key": "high", "count": 4}, {"key": "low", "count": 8}],
+            [{"key": "commodity_bot", "count": 7}],
+            [{"key": "reconnaissance", "count": 6}],
+        ]
+    )
+
+    monkeypatch.setattr(
+        "classifier.storage.repository._fetch_one",
+        lambda database_url, sql, params: overview,
+    )
+    monkeypatch.setattr(
+        "classifier.storage.repository._fetch_all",
+        lambda database_url, sql, params: next(grouped_rows),
+    )
+
+    summary = PostgresClassifierRepository(
+        "postgresql://example/echidra"
+    ).get_dashboard_report_summary()
+
+    assert summary == DashboardReportSummary(
+        **overview,
+        risk_counts={"high": 4, "low": 8},
+        actor_counts={"commodity_bot": 7},
+        intent_counts={"reconnaissance": 6},
+    )
 
 
 def test_classifier_run_list_query_applies_supported_filters():

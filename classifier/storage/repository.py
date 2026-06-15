@@ -11,6 +11,7 @@ from classifier.scoring.session import ClassificationSummary
 from classifier.storage.config import get_database_url
 from classifier.storage.models import (
     ClassifierRunRecord,
+    DashboardReportSummary,
     DashboardUserRecord,
     ManualLabelInput,
     ManualLabelRecord,
@@ -243,6 +244,40 @@ FROM dashboard_users
 WHERE email = %(email)s
 """
 
+SELECT_DASHBOARD_REPORT_OVERVIEW_SQL = """
+SELECT
+    COUNT(*) AS total_runs,
+    COUNT(*) FILTER (
+        WHERE classifier_runs.risk_level IN ('high', 'critical')
+    ) AS elevated_runs,
+    COUNT(DISTINCT sessions.persona_id) AS distinct_personas,
+    COALESCE(AVG(classifier_runs.risk_score), 0) AS average_risk_score,
+    (SELECT COUNT(*) FROM manual_labels) AS manual_labels
+FROM classifier_runs
+JOIN sessions ON sessions.id = classifier_runs.session_id
+"""
+
+SELECT_DASHBOARD_REPORT_RISK_COUNTS_SQL = """
+SELECT risk_level AS key, COUNT(*) AS count
+FROM classifier_runs
+GROUP BY risk_level
+ORDER BY risk_level
+"""
+
+SELECT_DASHBOARD_REPORT_ACTOR_COUNTS_SQL = """
+SELECT COALESCE(actor_label, 'unknown') AS key, COUNT(*) AS count
+FROM classifier_runs
+GROUP BY COALESCE(actor_label, 'unknown')
+ORDER BY count DESC, key
+"""
+
+SELECT_DASHBOARD_REPORT_INTENT_COUNTS_SQL = """
+SELECT intent AS key, COUNT(*) AS count
+FROM classifier_runs
+GROUP BY intent
+ORDER BY count DESC, key
+"""
+
 # Limit validation constants
 MAX_LIMIT = 1000
 MAX_MANUAL_LABEL_LIMIT = 1000
@@ -423,6 +458,34 @@ class PostgresClassifierRepository:
             return None
         return dashboard_user_from_row(row)
 
+    def get_dashboard_report_summary(self) -> DashboardReportSummary:
+        """Fetch database-wide aggregate values for dashboard reporting."""
+        overview = _fetch_one(
+            self.database_url,
+            SELECT_DASHBOARD_REPORT_OVERVIEW_SQL,
+            {},
+        )
+        if overview is None:
+            overview = {
+                "total_runs": 0,
+                "elevated_runs": 0,
+                "distinct_personas": 0,
+                "manual_labels": 0,
+                "average_risk_score": 0,
+            }
+        return DashboardReportSummary(
+            **overview,
+            risk_counts=_count_map(
+                _fetch_all(self.database_url, SELECT_DASHBOARD_REPORT_RISK_COUNTS_SQL, {})
+            ),
+            actor_counts=_count_map(
+                _fetch_all(self.database_url, SELECT_DASHBOARD_REPORT_ACTOR_COUNTS_SQL, {})
+            ),
+            intent_counts=_count_map(
+                _fetch_all(self.database_url, SELECT_DASHBOARD_REPORT_INTENT_COUNTS_SQL, {})
+            ),
+        )
+
 
 def classifier_run_insert_params(record: ClassifierRunRecord) -> dict[str, Any]:
     """Return SQL parameters for the compact classifier_runs row."""
@@ -596,6 +659,10 @@ def manual_label_from_row(row: dict[str, Any]) -> ManualLabelRecord:
 def dashboard_user_from_row(row: dict[str, Any]) -> DashboardUserRecord:
     """Build the storage model for one dashboard user query result."""
     return DashboardUserRecord(**row)
+
+
+def _count_map(rows: list[dict[str, Any]]) -> dict[str, int]:
+    return {str(row["key"]): int(row["count"]) for row in rows}
 
 
 def classifier_run_list_query(
