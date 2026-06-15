@@ -44,6 +44,7 @@ Echidra currently includes:
 - API list/filter endpoints for stored classifier runs and manual labels
 - Responsive D3.js dashboard shell for persisted classifier runs
 - Database-backed signup/login and protected dashboard access
+- Authenticated aggregate reporting and database-wide dashboard metrics
 - Risk scoring, evidence aggregation, and MITRE tag mapping for matched rules
 - Behavior stage and intent mapping for classifier summaries
 - Evidence-backed Safeguard Advisor recommendations for external security tools
@@ -52,7 +53,7 @@ Echidra currently includes:
 
 Next major upgrade:
 
-- Add aggregate reporting endpoints and richer dashboard summaries
+- Add more feature extraction as new protocols arrive
 
 ---
 
@@ -259,6 +260,7 @@ GET /classifier/runs/{run_id}
 GET /classifier/runs
 GET /manual-labels/{label_id}
 GET /manual-labels
+GET /reports/summary
 GET /auth
 POST /auth/signup
 POST /auth/login

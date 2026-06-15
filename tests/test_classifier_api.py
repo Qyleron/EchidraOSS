@@ -15,6 +15,7 @@ from classifier.scoring.session import ClassificationSummary
 from classifier.storage import (
     ClassifyAndStoreResponse,
     ClassifierRunRecord,
+    DashboardReportSummary,
     DashboardUserRecord,
     DatabaseNotConfiguredError,
     ManualLabelInput,
@@ -610,6 +611,39 @@ def test_list_classifier_runs_endpoint_requires_dashboard_session():
 
     with pytest.raises(HTTPException) as exc_info:
         route.endpoint(dashboard_request(authenticated=False), limit=100)
+
+    assert exc_info.value.status_code == 401
+    assert exc_info.value.detail == "dashboard auth required"
+
+
+def test_dashboard_report_summary_endpoint_returns_aggregates(monkeypatch):
+    route = route_for("/reports/summary", "GET")
+    summary = DashboardReportSummary(
+        total_runs=12,
+        elevated_runs=4,
+        distinct_personas=3,
+        manual_labels=2,
+        average_risk_score=42.5,
+        risk_counts={"high": 4, "low": 8},
+        actor_counts={"commodity_bot": 7},
+        intent_counts={"reconnaissance": 6},
+    )
+
+    class FakeRepository:
+        def get_dashboard_report_summary(self):
+            return summary
+
+    monkeypatch.setattr(app_module, "PostgresClassifierRepository", FakeRepository)
+
+    assert route.endpoint(dashboard_request()) == summary
+    assert route.response_model is DashboardReportSummary
+
+
+def test_dashboard_report_summary_endpoint_requires_dashboard_session():
+    route = route_for("/reports/summary", "GET")
+
+    with pytest.raises(HTTPException) as exc_info:
+        route.endpoint(dashboard_request(authenticated=False))
 
     assert exc_info.value.status_code == 401
     assert exc_info.value.detail == "dashboard auth required"

@@ -144,6 +144,22 @@ class StoredClassifierRun(BaseModel):
         extra = "forbid"
 
 
+class DashboardReportSummary(BaseModel):
+    """Database-wide aggregate values for the analyst dashboard."""
+
+    total_runs: int = Field(ge=0)
+    elevated_runs: int = Field(ge=0)
+    distinct_personas: int = Field(ge=0)
+    manual_labels: int = Field(ge=0)
+    average_risk_score: float = Field(ge=0, le=100)
+    risk_counts: dict[str, int] = Field(default_factory=dict)
+    actor_counts: dict[str, int] = Field(default_factory=dict)
+    intent_counts: dict[str, int] = Field(default_factory=dict)
+
+    class Config:
+        extra = "forbid"
+
+
 class ClassifyAndStoreResponse(BaseModel):
     """API response for classify-and-store requests."""
 
