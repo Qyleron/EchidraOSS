@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Echidra Auth | Qyleron</title>
+  <title>EchidraOSS Auth | Qyleron</title>
   <link rel="icon" href="/assets/qyleron_logo.png" type="image/png" />
   <style>
     * {
@@ -325,7 +325,7 @@
     <section class="auth-container" aria-label="Dashboard authentication">
       <div class="form-heading">
         <h1 id="formTitle">Login</h1>
-        <p id="formSubtitle">Access the Echidra dashboard.</p>
+        <p id="formSubtitle">Access the EchidraOSS dashboard.</p>
       </div>
 
       <div class="tabs" role="tablist" aria-label="Authentication mode">
@@ -411,7 +411,7 @@
       signupForm.classList.toggle("hidden", isLogin);
       formTitle.textContent = isLogin ? "Login" : "Signup";
       formSubtitle.textContent = isLogin
-        ? "Access the Echidra dashboard."
+        ? "Access the EchidraOSS dashboard."
         : "Create a dashboard user.";
       clearMessage();
       setTimeout(() => {
