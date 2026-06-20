@@ -1,0 +1,498 @@
+:root {
+  color-scheme: dark;
+  --bg: #000000;
+  --surface: #0a0a0a;
+  --surface-strong: #111111;
+  --surface-hover: #171717;
+  --text: #ffffff;
+  --muted: #999999;
+  --subtle: #707070;
+  --line: #1f1f1f;
+  --border-strong: #333333;
+  --critical: #ff5c70;
+  --medium: #ffa726;
+  --low: #51cf66;
+  --shadow: none;
+  font-family: "SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  min-width: 320px;
+  background: var(--bg);
+}
+
+body {
+  min-width: 320px;
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  opacity: 0.02;
+  background-image:
+    linear-gradient(90deg, #333 1px, transparent 1px),
+    linear-gradient(#333 1px, transparent 1px);
+  background-size: 50px 50px;
+}
+
+button {
+  font: inherit;
+}
+
+.app-shell {
+  min-height: 100vh;
+  padding-top: 116px;
+}
+
+.topbar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 66px;
+  padding: 0 28px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.brand-wordmark {
+  color: var(--text);
+  font-size: 22px;
+  font-weight: 760;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.product-name {
+  color: var(--muted);
+  font-size: 15px;
+  font-weight: 260;
+  white-space: nowrap;
+}
+
+.logo {
+  display: flex;
+  align-items: center;
+  height: 42px;
+  background: var(--surface);
+  text-decoration: none;
+}
+
+.logo img {
+  display: block;
+  width: auto;
+  height: 100%;
+  max-width: 180px;
+  object-fit: contain;
+}
+
+.navbar {
+  position: fixed;
+  top: 66px;
+  left: 0;
+  right: 0;
+  z-index: 999;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 50px;
+  padding: 0 28px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.nav-links {
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  min-width: 0;
+}
+
+.nav-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 30px;
+  border-radius: 6px;
+  padding: 0 14px;
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 260;
+  transition: background 0.3s ease, color 0.3s ease;
+}
+
+.nav-link:hover,
+.nav-link:focus-visible,
+.nav-link.active {
+  color: var(--text);
+  background: var(--surface-hover);
+}
+
+.logout-button {
+  min-height: 32px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0 14px;
+  color: var(--text);
+  background: var(--surface-hover);
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 560;
+  transition: border-color 0.3s ease, background 0.3s ease;
+}
+
+.logout-button:hover,
+.logout-button:focus-visible {
+  border-color: var(--border-strong);
+  background: var(--surface-strong);
+}
+
+.dashboard-main {
+  display: grid;
+  gap: 28px;
+  width: min(100%, 1560px);
+  margin: 0 auto;
+  padding: 22px 34px 40px;
+}
+
+.metric-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.metric-card {
+  display: grid;
+  place-items: center;
+  min-height: 145px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.metric-value {
+  color: var(--text);
+  font-size: 36px;
+  line-height: 1;
+  font-weight: 760;
+}
+
+.metric-danger {
+  color: var(--critical);
+}
+
+.metric-success {
+  color: var(--low);
+}
+
+.metric-warning {
+  color: var(--medium);
+}
+
+.metric-label {
+  margin-top: -20px;
+  color: var(--muted);
+  font-size: 16px;
+}
+
+.overview-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 7fr) minmax(320px, 3fr);
+  gap: 24px;
+  align-items: stretch;
+}
+
+.map-panel,
+.events-panel {
+  display: grid;
+  min-width: 0;
+}
+
+.panel-card {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  padding: 20px 22px 18px;
+}
+
+.section-heading {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 16px;
+}
+
+.section-heading h1,
+.section-heading h2 {
+  margin: 0;
+  font-size: 21px;
+  line-height: 1.15;
+  font-weight: 760;
+}
+
+.section-heading p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 15px;
+}
+
+.map-frame {
+  height: min(62vh, 610px);
+  min-height: 440px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-strong);
+}
+
+#attackOriginMap {
+  width: 100%;
+  height: 100%;
+  background: var(--surface-strong);
+}
+
+.leaflet-container {
+  background: var(--surface-strong) !important;
+  font: inherit;
+}
+
+.dark-tiles {
+  filter: invert(100%) hue-rotate(180deg) brightness(95%) contrast(90%);
+}
+
+.leaflet-control-zoom a {
+  border-color: var(--line) !important;
+  background: var(--surface) !important;
+  color: var(--text) !important;
+}
+
+.leaflet-popup-content-wrapper,
+.leaflet-popup-tip {
+  background: #1a1a1a;
+  color: var(--text);
+}
+
+.city-label {
+  border: 0;
+  border-radius: 4px;
+  padding: 2px 6px;
+  background: rgba(10, 10, 10, 0.78);
+  color: var(--text);
+  box-shadow: none;
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.map-fallback {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  color: var(--muted);
+}
+
+.map-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 22px;
+  margin-top: 18px;
+  color: #d0d0d0;
+  font-size: 15px;
+}
+
+.map-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.legend-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+}
+
+.high-risk {
+  background: var(--critical);
+}
+
+.medium-risk {
+  background: var(--medium);
+}
+
+.normal-risk {
+  background: var(--low);
+}
+
+.events-panel {
+  border-radius: 8px;
+}
+
+.event-list {
+  flex: 1;
+  min-height: 440px;
+  overflow-y: auto;
+  border-radius: 4px;
+  background: var(--surface);
+  scrollbar-color: var(--border-strong) transparent;
+}
+
+.event-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+  min-height: 84px;
+  padding: 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+.event-row:last-child {
+  border-bottom: 0;
+}
+
+.event-copy {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.event-copy strong {
+  overflow-wrap: anywhere;
+  font-size: 15px;
+  line-height: 1.2;
+  font-weight: 650;
+}
+
+.event-copy span {
+  overflow-wrap: anywhere;
+  color: var(--subtle);
+  font-size: 13px;
+}
+
+.risk-badge {
+  min-width: 70px;
+  border-radius: 5px;
+  padding: 7px 10px;
+  text-align: center;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 650;
+  text-transform: uppercase;
+}
+
+.risk-badge.high {
+  background: rgba(255, 92, 112, 0.24);
+  color: #ff9aa6;
+}
+
+.risk-badge.medium {
+  background: rgba(255, 167, 38, 0.2);
+  color: #ffc46f;
+}
+
+.risk-badge.low {
+  background: rgba(81, 207, 102, 0.18);
+  color: #7ee18f;
+}
+
+@media (max-width: 1100px) {
+  .overview-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .event-list {
+    min-height: 320px;
+  }
+}
+
+@media (max-width: 768px) {
+  .app-shell {
+    padding-top: 112px;
+  }
+
+  .topbar {
+    height: 64px;
+    padding: 0 18px;
+  }
+
+   .logo {
+    height: 36px;
+  }
+
+  .navbar {
+    top: 64px;
+    height: 48px;
+    padding: 0 18px;
+  }
+
+  .nav-links {
+    gap: 6px;
+    overflow-x: auto;
+  }
+
+  .nav-link {
+    padding: 0 10px;
+    font-size: 13px;
+    white-space: nowrap;
+  }
+
+  .logout-button {
+    min-width: 76px;
+  }
+
+  .dashboard-main {
+    gap: 22px;
+    padding: 18px;
+  }
+
+  .metric-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .metric-card {
+    min-height: 124px;
+  }
+
+  .map-frame {
+    min-height: 360px;
+  }
+}
+
+@media (max-width: 520px) {
+  .brand-wordmark {
+    font-size: 20px;
+  }
+
+  .product-name {
+    font-size: 13px;
+  }
+
+  .metric-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .event-row {
+    grid-template-columns: 1fr;
+    align-items: start;
+  }
+
+  .risk-badge {
+    width: fit-content;
+  }
+}

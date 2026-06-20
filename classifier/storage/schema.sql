@@ -20,6 +20,8 @@ CREATE TABLE sessions (
     protocol TEXT NOT NULL,
     peer_ip TEXT,
     peer_port INTEGER CHECK (peer_port IS NULL OR (peer_port >= 1 AND peer_port <= 65535)),
+    latitude DOUBLE PRECISION CHECK (latitude IS NULL OR (latitude >= -90 AND latitude <= 90)),
+    longitude DOUBLE PRECISION CHECK (longitude IS NULL OR (longitude >= -180 AND longitude <= 180)),
     persona_id TEXT NOT NULL,
     started_at DOUBLE PRECISION NOT NULL,
     ended_at DOUBLE PRECISION NOT NULL CHECK (ended_at >= started_at),

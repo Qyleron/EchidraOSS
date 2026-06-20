@@ -118,7 +118,9 @@ def test_classifier_run_insert_params_match_storage_columns():
 
 
 def test_session_insert_params_match_storage_columns():
-    session = SessionRecord.parse_obj(make_record())
+    session = SessionRecord.parse_obj(
+        make_record(latitude=12.9716, longitude=77.5946)
+    )
     summary = classify_session_record(make_record())
     record = ClassifierRunRecord.from_session_summary(session, summary)
 
@@ -128,9 +130,11 @@ def test_session_insert_params_match_storage_columns():
     assert params["protocol"] == "tcp_shell"
     assert params["peer_ip"] == "127.0.0.1"
     assert params["peer_port"] == 4444
+    assert params["latitude"] == 12.9716
+    assert params["longitude"] == 77.5946
     assert params["persona_id"] == "generic_linux"
     assert params["end_reason"] == "disconnect"
-    assert len(params) == 8
+    assert len(params) == 10
 
 
 def test_session_event_insert_params_normalize_timeline_and_exposures():
@@ -225,7 +229,9 @@ def test_manual_label_insert_params_match_storage_columns():
 
 
 def test_stored_classifier_run_from_rows_includes_session_and_signals():
-    session = SessionRecord.parse_obj(make_record())
+    session = SessionRecord.parse_obj(
+        make_record(latitude=12.9716, longitude=77.5946)
+    )
     summary = classify_session_record(make_record())
     record = ClassifierRunRecord.from_session_summary(session, summary)
     run_row = classifier_run_insert_params(record)
@@ -235,6 +241,8 @@ def test_stored_classifier_run_from_rows_includes_session_and_signals():
             "protocol": session_params["protocol"],
             "peer_ip": session_params["peer_ip"],
             "peer_port": session_params["peer_port"],
+            "latitude": session_params["latitude"],
+            "longitude": session_params["longitude"],
             "persona_id": session_params["persona_id"],
             "started_at": session_params["started_at"],
             "ended_at": session_params["ended_at"],
@@ -262,6 +270,8 @@ def test_stored_classifier_run_from_rows_includes_session_and_signals():
     assert stored_run.session_id == session.session_id
     assert stored_run.protocol == "tcp_shell"
     assert stored_run.peer_ip == "127.0.0.1"
+    assert stored_run.latitude == 12.9716
+    assert stored_run.longitude == 77.5946
     assert stored_run.actor_label == "commodity_bot"
     assert stored_run.signals[1].signal_value == "sensitive_file_probe"
 

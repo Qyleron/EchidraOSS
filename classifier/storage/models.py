@@ -128,6 +128,8 @@ class StoredClassifierRun(BaseModel):
     protocol: str
     peer_ip: str | None = None
     peer_port: int | None = None
+    latitude: float | None = Field(default=None, ge=-90, le=90)
+    longitude: float | None = Field(default=None, ge=-180, le=180)
     persona_id: str
     started_at: float
     ended_at: float

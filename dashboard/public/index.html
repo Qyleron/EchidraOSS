@@ -3,965 +3,187 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Dashboard - EchidraOSS | Qyleron</title>
+  <title>Dashboard - Echidra OSS | Qyleron</title>
   <link rel="icon" href="/assets/qyleron_logo.png" type="image/png" />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css" />
-  <style>
-    :root {
-      color-scheme: dark;
-      --bg: #000000;
-      --surface: #0a0a0a;
-      --surface-strong: #111111;
-      --text: #ffffff;
-      --muted: #999999;
-      --line: #1f1f1f;
-      --accent: #ffffff;
-      --accent-dark: #d4d4d4;
-      --critical: #ff6b6b;
-      --high: #ff6b6b;
-      --medium: #ffa726;
-      --low: #51cf66;
-      --none: #666666;
-      --shadow: none;
-      font-family: "SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    }
-
-    * {
-      box-sizing: border-box;
-    }
-
-    body {
-      margin: 0;
-      background: var(--bg);
-      color: var(--text);
-      min-width: 320px;
-    }
-
-    body::before {
-      content: "";
-      position: fixed;
-      inset: 0;
-      z-index: -1;
-      opacity: 0.02;
-      background-image:
-        linear-gradient(90deg, #333 1px, transparent 1px),
-        linear-gradient(#333 1px, transparent 1px);
-      background-size: 50px 50px;
-    }
-
-    button,
-    input,
-    select {
-      font: inherit;
-    }
-
-    .shell {
-      min-height: 100vh;
-      display: grid;
-      grid-template-rows: auto auto 1fr;
-    }
-
-    .topbar {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 16px;
-      padding: 16px 24px;
-      border-bottom: 1px solid var(--line);
-      background: var(--surface);
-      min-height: 64px;
-    }
-
-    .brand {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      min-width: 0;
-    }
-
-    .brand-banner {
-      display: block;
-      width: clamp(112px, 16vw, 170px);
-      height: 42px;
-      object-fit: contain;
-      object-position: left center;
-    }
-
-    h1 {
-      margin: 0;
-      font-size: 20px;
-      line-height: 1.2;
-      font-weight: 750;
-    }
-
-    .product-name {
-      color: var(--muted);
-      font-size: 15px;
-      font-weight: 650;
-      white-space: nowrap;
-    }
-
-    .header-actions {
-      display: flex;
-      align-items: center;
-      justify-content: flex-end;
-      gap: 10px;
-      margin-left: auto;
-    }
-
-    .subtitle {
-      margin: 2px 0 0;
-      color: var(--muted);
-      font-size: 13px;
-    }
-
-    .status {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      padding: 7px 10px;
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      color: var(--muted);
-      background: var(--surface);
-      white-space: nowrap;
-      font-size: 13px;
-    }
-
-    .dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: var(--none);
-    }
-
-    .status[data-state="ready"] .dot {
-      background: var(--accent);
-    }
-
-    .status[data-state="error"] .dot {
-      background: var(--critical);
-    }
-
-    .logout-button {
-      min-height: 34px;
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      padding: 7px 10px;
-      color: var(--muted);
-      background: transparent;
-      cursor: pointer;
-      font-size: 13px;
-    }
-
-    .logout-button:hover,
-    .logout-button:focus-visible {
-      border-color: #444444;
-      color: var(--text);
-    }
-
-    .filters {
-      display: grid;
-      grid-template-columns: 1fr 150px 180px 180px 110px auto;
-      gap: 12px;
-      padding: 16px 24px;
-      border-bottom: 1px solid var(--line);
-      background: var(--surface);
-    }
-
-    .field {
-      display: grid;
-      gap: 5px;
-      min-width: 0;
-    }
-
-    label {
-      color: var(--muted);
-      font-size: 12px;
-      font-weight: 650;
-    }
-
-    input,
-    select {
-      width: 100%;
-      min-height: 38px;
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      padding: 8px 10px;
-      color: var(--text);
-      background: var(--surface-strong);
-    }
-
-    .button-row {
-      display: flex;
-      align-items: end;
-      gap: 8px;
-    }
-
-    .icon-button {
-      display: inline-grid;
-      place-items: center;
-      width: 38px;
-      height: 38px;
-      border: 1px solid #333333;
-      border-radius: 8px;
-      color: #000000;
-      background: var(--accent);
-      cursor: pointer;
-    }
-
-    .icon-button.secondary {
-      color: var(--text);
-      border-color: #333333;
-      background: transparent;
-    }
-
-    .content {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) 360px;
-      gap: 18px;
-      padding: 18px 24px 24px;
-    }
-
-    .main-stack,
-    .side-stack {
-      display: grid;
-      align-content: start;
-      gap: 18px;
-      min-width: 0;
-    }
-
-    .metrics {
-      display: grid;
-      grid-template-columns: repeat(5, minmax(0, 1fr));
-      gap: 12px;
-    }
-
-    .metric,
-    .panel {
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      background: var(--surface);
-      box-shadow: var(--shadow);
-    }
-
-    .metric {
-      padding: 14px;
-      min-width: 0;
-    }
-
-    .metric span {
-      display: block;
-      color: var(--muted);
-      font-size: 12px;
-      font-weight: 650;
-    }
-
-    .metric strong {
-      display: block;
-      margin-top: 7px;
-      font-size: 26px;
-      line-height: 1;
-    }
-
-    .panel-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-      padding: 14px 16px;
-      border-bottom: 1px solid var(--line);
-    }
-
-    .panel-title {
-      margin: 0;
-      font-size: 15px;
-      font-weight: 750;
-    }
-
-    .panel-body {
-      padding: 16px;
-    }
-
-    .chart-wrap {
-      height: 250px;
-      min-width: 0;
-    }
-
-    .chart-svg {
-      display: block;
-      width: 100%;
-      height: 100%;
-    }
-
-    .chart-axis text {
-      fill: var(--muted);
-      font-size: 12px;
-    }
-
-    .chart-axis path,
-    .chart-axis line {
-      stroke: var(--line);
-    }
-
-    .chart-bar-label {
-      fill: var(--text);
-      font-size: 12px;
-      font-weight: 700;
-      text-anchor: middle;
-    }
-
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      table-layout: fixed;
-    }
-
-    th,
-    td {
-      padding: 11px 12px;
-      border-bottom: 1px solid var(--line);
-      text-align: left;
-      vertical-align: top;
-      font-size: 13px;
-    }
-
-    th {
-      color: var(--muted);
-      font-size: 12px;
-      font-weight: 700;
-      background: #111111;
-    }
-
-    tr[data-selected="true"] {
-      background: #151515;
-    }
-
-    .truncate {
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-
-    .pill {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      min-width: 66px;
-      padding: 4px 8px;
-      border-radius: 999px;
-      color: #ffffff;
-      font-size: 12px;
-      font-weight: 750;
-      text-transform: capitalize;
-    }
-
-    .pill.critical { background: var(--critical); }
-    .pill.high { background: var(--high); }
-    .pill.medium { background: var(--medium); }
-    .pill.low { background: var(--low); }
-    .pill.none { background: var(--none); }
-
-    .empty {
-      padding: 32px 16px;
-      text-align: center;
-      color: var(--muted);
-    }
-
-    .detail-grid {
-      display: grid;
-      gap: 12px;
-    }
-
-    .kv {
-      display: grid;
-      gap: 4px;
-      min-width: 0;
-    }
-
-    .kv span {
-      color: var(--muted);
-      font-size: 12px;
-      font-weight: 650;
-    }
-
-    .kv strong,
-    .kv code {
-      overflow-wrap: anywhere;
-      font-size: 13px;
-    }
-
-    .signals {
-      display: grid;
-      gap: 8px;
-      margin: 0;
-      padding: 0;
-      list-style: none;
-    }
-
-    .signal {
-      display: grid;
-      gap: 3px;
-      padding: 9px;
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      background: #111111;
-      font-size: 12px;
-    }
-
-    .error {
-      color: var(--critical);
-    }
-
-    .map-wrap {
-      height: 320px;
-      border: 1px solid #222222;
-      border-radius: 8px;
-      overflow: hidden;
-      background: #111111;
-    }
-
-    #threatMap {
-      width: 100%;
-      height: 100%;
-      background: #111111;
-    }
-
-    .leaflet-container {
-      background: #111111 !important;
-    }
-
-    .leaflet-tile {
-      filter: invert(100%) hue-rotate(180deg) brightness(95%) contrast(90%);
-    }
-
-    .map-note {
-      margin-top: 10px;
-      color: var(--muted);
-      font-size: 13px;
-    }
-
-    @media (max-width: 1100px) {
-      .filters {
-        grid-template-columns: repeat(3, minmax(0, 1fr));
-      }
-
-      .button-row {
-        align-items: end;
-      }
-
-      .content {
-        grid-template-columns: 1fr;
-      }
-
-      .metrics {
-        grid-template-columns: repeat(3, minmax(0, 1fr));
-      }
-    }
-
-    @media (max-width: 768px) {
-      .topbar {
-        align-items: center;
-        flex-wrap: wrap;
-        padding: 14px 16px;
-      }
-
-      .brand {
-        flex: 1 1 auto;
-      }
-
-      .subtitle {
-        display: none;
-      }
-
-      .header-actions {
-        order: 3;
-        width: 100%;
-        justify-content: space-between;
-      }
-
-      .filters {
-        grid-template-columns: 1fr;
-        padding: 14px 16px;
-      }
-
-      .content {
-        padding: 14px 16px 18px;
-      }
-
-      .metrics {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-      }
-
-      .table-scroll {
-        overflow-x: auto;
-      }
-
-      table {
-        min-width: 720px;
-      }
-    }
-
-    @media (max-width: 480px) {
-      .brand-banner {
-        width: 118px;
-        height: 36px;
-      }
-
-      .status {
-        min-width: 0;
-        white-space: normal;
-      }
-
-      .metrics {
-        grid-template-columns: 1fr;
-      }
-
-      .button-row {
-        justify-content: stretch;
-      }
-
-      .icon-button {
-        width: 100%;
-      }
-    }
-  </style>
+  <link rel="stylesheet" href="/dashboard.css" />
 </head>
 <body>
-  <div class="shell">
+  <div class="app-shell">
     <header class="topbar">
-      <div class="brand">
-        <img class="brand-banner" src="/assets/Qyleron_Banner.png" alt="Qyleron" />
-        <div>
-          <p class="subtitle">Persisted classifier runs and analyst labels</p>
-        </div>
-      </div>
-      <div class="header-actions">
-        <div id="status" class="status" data-state="loading">
-          <span class="dot" aria-hidden="true"></span>
-          <span id="statusText">Loading storage data</span>
-        </div>
-        <button id="logoutButton" class="logout-button" type="button">Logout</button>
-      </div>
-      <div class="product-name">EchidraOSS</div>
+       <a href="/" class="logo" aria-label="Qyleron home">
+                <img src="../assets/Qyleron_Banner.png" alt="Qyleron">
+      </a>
+      <div class="product-name">Echidra OSS</div>
     </header>
 
-    <form id="filters" class="filters">
-      <div class="field">
-        <label for="sessionId">Session ID</label>
-        <input id="sessionId" name="session_id" autocomplete="off" />
+    <nav class="navbar" aria-label="Primary dashboard navigation">
+      <div class="nav-links">
+        <a class="nav-link active" href="/dashboard">Overview</a>
+        <a class="nav-link" href="/dashboard/intelligence">Analytics</a>
+        <a class="nav-link" href="/dashboard/sessions">Sessions</a>
       </div>
-      <div class="field">
-        <label for="riskLevel">Risk</label>
-        <select id="riskLevel" name="risk_level">
-          <option value="">Any risk</option>
-          <option value="critical">Critical</option>
-          <option value="high">High</option>
-          <option value="medium">Medium</option>
-          <option value="low">Low</option>
-          <option value="none">None</option>
-        </select>
-      </div>
-      <div class="field">
-        <label for="actorLabel">Actor</label>
-        <select id="actorLabel" name="actor_label">
-          <option value="">Any actor</option>
-          <option value="automated_scanner">Automated scanner</option>
-          <option value="brute_force_bot">Brute force bot</option>
-          <option value="commodity_bot">Commodity bot</option>
-          <option value="script_kiddie">Script kiddie</option>
-          <option value="skilled_human_operator">Skilled human operator</option>
-        </select>
-      </div>
-      <div class="field">
-        <label for="personaId">Persona</label>
-        <input id="personaId" name="persona_id" autocomplete="off" />
-      </div>
-      <div class="field">
-        <label for="limit">Limit</label>
-        <input id="limit" name="limit" type="number" min="1" max="500" value="100" />
-      </div>
-      <div class="button-row">
-        <button class="icon-button" type="submit" title="Apply filters" aria-label="Apply filters">
-          &#8635;
-        </button>
-        <button class="icon-button secondary" id="clearFilters" type="button" title="Clear filters" aria-label="Clear filters">
-          &#10005;
-        </button>
-      </div>
-    </form>
+      <button id="logoutButton" class="logout-button" type="button">Logout</button>
+    </nav>
 
-    <main class="content">
-      <section class="main-stack" aria-label="Classifier run overview">
-        <div class="metrics">
-          <div class="metric">
-            <span>Total runs</span>
-            <strong id="metricTotal">0</strong>
-          </div>
-          <div class="metric">
-            <span>High or critical</span>
-            <strong id="metricElevated">0</strong>
-          </div>
-          <div class="metric">
-            <span>Personas</span>
-            <strong id="metricPersonas">0</strong>
-          </div>
-          <div class="metric">
-            <span>Average risk</span>
-            <strong id="metricAverageRisk">0</strong>
-          </div>
-          <div class="metric">
-            <span>Manual labels</span>
-            <strong id="metricLabels">0</strong>
-          </div>
-        </div>
-
-        <section class="panel" aria-label="Risk distribution">
-          <div class="panel-header">
-            <h2 class="panel-title">Global Threat Map</h2>
-          </div>
-          <div class="panel-body">
-            <div class="map-wrap">
-              <div id="threatMap"></div>
-            </div>
-            <p class="map-note">Map is ready for GeoIP-enriched sessions. Current stored runs do not include latitude or longitude.</p>
-          </div>
-        </section>
-
-        <section class="panel" aria-label="Risk distribution">
-          <div class="panel-header">
-            <h2 class="panel-title">Security Events Timeline</h2>
-          </div>
-          <div class="panel-body">
-            <div class="chart-wrap">
-              <svg id="riskChart" class="chart-svg" role="img" aria-label="Risk distribution chart"></svg>
-            </div>
-          </div>
-        </section>
-
-        <section class="panel" aria-label="Classifier runs">
-          <div class="panel-header">
-            <h2 class="panel-title">Classifier Runs</h2>
-          </div>
-          <div class="table-scroll">
-            <table>
-              <thead>
-                <tr>
-                  <th>Risk</th>
-                  <th>Actor</th>
-                  <th>Persona</th>
-                  <th>Intent</th>
-                  <th>Session</th>
-                  <th>Run ID</th>
-                </tr>
-              </thead>
-              <tbody id="runsBody">
-                <tr>
-                  <td class="empty" colspan="6">Loading runs...</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </section>
+    <main class="dashboard-main">
+      <section class="metric-grid" aria-label="Security overview metrics">
+        <article class="metric-card">
+          <strong class="metric-value metric-danger">127</strong>
+          <span class="metric-label">Active Threats</span>
+        </article>
+        <article class="metric-card">
+          <strong class="metric-value metric-success">1,489</strong>
+          <span class="metric-label">Trusted Sessions</span>
+        </article>
+        <article class="metric-card">
+          <strong class="metric-value metric-warning">43</strong>
+          <span class="metric-label">Warnings</span>
+        </article>
+        <article class="metric-card">
+          <strong class="metric-value">2.3M</strong>
+          <span class="metric-label">Total Events</span>
+        </article>
       </section>
 
-      <aside class="side-stack" aria-label="Selected classifier run detail">
-        <section class="panel">
-          <div class="panel-header">
-            <h2 class="panel-title">Run Detail</h2>
-          </div>
-          <div class="panel-body">
-            <div id="detail" class="detail-grid">
-              <div class="empty">Select a classifier run.</div>
+      <section class="overview-grid" aria-label="Threat operations overview">
+        <section class="map-panel" aria-label="Global threat map">
+          <div class="panel-card">
+            <div class="section-heading">
+              <h1>Global Threat Map</h1>
+              <p>Real-time geographic distribution of security events</p>
+            </div>
+            <div class="map-frame">
+              <div id="attackOriginMap"></div>
+            </div>
+            <div class="map-legend" aria-label="Map legend">
+              <span><i class="legend-dot high-risk"></i>High Risk</span>
+              <span><i class="legend-dot medium-risk"></i>Medium Risk</span>
+              <span><i class="legend-dot normal-risk"></i>Normal</span>
             </div>
           </div>
         </section>
-      </aside>
+
+        <aside class="events-panel" aria-label="Recent security events">
+          <div class="panel-card">
+            <div class="section-heading">
+              <h2>Recent Security Events</h2>
+              <p>Latest threats and activities</p>
+            </div>
+            <div id="eventList" class="event-list"></div>
+          </div>
+        </aside>
+      </section>
     </main>
   </div>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
   <script>
-    const state = {
-      runs: [],
-      summary: null,
-      selectedRunId: null,
-      map: null,
-      mapLayer: null,
-    };
+    const attackOrigins = [
+      { city: "Moscow", country: "Russia", lat: 55.75, lng: 37.62, type: "SSH Brute Force", ip: "185.234.219.x", risk: "high" },
+      { city: "Beijing", country: "China", lat: 39.9, lng: 116.4, type: "Suspicious Login", ip: "103.77.166.x", risk: "medium" },
+      { city: "Lagos", country: "Nigeria", lat: 6.45, lng: 3.4, type: "Credential Stuffing", ip: "197.210.84.x", risk: "medium" },
+      { city: "Sao Paulo", country: "Brazil", lat: -23.55, lng: -46.63, type: "DDoS Attempt", ip: "177.54.144.x", risk: "high" },
+      { city: "Tehran", country: "Iran", lat: 35.69, lng: 51.42, type: "SSH Brute Force", ip: "5.160.218.x", risk: "high" },
+      { city: "Bucharest", country: "Romania", lat: 44.43, lng: 26.1, type: "FTP Scan", ip: "79.112.33.x", risk: "medium" },
+      { city: "Kyiv", country: "Ukraine", lat: 50.45, lng: 30.52, type: "Telnet Probe", ip: "46.211.74.x", risk: "normal" },
+      { city: "Amsterdam", country: "Netherlands", lat: 52.37, lng: 4.9, type: "Port Scan", ip: "94.102.56.x", risk: "normal" },
+      { city: "Frankfurt", country: "Germany", lat: 50.11, lng: 8.68, type: "HTTP Probe", ip: "185.220.101.x", risk: "medium" },
+      { city: "Singapore", country: "Singapore", lat: 1.35, lng: 103.82, type: "SSH Brute Force", ip: "103.21.244.x", risk: "high" },
+      { city: "New York", country: "USA", lat: 40.71, lng: -74.01, type: "Port Scan", ip: "198.199.103.x", risk: "normal" },
+      { city: "London", country: "UK", lat: 51.51, lng: -0.13, type: "Credential Stuffing", ip: "51.15.112.x", risk: "medium" },
+      { city: "San Francisco", country: "USA", lat: 37.77, lng: -122.42, type: "HTTP Probe", ip: "104.131.68.x", risk: "normal" },
+      { city: "Paris", country: "France", lat: 48.85, lng: 2.35, type: "FTP Scan", ip: "51.38.185.x", risk: "medium" }
+    ];
 
-    const riskOrder = ["critical", "high", "medium", "low", "none"];
+    const recentEvents = [
+      { title: "Brute force attack detected", ip: "192.168.1.100", location: "Russia", time: "2 mins ago", risk: "high" },
+      { title: "Suspicious login attempt", ip: "10.0.0.45", location: "China", time: "5 mins ago", risk: "medium" },
+      { title: "Normal user authentication", ip: "192.168.1.25", location: "USA", time: "8 mins ago", risk: "low" },
+      { title: "DDoS attempt blocked", ip: "172.16.0.99", location: "Brazil", time: "12 mins ago", risk: "high" },
+      { title: "HTTP probe fingerprinted", ip: "185.220.101.x", location: "Germany", time: "15 mins ago", risk: "medium" },
+      { title: "Known scanner observed", ip: "94.102.56.x", location: "Netherlands", time: "19 mins ago", risk: "low" }
+    ];
+
     const riskColors = {
-      critical: "#ff6b6b",
-      high: "#ff6b6b",
+      high: "#ff5c70",
       medium: "#ffa726",
-      low: "#51cf66",
-      none: "#666666",
+      normal: "#51cf66",
+      low: "#51cf66"
     };
 
-    const filters = document.getElementById("filters");
-    const clearFilters = document.getElementById("clearFilters");
-    const logoutButton = document.getElementById("logoutButton");
-    const status = document.getElementById("status");
-    const statusText = document.getElementById("statusText");
-    const runsBody = document.getElementById("runsBody");
-    const detail = document.getElementById("detail");
+    function renderEvents() {
+      const eventList = document.getElementById("eventList");
+      eventList.innerHTML = recentEvents.map((event) => `
+        <article class="event-row">
+          <div class="event-copy">
+            <strong>${event.title}</strong>
+            <span>IP: ${event.ip} · Location: ${event.location} · ${event.time}</span>
+          </div>
+          <span class="risk-badge ${event.risk}">${event.risk}</span>
+        </article>
+      `).join("");
+    }
 
-    filters.addEventListener("submit", (event) => {
-      event.preventDefault();
-      loadDashboard();
-    });
+    function renderMap() {
+      if (!window.L) {
+        document.getElementById("attackOriginMap").innerHTML = '<div class="map-fallback">Map library unavailable.</div>';
+        return;
+      }
 
-    clearFilters.addEventListener("click", () => {
-      filters.reset();
-      document.getElementById("limit").value = "100";
-      loadDashboard();
-    });
+      const map = L.map("attackOriginMap", {
+        attributionControl: false,
+        zoomControl: true,
+        worldCopyJump: true
+      }).setView([22, 8], 2);
 
-    logoutButton.addEventListener("click", async () => {
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        className: "dark-tiles",
+        maxZoom: 18
+      }).addTo(map);
+
+      for (const origin of attackOrigins) {
+        const color = riskColors[origin.risk];
+        L.circle([origin.lat, origin.lng], {
+          radius: origin.risk === "high" ? 620000 : origin.risk === "medium" ? 430000 : 280000,
+          color,
+          fillColor: color,
+          fillOpacity: origin.risk === "high" ? 0.18 : 0.12,
+          opacity: 0.5,
+          weight: 1
+        }).addTo(map);
+
+        L.circleMarker([origin.lat, origin.lng], {
+          radius: origin.risk === "high" ? 7 : 5,
+          color,
+          fillColor: color,
+          fillOpacity: 0.9,
+          weight: 2
+        })
+          .bindTooltip(`${origin.city}, ${origin.country}`, {
+            permanent: true,
+            direction: "top",
+            className: "city-label",
+            offset: [0, -8]
+          })
+          .bindPopup(`<b>${origin.city}, ${origin.country}</b><br>Event: ${origin.type}<br>Source IP: ${origin.ip}<br>Risk: ${origin.risk}`)
+          .addTo(map);
+      }
+    }
+
+    async function logoutDashboard() {
+      const logoutButton = document.getElementById("logoutButton");
       logoutButton.disabled = true;
       try {
         await fetch("/auth/logout", { method: "POST" });
       } finally {
         window.location.assign("/auth");
       }
-    });
-
-    window.addEventListener("resize", () => {
-      renderChart();
-    });
-
-    function setStatus(kind, text) {
-      status.dataset.state = kind;
-      statusText.textContent = text;
     }
 
-    function buildQuery(form) {
-      const params = new URLSearchParams();
-      for (const [key, value] of new FormData(form).entries()) {
-        const cleanValue = String(value).trim();
-        if (cleanValue) {
-          params.set(key, cleanValue);
-        }
-      }
-      return params.toString();
-    }
-
-    async function fetchJson(url) {
-      const response = await fetch(url, { headers: { "Accept": "application/json" } });
-      if (response.status === 401) {
-        window.location.assign("/auth");
-        return Promise.reject(new Error("Dashboard authentication required."));
-      }
-      if (!response.ok) {
-        const body = await response.json().catch(() => ({}));
-        throw new Error(body.detail || `Request failed with status ${response.status}`);
-      }
-      return response.json();
-    }
-
-    async function loadDashboard() {
-      setStatus("loading", "Loading storage data");
-      const query = buildQuery(filters);
-      try {
-        const runsUrl = query ? `/classifier/runs?${query}` : "/classifier/runs";
-        const [runs, summary] = await Promise.all([
-          fetchJson(runsUrl),
-          fetchJson("/reports/summary"),
-        ]);
-        state.runs = runs;
-        state.summary = summary;
-        state.selectedRunId = runs[0] ? runs[0].id : null;
-        render();
-        setStatus("ready", `${summary.total_runs} total runs`);
-      } catch (error) {
-        state.runs = [];
-        state.summary = null;
-        state.selectedRunId = null;
-        render();
-        setStatus("error", error.message);
-      }
-    }
-
-    function render() {
-      renderMetrics();
-      renderMap();
-      renderChart();
-      renderRuns();
-      renderDetail();
-    }
-
-    function renderMetrics() {
-      const summary = state.summary || {};
-      document.getElementById("metricTotal").textContent = summary.total_runs || 0;
-      document.getElementById("metricElevated").textContent = summary.elevated_runs || 0;
-      document.getElementById("metricPersonas").textContent = summary.distinct_personas || 0;
-      document.getElementById("metricAverageRisk").textContent = Number(
-        summary.average_risk_score || 0
-      ).toFixed(1);
-      document.getElementById("metricLabels").textContent = summary.manual_labels || 0;
-    }
-
-    function renderMap() {
-      if (!state.map) {
-        state.map = L.map("threatMap", {
-          zoomControl: true,
-          attributionControl: false,
-        }).setView([20, 0], 2);
-        L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-          maxZoom: 18,
-        }).addTo(state.map);
-        state.mapLayer = L.layerGroup().addTo(state.map);
-      }
-
-      state.mapLayer.clearLayers();
-      const geoRuns = state.runs.filter((run) => (
-        Number.isFinite(run.latitude) && Number.isFinite(run.longitude)
-      ));
-
-      for (const run of geoRuns) {
-        const color = riskColors[run.risk_level] || riskColors.none;
-        L.circleMarker([run.latitude, run.longitude], {
-          radius: 7,
-          color,
-          fillColor: color,
-          fillOpacity: 0.85,
-          weight: 2,
-        })
-          .bindPopup(`${escapeHtml(run.risk_level)} · ${escapeHtml(run.actor_label || "unknown")}<br>${escapeHtml(run.peer_ip || "unknown peer")}`)
-          .addTo(state.mapLayer);
-      }
-
-      if (geoRuns.length) {
-        const bounds = L.latLngBounds(geoRuns.map((run) => [run.latitude, run.longitude]));
-        state.map.fitBounds(bounds.pad(0.3));
-      } else {
-        state.map.setView([20, 0], 2);
-      }
-    }
-
-    function renderChart() {
-      const riskCounts = state.summary?.risk_counts || {};
-      const data = riskOrder.map((risk) => ({
-        risk,
-        label: risk[0].toUpperCase() + risk.slice(1),
-        count: riskCounts[risk] || 0,
-      }));
-      const svg = d3.select("#riskChart");
-      const node = svg.node();
-      const bounds = node.getBoundingClientRect();
-      const width = Math.max(bounds.width, 320);
-      const height = Math.max(bounds.height, 220);
-      const margin = { top: 18, right: 16, bottom: 38, left: 36 };
-      const innerWidth = width - margin.left - margin.right;
-      const innerHeight = height - margin.top - margin.bottom;
-      const maxCount = Math.max(1, d3.max(data, (item) => item.count) || 0);
-
-      svg.selectAll("*").remove();
-      svg.attr("viewBox", `0 0 ${width} ${height}`);
-
-      const x = d3.scaleBand()
-        .domain(data.map((item) => item.label))
-        .range([0, innerWidth])
-        .padding(0.24);
-      const y = d3.scaleLinear()
-        .domain([0, maxCount])
-        .nice()
-        .range([innerHeight, 0]);
-
-      const chart = svg.append("g")
-        .attr("transform", `translate(${margin.left},${margin.top})`);
-
-      chart.append("g")
-        .attr("class", "chart-axis")
-        .attr("transform", `translate(0,${innerHeight})`)
-        .call(d3.axisBottom(x).tickSizeOuter(0));
-
-      chart.append("g")
-        .attr("class", "chart-axis")
-        .call(d3.axisLeft(y).ticks(Math.min(maxCount, 5)).tickFormat(d3.format("d")));
-
-      chart.selectAll(".risk-bar")
-        .data(data)
-        .join("rect")
-        .attr("class", "risk-bar")
-        .attr("x", (item) => x(item.label))
-        .attr("y", (item) => y(item.count))
-        .attr("width", x.bandwidth())
-        .attr("height", (item) => innerHeight - y(item.count))
-        .attr("rx", 4)
-        .attr("fill", (item) => riskColors[item.risk]);
-
-      chart.selectAll(".chart-bar-label")
-        .data(data)
-        .join("text")
-        .attr("class", "chart-bar-label")
-        .attr("x", (item) => (x(item.label) || 0) + x.bandwidth() / 2)
-        .attr("y", (item) => Math.max(12, y(item.count) - 6))
-        .text((item) => item.count);
-    }
-
-    function renderRuns() {
-      if (!state.runs.length) {
-        runsBody.innerHTML = '<tr><td class="empty" colspan="6">No classifier runs match these filters.</td></tr>';
-        return;
-      }
-      runsBody.innerHTML = state.runs.map((run) => `
-        <tr data-run-id="${escapeHtml(run.id)}" data-selected="${run.id === state.selectedRunId}">
-          <td><span class="pill ${escapeHtml(run.risk_level)}">${escapeHtml(run.risk_level)}</span></td>
-          <td class="truncate">${escapeHtml(run.actor_label || "unknown")}</td>
-          <td class="truncate">${escapeHtml(run.persona_id || "unknown")}</td>
-          <td class="truncate">${escapeHtml(run.intent || "unknown")}</td>
-          <td class="truncate"><code>${escapeHtml(run.session_id)}</code></td>
-          <td class="truncate"><code>${escapeHtml(run.id)}</code></td>
-        </tr>
-      `).join("");
-      for (const row of runsBody.querySelectorAll("tr[data-run-id]")) {
-        row.addEventListener("click", () => {
-          state.selectedRunId = row.dataset.runId;
-          renderRuns();
-          renderDetail();
-        });
-      }
-    }
-
-    function renderDetail() {
-      const run = state.runs.find((item) => item.id === state.selectedRunId);
-      if (!run) {
-        detail.innerHTML = '<div class="empty">Select a classifier run.</div>';
-        return;
-      }
-      const signals = (run.signals || []).slice(0, 12);
-      detail.innerHTML = `
-        <div class="kv"><span>Run ID</span><code>${escapeHtml(run.id)}</code></div>
-        <div class="kv"><span>Session ID</span><code>${escapeHtml(run.session_id)}</code></div>
-        <div class="kv"><span>Risk</span><strong>${escapeHtml(run.risk_level)} (${escapeHtml(String(run.risk_score))})</strong></div>
-        <div class="kv"><span>Actor</span><strong>${escapeHtml(run.actor_label || "unknown")}</strong></div>
-        <div class="kv"><span>Behavior</span><strong>${escapeHtml(run.behavior_stage)} / ${escapeHtml(run.intent)}</strong></div>
-        <div class="kv"><span>Peer</span><strong>${escapeHtml(run.peer_ip || "unknown")}:${escapeHtml(String(run.peer_port || ""))}</strong></div>
-        <div class="kv"><span>Signals</span></div>
-        <ul class="signals">
-          ${signals.length ? signals.map((signal) => `
-            <li class="signal">
-              <strong>${escapeHtml(signal.signal_type)} · ${escapeHtml(signal.signal_key)}</strong>
-              <span>${escapeHtml(signal.signal_value)}</span>
-            </li>
-          `).join("") : '<li class="signal">No normalized signals stored.</li>'}
-        </ul>
-      `;
-    }
-
-    function escapeHtml(value) {
-      return String(value)
-        .replaceAll("&", "&amp;")
-        .replaceAll("<", "&lt;")
-        .replaceAll(">", "&gt;")
-        .replaceAll('"', "&quot;")
-        .replaceAll("'", "&#039;");
-    }
-
-    loadDashboard();
+    document.getElementById("logoutButton").addEventListener("click", logoutDashboard);
+    renderEvents();
+    renderMap();
   </script>
 </body>
 </html>

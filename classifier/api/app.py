@@ -29,12 +29,22 @@ from classifier.storage import (
     PostgresClassifierRepository,
     StoredClassifierRun,
 )
+from honeypot.core.persona import PRESET_PERSONAS, Persona
 
 
 logger = logging.getLogger(__name__)
-DASHBOARD_INDEX_PATH = Path(__file__).resolve().parents[2] / "dashboard/public/index.html"
-AUTH_INDEX_PATH = Path(__file__).resolve().parents[2] / "dashboard/public/auth.html"
+DASHBOARD_PUBLIC_PATH = Path(__file__).resolve().parents[2] / "dashboard/public"
+DASHBOARD_INDEX_PATH = DASHBOARD_PUBLIC_PATH / "index.html"
+AUTH_INDEX_PATH = DASHBOARD_PUBLIC_PATH / "auth.html"
+DASHBOARD_CSS_PATH = DASHBOARD_PUBLIC_PATH / "dashboard.css"
 ASSETS_PATH = Path(__file__).resolve().parents[2] / "assets"
+DASHBOARD_PAGE_FILES = {
+    "sessions": DASHBOARD_PUBLIC_PATH / "sessions.html",
+    "intelligence": DASHBOARD_PUBLIC_PATH / "intelligence.html",
+    "personas": DASHBOARD_PUBLIC_PATH / "personas.html",
+    "alerts": DASHBOARD_PUBLIC_PATH / "alerts.html",
+    "reports": DASHBOARD_PUBLIC_PATH / "reports.html",
+}
 DASHBOARD_SESSION_SECRET_ENV = "ECHIDRA_SESSION_SECRET"
 DASHBOARD_COOKIE_SECURE_ENV = "ECHIDRA_COOKIE_SECURE"
 DASHBOARD_AUTH_COOKIE = "echidra_dashboard_auth"
@@ -82,6 +92,48 @@ class DashboardLoginInput(BaseModel):
     def validate_password(cls, value: str) -> str:
         _validate_password_format(value)
         return value
+
+    class Config:
+        extra = "forbid"
+
+
+class DashboardPersonaFile(BaseModel):
+    """One fake persona file exposed to the dashboard."""
+
+    path: str
+    content: str
+
+    class Config:
+        extra = "forbid"
+
+
+class DashboardPersonaCredential(BaseModel):
+    """One decoy credential exposed to the dashboard."""
+
+    username: str
+    password: str
+
+    class Config:
+        extra = "forbid"
+
+
+class DashboardPersonaPreset(BaseModel):
+    """One available honeypot persona preset for dashboard configuration."""
+
+    persona_id: str
+    os_banner: str
+    ssh_banner: str
+    hostname: str
+    uname_output: str
+    timezone: str
+    username: str
+    home_dir: str
+    running_processes: list[str]
+    fake_users: list[str]
+    suid_binaries: list[str]
+    open_ports_visible: list[int]
+    fake_filesystem: list[DashboardPersonaFile]
+    fake_credentials: list[DashboardPersonaCredential]
 
     class Config:
         extra = "forbid"
@@ -178,6 +230,39 @@ def create_app() -> FastAPI:
         if not DASHBOARD_INDEX_PATH.exists():
             raise HTTPException(status_code=404, detail="dashboard not found")
         return FileResponse(DASHBOARD_INDEX_PATH, media_type="text/html")
+
+    @api.get("/dashboard.css", response_class=FileResponse, tags=["dashboard"])
+    def dashboard_css() -> FileResponse:
+        """Serve the shared dashboard stylesheet."""
+        if not DASHBOARD_CSS_PATH.exists():
+            raise HTTPException(status_code=404, detail="dashboard stylesheet not found")
+        return FileResponse(DASHBOARD_CSS_PATH, media_type="text/css")
+
+    @api.get("/dashboard/{page_name}", response_class=FileResponse, tags=["dashboard"])
+    def dashboard_page(page_name: str, request: Request) -> Response:
+        """Serve whitelisted dashboard pages behind the same auth guard."""
+        if not _dashboard_request_is_authenticated(request):
+            return RedirectResponse("/auth", status_code=303)
+        page_path = DASHBOARD_PAGE_FILES.get(page_name)
+        if page_path is None or not page_path.exists():
+            raise HTTPException(status_code=404, detail="dashboard page not found")
+        return FileResponse(page_path, media_type="text/html")
+
+    @api.get(
+        "/personas",
+        response_model=list[DashboardPersonaPreset],
+        tags=["dashboard"],
+    )
+    def dashboard_personas_endpoint(request: Request) -> list[DashboardPersonaPreset]:
+        """Return available persona presets for dashboard configuration."""
+        _require_dashboard_auth(request)
+        return [
+            _dashboard_persona_from_preset(persona)
+            for persona in sorted(
+                PRESET_PERSONAS.values(),
+                key=lambda item: item.persona_id,
+            )
+        ]
 
     @api.post(
         "/classify/session",
@@ -366,6 +451,34 @@ def _classify_or_http_error(session: SessionRecord) -> ClassificationSummary:
             status_code=500,
             detail="internal server error",
         )
+
+
+def _dashboard_persona_from_preset(persona: Persona) -> DashboardPersonaPreset:
+    return DashboardPersonaPreset(
+        persona_id=persona.persona_id,
+        os_banner=persona.os_banner,
+        ssh_banner=persona.ssh_banner,
+        hostname=persona.hostname,
+        uname_output=persona.uname_output,
+        timezone=persona.timezone,
+        username=persona.username,
+        home_dir=persona.home_dir,
+        running_processes=list(persona.running_processes),
+        fake_users=list(persona.fake_users),
+        suid_binaries=list(persona.suid_binaries),
+        open_ports_visible=list(persona.open_ports_visible),
+        fake_filesystem=[
+            DashboardPersonaFile(path=fake_file.path, content=fake_file.content)
+            for fake_file in persona.fake_filesystem
+        ],
+        fake_credentials=[
+            DashboardPersonaCredential(
+                username=credential.username,
+                password=credential.password,
+            )
+            for credential in persona.fake_credentials
+        ],
+    )
 
 
 def _dashboard_request_is_authenticated(request: Request) -> bool:

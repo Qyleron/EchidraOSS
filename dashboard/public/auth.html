@@ -477,7 +477,7 @@
           return;
         }
         showMessage("Access granted. Redirecting...", "success");
-        window.location.assign("/dashboard");
+        setTimeout(() => window.location.assign("/dashboard"), 700);
       } catch (error) {
         showMessage("Unable to reach the server. Please try again.");
       } finally {

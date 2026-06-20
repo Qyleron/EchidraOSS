@@ -23,6 +23,8 @@ class SessionRecord(BaseModel):
     protocol: Literal["tcp_shell"]
     peer_ip: IPvAnyAddress | None
     peer_port: int | None = Field(default=None, ge=1, le=65535)
+    latitude: float | None = Field(default=None, ge=-90, le=90)
+    longitude: float | None = Field(default=None, ge=-180, le=180)
     persona_id: str = Field(min_length=1)
     started_at: float
     ended_at: float
@@ -41,6 +43,11 @@ class SessionRecord(BaseModel):
         commands = values.get("commands")
         command_count = values.get("command_count")
         decoy_files_surfaced = values.get("decoy_files_surfaced")
+        latitude = values.get("latitude")
+        longitude = values.get("longitude")
+
+        if (latitude is None) != (longitude is None):
+            raise ValueError("latitude and longitude must be provided together")
 
         if started_at is not None and ended_at is not None:
             if ended_at < started_at:

@@ -12,14 +12,38 @@ def test_all_dashboard_html_pages_use_shared_branding_and_tablet_viewport():
         html = page.read_text(encoding="utf-8")
         assert 'name="viewport" content="width=device-width, initial-scale=1"' in html
         assert 'href="/assets/qyleron_logo.png"' in html
-        assert 'src="/assets/Qyleron_Banner.png"' in html
-        assert "EchidraOSS" in html
-        assert '<div class="product-name">EchidraOSS</div>' in html
-        assert "@media (max-width: 768px)" in html
+        assert "Echidra" in html
 
 
-def test_dashboard_uses_database_wide_report_summary():
+def test_dashboard_uses_shared_stylesheet_and_wordmark_header():
+    html = (DASHBOARD_PUBLIC_PATH / "index.html").read_text(encoding="utf-8")
+    css = (DASHBOARD_PUBLIC_PATH / "dashboard.css").read_text(encoding="utf-8")
+
+    assert 'href="/dashboard.css"' in html
+    assert '<div class="brand-wordmark">Qyleron</div>' in html
+    assert '<div class="product-name">Echidra OSS</div>' in html
+    assert "@media (max-width: 768px)" in css
+
+
+def test_dashboard_exposes_security_overview_without_filters():
     html = (DASHBOARD_PUBLIC_PATH / "index.html").read_text(encoding="utf-8")
 
-    assert 'fetchJson("/reports/summary")' in html
-    assert 'id="metricAverageRisk"' in html
+    assert "Active Threats" in html
+    assert "Trusted Sessions" in html
+    assert "Warnings" in html
+    assert "Total Events" in html
+    assert "Recent Security Events" in html
+    assert "Apply Filters" not in html
+    assert "Clear" not in html
+
+
+def test_dashboard_map_uses_leaflet_mock_attack_origins():
+    html = (DASHBOARD_PUBLIC_PATH / "index.html").read_text(encoding="utf-8")
+
+    assert 'id="attackOriginMap"' in html
+    assert "L.map(\"attackOriginMap\"" in html
+    assert "L.circle([origin.lat, origin.lng]" in html
+    assert "L.circleMarker([origin.lat, origin.lng]" in html
+    assert "Moscow" in html
+    assert "Beijing" in html
+    assert "Sao Paulo" in html

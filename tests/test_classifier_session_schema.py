@@ -48,6 +48,24 @@ def test_schema_defaults_historical_records_to_no_surfaced_decoys():
     assert session.decoy_files_surfaced == []
 
 
+def test_schema_accepts_optional_geoip_coordinates():
+    record = valid_record()
+    record.update({"latitude": 12.9716, "longitude": 77.5946})
+
+    session = SessionRecord.parse_obj(record)
+
+    assert session.latitude == 12.9716
+    assert session.longitude == 77.5946
+
+
+def test_schema_requires_geoip_coordinates_as_a_pair():
+    record = valid_record()
+    record["latitude"] = 12.9716
+
+    with pytest.raises(ValidationError, match="provided together"):
+        SessionRecord.parse_obj(record)
+
+
 def test_schema_rejects_unknown_end_reason():
     """Only lifecycle reasons emitted by ConnectionHandler should be accepted."""
     record = valid_record()
