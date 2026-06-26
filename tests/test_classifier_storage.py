@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from uuid import uuid4
 
 import pytest
@@ -27,6 +28,8 @@ from classifier.storage.repository import (
     classifier_run_list_query,
     dashboard_user_from_row,
     dashboard_user_insert_params,
+    issue_from_row,
+    issue_list_query,
     session_event_insert_params,
     session_insert_params,
     manual_label_from_row,
@@ -317,6 +320,132 @@ def test_dashboard_user_from_row_returns_storage_model():
     assert stored_user == user
 
 
+def test_issue_from_row_includes_mitre_techniques():
+    issue_id = uuid4()
+    row = {
+        "id": issue_id,
+        "title": "SSH password authentication is being targeted.",
+        "severity": "high",
+        "evidence": "37 brute-force sessions across 4 personas.",
+        "recommended_fix": "Disable password login, enforce SSH keys.",
+        "impact": "Reduces credential-access exposure.",
+        "session_count": 37,
+        "persona_count": 4,
+        "status": "open",
+        "created_at": datetime.now(timezone.utc),
+    }
+    mitre_rows = [
+        {"issue_id": issue_id, "technique_index": 0, "technique_id": "T1110", "technique_name": "Brute Force"},
+        {"issue_id": issue_id, "technique_index": 1, "technique_id": "T1078", "technique_name": "Valid Accounts"},
+    ]
+
+    issue = issue_from_row(row, mitre_rows)
+
+    assert issue.id == issue_id
+    assert issue.status == "open"
+    assert [technique.id for technique in issue.mitre] == ["T1110", "T1078"]
+    assert issue.mitre[0].name == "Brute Force"
+
+
+def test_repository_list_issues_batches_mitre_techniques(monkeypatch):
+    issue_id_1 = uuid4()
+    issue_id_2 = uuid4()
+    rows = [
+        {
+            "id": issue_id_1,
+            "title": "SSH password authentication is being targeted.",
+            "severity": "high",
+            "evidence": "37 brute-force sessions across 4 personas.",
+            "recommended_fix": "Disable password login.",
+            "impact": "Reduces credential-access exposure.",
+            "session_count": 37,
+            "persona_count": 4,
+            "status": "open",
+            "created_at": datetime.now(timezone.utc),
+        },
+        {
+            "id": issue_id_2,
+            "title": "Attackers fingerprint the system before staging payloads.",
+            "severity": "medium",
+            "evidence": "24 sessions ran whoami.",
+            "recommended_fix": "Trim shell banner detail.",
+            "impact": "Shortens attacker dwell time before detection.",
+            "session_count": 24,
+            "persona_count": 3,
+            "status": "open",
+            "created_at": datetime.now(timezone.utc),
+        },
+    ]
+    mitre_rows = [
+        {"issue_id": issue_id_1, "technique_index": 0, "technique_id": "T1110", "technique_name": "Brute Force"},
+        {
+            "issue_id": issue_id_2,
+            "technique_index": 0,
+            "technique_id": "T1082",
+            "technique_name": "System Information Discovery",
+        },
+    ]
+    fetch_all_calls = []
+
+    def fake_fetch_all(database_url, sql, params):
+        fetch_all_calls.append((sql, params))
+        if "FROM issues" in sql:
+            return rows
+        return mitre_rows
+
+    monkeypatch.setattr("classifier.storage.repository._fetch_all", fake_fetch_all)
+
+    issues = PostgresClassifierRepository("postgresql://example/echidra").list_issues(status="open")
+
+    # One query for issues, one batched query for all their MITRE techniques (no N+1).
+    assert len(fetch_all_calls) == 2
+    assert fetch_all_calls[1][1] == {"issue_ids": [issue_id_1, issue_id_2]}
+    assert [issue.id for issue in issues] == [issue_id_1, issue_id_2]
+    assert issues[0].mitre[0].id == "T1110"
+    assert issues[1].mitre[0].id == "T1082"
+
+
+def test_repository_update_issue_status_returns_none_when_missing(monkeypatch):
+    monkeypatch.setattr("classifier.storage.repository._execute_insert", lambda *args, **kwargs: None)
+    monkeypatch.setattr("classifier.storage.repository._fetch_one", lambda *args, **kwargs: None)
+
+    result = PostgresClassifierRepository("postgresql://example/echidra").update_issue_status(
+        uuid4(), "closed"
+    )
+
+    assert result is None
+
+
+def test_repository_update_issue_status_returns_updated_record(monkeypatch):
+    issue_id = uuid4()
+    row = {
+        "id": issue_id,
+        "title": "The same scanner ASNs revisit after short cooldowns to re-validate access.",
+        "severity": "medium",
+        "evidence": "12 sessions from 3 ASNs returned within 24 hours of a prior scan.",
+        "recommended_fix": "Throttle by ASN with an escalating cooldown.",
+        "impact": "Frees analyst attention for genuine attacker sessions.",
+        "session_count": 12,
+        "persona_count": 3,
+        "status": "closed",
+        "created_at": datetime.now(timezone.utc),
+    }
+    mitre_rows = [
+        {"issue_id": issue_id, "technique_index": 0, "technique_id": "T1595", "technique_name": "Active Scanning"}
+    ]
+
+    monkeypatch.setattr("classifier.storage.repository._execute_insert", lambda *args, **kwargs: None)
+    monkeypatch.setattr("classifier.storage.repository._fetch_one", lambda *args, **kwargs: row)
+    monkeypatch.setattr("classifier.storage.repository._fetch_all", lambda *args, **kwargs: mitre_rows)
+
+    updated = PostgresClassifierRepository("postgresql://example/echidra").update_issue_status(
+        issue_id, "closed"
+    )
+
+    assert updated.status == "closed"
+    assert updated.mitre[0].id == "T1595"
+
+
 def test_dashboard_report_summary_combines_database_aggregates(monkeypatch):
     overview = {
         "total_runs": 12,
@@ -402,6 +531,29 @@ def test_manual_label_list_query_applies_supported_filters():
         "classifier_run_id": classifier_run_id,
         "limit": 10,
     }
+
+
+def test_issue_list_query_applies_status_filter():
+    sql, params = issue_list_query(status="open", limit=10)
+
+    assert "FROM issues" in sql
+    assert "status = %(status)s" in sql
+    assert "ORDER BY session_count DESC, created_at DESC" in sql
+    assert "LIMIT %(limit)s" in sql
+    assert params == {"status": "open", "limit": 10}
+
+
+def test_issue_list_query_omits_filter_when_status_not_given():
+    sql, params = issue_list_query(limit=10)
+
+    assert "WHERE" not in sql
+    assert params == {"limit": 10}
+
+
+def test_issue_list_query_clamps_limit_to_maximum():
+    _, params = issue_list_query(limit=10_000)
+
+    assert params["limit"] == 500
 
 
 def test_storage_cli_init_db_requires_database_url(monkeypatch, capsys):

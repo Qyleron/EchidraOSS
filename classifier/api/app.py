@@ -25,6 +25,8 @@ from classifier.storage import (
     DashboardUserRecord,
     DatabaseDriverMissingError,
     DatabaseNotConfiguredError,
+    IssueRecord,
+    IssueStatusUpdate,
     ManualLabelRecord,
     PostgresClassifierRepository,
     StoredClassifierRun,
@@ -40,6 +42,7 @@ DASHBOARD_CSS_PATH = DASHBOARD_PUBLIC_PATH / "dashboard.css"
 ASSETS_PATH = Path(__file__).resolve().parents[2] / "assets"
 DASHBOARD_PAGE_FILES = {
     "sessions": DASHBOARD_PUBLIC_PATH / "sessions.html",
+    "analytics": DASHBOARD_PUBLIC_PATH / "analytics.html",
     "intelligence": DASHBOARD_PUBLIC_PATH / "intelligence.html",
     "personas": DASHBOARD_PUBLIC_PATH / "personas.html",
     "alerts": DASHBOARD_PUBLIC_PATH / "alerts.html",
@@ -48,11 +51,14 @@ DASHBOARD_PAGE_FILES = {
 DASHBOARD_SESSION_SECRET_ENV = "ECHIDRA_SESSION_SECRET"
 DASHBOARD_COOKIE_SECURE_ENV = "ECHIDRA_COOKIE_SECURE"
 DASHBOARD_AUTH_COOKIE = "echidra_dashboard_auth"
-SESSION_MAX_AGE_SECONDS = 60 * 60 * 8
+SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 7
 PASSWORD_HASH_ITERATIONS = 390_000
 MAX_EMAIL_LENGTH = 254
 MAX_PASSWORD_LENGTH = 128
-_DEFAULT_SESSION_SECRET = secrets.token_urlsafe(32)
+_FALLBACK_SESSION_SECRET_PATH = (
+    Path(__file__).resolve().parents[2] / "logs" / ".dashboard_session_secret"
+)
+_fallback_session_secret: str | None = None
 _EMAIL_RE = re.compile(
     r"^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@"
     r"[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$"
@@ -433,6 +439,52 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=404, detail="manual label not found")
         return label
 
+    @api.get(
+        "/issues",
+        response_model=list[IssueRecord],
+        tags=["intelligence"],
+    )
+    def list_issues_endpoint(
+        request: Request,
+        status: str | None = None,
+        limit: int = Query(default=100, ge=1, le=500),
+    ) -> list[IssueRecord]:
+        """Return stored issues matching an optional status filter."""
+        _require_dashboard_auth(request)
+        try:
+            repository = PostgresClassifierRepository()
+            return repository.list_issues(status=status, limit=limit)
+        except (DatabaseDriverMissingError, DatabaseNotConfiguredError) as exc:
+            raise HTTPException(status_code=503, detail=str(exc))
+        except Exception as exc:
+            logger.exception("Unhandled exception in list_issues_endpoint: %s", exc)
+            raise HTTPException(status_code=500, detail="internal server error")
+
+    @api.patch(
+        "/issues/{issue_id}/status",
+        response_model=IssueRecord,
+        tags=["intelligence"],
+    )
+    def update_issue_status_endpoint(
+        issue_id: UUID,
+        payload: IssueStatusUpdate,
+        request: Request,
+    ) -> IssueRecord:
+        """Update one issue's open/closed triage status."""
+        _require_dashboard_auth(request)
+        try:
+            repository = PostgresClassifierRepository()
+            issue = repository.update_issue_status(issue_id, payload.status)
+        except (DatabaseDriverMissingError, DatabaseNotConfiguredError) as exc:
+            raise HTTPException(status_code=503, detail=str(exc))
+        except Exception as exc:
+            logger.exception("Unhandled exception in update_issue_status_endpoint: %s", exc)
+            raise HTTPException(status_code=500, detail="internal server error")
+
+        if issue is None:
+            raise HTTPException(status_code=404, detail="issue not found")
+        return issue
+
     return api
 
 
@@ -557,7 +609,43 @@ def _verify_password(password: str, password_hash: str) -> bool:
 
 
 def _dashboard_session_secret() -> str:
-    return os.getenv(DASHBOARD_SESSION_SECRET_ENV) or _DEFAULT_SESSION_SECRET
+    configured = os.getenv(DASHBOARD_SESSION_SECRET_ENV)
+    if configured:
+        return configured
+    global _fallback_session_secret
+    if _fallback_session_secret is None:
+        _fallback_session_secret = _load_or_create_fallback_session_secret()
+    return _fallback_session_secret
+
+
+def _load_or_create_fallback_session_secret() -> str:
+    """Fall back secret used when ECHIDRA_SESSION_SECRET is unset.
+
+    Persisted to disk so dashboard logins survive process restarts (eg.
+    --reload, crashes, redeploys) instead of invalidating every cookie the
+    moment a fresh random secret is generated in memory.
+    """
+    try:
+        existing = _FALLBACK_SESSION_SECRET_PATH.read_text(encoding="utf-8").strip()
+        if existing:
+            return existing
+    except OSError:
+        pass
+
+    secret = secrets.token_urlsafe(32)
+    try:
+        _FALLBACK_SESSION_SECRET_PATH.parent.mkdir(parents=True, exist_ok=True)
+        _FALLBACK_SESSION_SECRET_PATH.write_text(secret, encoding="utf-8")
+        _FALLBACK_SESSION_SECRET_PATH.chmod(0o600)
+    except OSError:
+        logger.warning(
+            "Could not persist fallback dashboard session secret to %s; "
+            "logins will not survive a process restart. Set %s to fix this "
+            "permanently.",
+            _FALLBACK_SESSION_SECRET_PATH,
+            DASHBOARD_SESSION_SECRET_ENV,
+        )
+    return secret
 
 
 def _set_dashboard_session_cookie(

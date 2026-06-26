@@ -13,8 +13,10 @@ from classifier.storage.models import (
     ClassifierRunRecord,
     DashboardReportSummary,
     DashboardUserRecord,
+    IssueRecord,
     ManualLabelInput,
     ManualLabelRecord,
+    MitreTechnique,
     StoredClassifierRun,
     StoredClassifierSignal,
 )
@@ -288,9 +290,44 @@ GROUP BY intent
 ORDER BY count DESC, key
 """
 
+SELECT_ISSUE_BASE_SQL = """
+SELECT
+    id,
+    title,
+    severity,
+    evidence,
+    recommended_fix,
+    impact,
+    session_count,
+    persona_count,
+    status,
+    created_at
+FROM issues
+"""
+
+SELECT_ISSUE_BY_ID_SQL = SELECT_ISSUE_BASE_SQL + "WHERE id = %(id)s"
+
+SELECT_ISSUE_MITRE_TECHNIQUES_SQL = """
+SELECT
+    issue_id,
+    technique_index,
+    technique_id,
+    technique_name
+FROM issue_mitre_techniques
+WHERE issue_id = ANY(%(issue_ids)s)
+ORDER BY issue_id, technique_index
+"""
+
+UPDATE_ISSUE_STATUS_SQL = """
+UPDATE issues
+SET status = %(status)s
+WHERE id = %(id)s
+"""
+
 # Limit validation constants
 MAX_LIMIT = 1000
 MAX_MANUAL_LABEL_LIMIT = 1000
+MAX_ISSUE_LIMIT = 500
 
 
 class DatabaseNotConfiguredError(RuntimeError):
@@ -496,6 +533,51 @@ class PostgresClassifierRepository:
             ),
         )
 
+    def list_issues(
+        self,
+        *,
+        status: str | None = None,
+        limit: int = 100,
+    ) -> list[IssueRecord]:
+        """Fetch stored issues matching an optional status filter."""
+        sql, params = issue_list_query(status=status, limit=limit)
+        rows = _fetch_all(self.database_url, sql, params)
+        if not rows:
+            return []
+
+        issue_ids = [row["id"] for row in rows]
+        mitre_rows = _fetch_all(
+            self.database_url,
+            SELECT_ISSUE_MITRE_TECHNIQUES_SQL,
+            {"issue_ids": issue_ids},
+        )
+        mitre_by_issue_id: dict[UUID, list[dict[str, Any]]] = {}
+        for mitre_row in mitre_rows:
+            mitre_by_issue_id.setdefault(mitre_row["issue_id"], []).append(mitre_row)
+
+        return [
+            issue_from_row(row, mitre_by_issue_id.get(row["id"], []))
+            for row in rows
+        ]
+
+    def update_issue_status(self, issue_id: UUID, status: str) -> IssueRecord | None:
+        """Update one issue's triage status and return the stored record."""
+        _execute_insert(
+            self.database_url,
+            UPDATE_ISSUE_STATUS_SQL,
+            {"id": issue_id, "status": status},
+        )
+        row = _fetch_one(self.database_url, SELECT_ISSUE_BY_ID_SQL, {"id": issue_id})
+        if row is None:
+            return None
+
+        mitre_rows = _fetch_all(
+            self.database_url,
+            SELECT_ISSUE_MITRE_TECHNIQUES_SQL,
+            {"issue_ids": [issue_id]},
+        )
+        return issue_from_row(row, mitre_rows)
+
 
 def classifier_run_insert_params(record: ClassifierRunRecord) -> dict[str, Any]:
     """Return SQL parameters for the compact classifier_runs row."""
@@ -673,6 +755,20 @@ def dashboard_user_from_row(row: dict[str, Any]) -> DashboardUserRecord:
     return DashboardUserRecord(**row)
 
 
+def issue_from_row(
+    row: dict[str, Any],
+    mitre_rows: list[dict[str, Any]],
+) -> IssueRecord:
+    """Build the storage model for one issue query result."""
+    return IssueRecord(
+        **row,
+        mitre=[
+            MitreTechnique(id=mitre_row["technique_id"], name=mitre_row["technique_name"])
+            for mitre_row in mitre_rows
+        ],
+    )
+
+
 def _count_map(rows: list[dict[str, Any]]) -> dict[str, int]:
     return {str(row["key"]): int(row["count"]) for row in rows}
 
@@ -739,6 +835,31 @@ def manual_label_list_query(
         SELECT_MANUAL_LABEL_BASE_SQL,
         filters,
         "created_at DESC, id DESC",
+        params,
+    )
+
+
+def issue_list_query(
+    *,
+    status: str | None = None,
+    limit: int = 100,
+) -> tuple[str, dict[str, Any]]:
+    """Return SQL and parameters for listing stored issues."""
+    # Validate and clamp limit
+    if not isinstance(limit, int) or limit < 1:
+        raise ValueError(f"limit must be a positive integer, got {limit}")
+    limit = min(limit, MAX_ISSUE_LIMIT)
+
+    filters: list[str] = []
+    params: dict[str, Any] = {"limit": limit}
+    if status is not None:
+        filters.append("status = %(status)s")
+        params["status"] = status
+
+    return _list_query(
+        SELECT_ISSUE_BASE_SQL,
+        filters,
+        "session_count DESC, created_at DESC",
         params,
     )
 

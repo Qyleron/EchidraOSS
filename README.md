@@ -261,6 +261,8 @@ GET /classifier/runs
 GET /manual-labels/{label_id}
 GET /manual-labels
 GET /reports/summary
+GET /issues
+PATCH /issues/{issue_id}/status
 GET /auth
 POST /auth/signup
 POST /auth/login

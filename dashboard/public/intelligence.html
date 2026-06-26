@@ -3,35 +3,170 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Intelligence - EchidraOSS | Qyleron</title>
+  <title>Intelligence - Echidra OSS | Qyleron</title>
   <link rel="icon" href="/assets/qyleron_logo.png" type="image/png" />
-  <style>
-    :root { color-scheme: dark; --bg: #000000; --surface: #0a0a0a; --surface-strong: #111111; --text: #ffffff; --muted: #999999; --line: #1f1f1f; font-family: "SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
-    * { box-sizing: border-box; }
-    body { margin: 0; min-width: 320px; background: var(--bg); color: var(--text); }
-    body::before { content: ""; position: fixed; inset: 0; z-index: -1; opacity: 0.02; background-image: linear-gradient(90deg, #333 1px, transparent 1px), linear-gradient(#333 1px, transparent 1px); background-size: 50px 50px; }
-    .topbar { position: fixed; top: 0; left: 0; right: 0; z-index: 1000; height: 64px; display: flex; align-items: center; justify-content: space-between; padding: 0 24px; border-bottom: 1px solid var(--line); background: var(--surface); }
-    .brand-banner { display: block; width: clamp(112px, 16vw, 170px); height: 42px; object-fit: contain; object-position: left center; }
-    .product-name { color: var(--muted); font-size: 15px; font-weight: 650; white-space: nowrap; }
-    .navbar { position: fixed; top: 64px; left: 0; right: 0; z-index: 999; height: 52px; display: flex; align-items: center; justify-content: space-between; padding: 0 24px; border-bottom: 1px solid var(--line); background: var(--surface); }
-    .nav-links, .navbar-actions { display: flex; align-items: center; gap: 4px; }
-    .navbar-actions { gap: 10px; margin-left: auto; }
-    .nav-link { display: inline-block; padding: 6px 14px; border-radius: 8px; color: var(--muted); text-decoration: none; font-size: 13px; font-weight: 650; }
-    .nav-link.active { color: var(--text); background: var(--surface-strong); }
-    .logout-button { min-height: 34px; border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; color: var(--muted); background: transparent; cursor: pointer; font: inherit; font-size: 13px; }
-    .content { min-height: calc(100vh - 116px); margin-top: 116px; padding: 20px 24px 40px; }
-    .inner { width: min(1400px, 100%); margin: 0 auto; display: grid; gap: 18px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
-    .panel { border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
-    .panel-header { padding: 14px 16px; border-bottom: 1px solid var(--line); }
-    .panel-title { margin: 0; font-size: 15px; font-weight: 750; }
-    .panel-body { min-height: 160px; padding: 16px; color: var(--muted); }
-    @media (max-width: 768px) { .topbar, .navbar { padding-inline: 16px; } .nav-links { overflow-x: auto; } .inner { grid-template-columns: 1fr; } .content { padding-inline: 16px; } }
-  </style>
+  <link rel="stylesheet" href="/dashboard.css" />
 </head>
 <body>
-  <header class="topbar"><img class="brand-banner" src="/assets/Qyleron_Banner.png" alt="Qyleron" /><div class="product-name">EchidraOSS</div></header>
-  <nav class="navbar" aria-label="Primary dashboard navigation"><div class="nav-links"><a class="nav-link" href="/dashboard">Overview</a><a class="nav-link" href="/dashboard/sessions">Sessions</a><a class="nav-link active" href="/dashboard/intelligence">Intelligence</a><a class="nav-link" href="/dashboard/personas">Personas</a><a class="nav-link" href="/dashboard/alerts">Alerts</a><a class="nav-link" href="/dashboard/reports">Reports</a></div><div class="navbar-actions"><button id="logoutButton" class="logout-button" type="button">Logout</button></div></nav>
-  <main class="content"><div class="inner"><section class="panel"><div class="panel-header"><h1 class="panel-title">Threat Intelligence</h1></div><div class="panel-body">Actor and intent intelligence workspace.</div></section><section class="panel"><div class="panel-header"><h2 class="panel-title">Signals</h2></div><div class="panel-body">Normalized classifier signal review.</div></section><section class="panel"><div class="panel-header"><h2 class="panel-title">MITRE Tags</h2></div><div class="panel-body">Technique coverage view.</div></section></div></main>
-  <script>document.getElementById("logoutButton").addEventListener("click", async () => { await fetch("/auth/logout", { method: "POST" }); window.location.assign("/auth"); });</script>
+  <div class="app-shell">
+    <header class="topbar">
+      <a href="/" class="logo" aria-label="Qyleron home">
+        <img src="/assets/Qyleron_Banner.png" alt="Qyleron" />
+      </a>
+      <div class="product-name">Echidra OSS</div>
+    </header>
+
+    <nav class="navbar" aria-label="Primary dashboard navigation">
+      <div class="nav-links">
+        <a class="nav-link" href="/dashboard">Overview</a>
+        <a class="nav-link" href="/dashboard/sessions">Sessions</a>
+        <a class="nav-link" href="/dashboard/analytics">Analytics</a>
+        <a class="nav-link active" href="/dashboard/intelligence">Intelligence</a>
+        <a class="nav-link" href="/dashboard/personas">Personas</a>
+      </div>
+      <button id="logoutButton" class="logout-button" type="button">Logout</button>
+    </nav>
+
+    <main class="dashboard-main">
+      <section class="page-panel" aria-labelledby="issuesTitle">
+        <div class="page-panel-header">
+          <div class="page-panel-title">
+            <h1 id="issuesTitle">Issue Intelligence</h1>
+            <p>Recurring attacker behavior, the fix that closes it, and whether it's been applied yet.</p>
+          </div>
+        </div>
+
+        <div class="table-shell">
+          <table class="data-table issue-table" aria-describedby="issuesTitle">
+            <colgroup>
+              <col style="width: 14%;" />
+              <col style="width: 7%;" />
+              <col style="width: 14%;" />
+              <col style="width: 7%;" />
+              <col style="width: 7%;" />
+              <col style="width: 15%;" />
+              <col style="width: 15%;" />
+              <col style="width: 12%;" />
+              <col style="width: 9%;" />
+            </colgroup>
+            <thead>
+              <tr>
+                <th>Event</th>
+                <th>Severity</th>
+                <th>MITRE Techniques</th>
+                <th>Session Count</th>
+                <th>Persona Count</th>
+                <th>Evidence</th>
+                <th>Recommended Fix</th>
+                <th>Impact</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody id="issueTableBody"></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    const SEVERITY_LABELS = { high: "High", medium: "Medium", low: "Low" };
+
+    function statusLabel(status) {
+      return status === "open" ? "Open" : "Closed";
+    }
+
+    async function fetchIssues() {
+      const response = await fetch("/issues");
+      if (!response.ok) {
+        throw new Error(`Failed to load issues (${response.status})`);
+      }
+      return response.json();
+    }
+
+    function renderIssueRows(issues) {
+      const tableBody = document.getElementById("issueTableBody");
+      if (issues.length === 0) {
+        tableBody.innerHTML = `<tr><td colspan="9" class="empty-state" style="text-align: center;">No issues detected yet.</td></tr>`;
+        return;
+      }
+      tableBody.innerHTML = issues.map((issue) => `
+        <tr data-issue-row="${issue.id}">
+          <td><div class="cell-primary"><strong>${issue.title}</strong></div></td>
+          <td><span class="risk-badge ${issue.severity}">${SEVERITY_LABELS[issue.severity]}</span></td>
+          <td>
+            <ul class="mitre-technique-list">
+              ${issue.mitre.map((technique) => `<li>${technique.id} - ${technique.name}</li>`).join("")}
+            </ul>
+          </td>
+          <td>${issue.session_count}</td>
+          <td>${issue.persona_count}</td>
+          <td><span class="cell-bright">${issue.evidence}</span></td>
+          <td><span class="cell-bright">${issue.recommended_fix}</span></td>
+          <td><span class="cell-bright">${issue.impact}</span></td>
+          <td>
+            <button
+              type="button"
+              class="status-toggle ${issue.status}"
+              data-issue-id="${issue.id}"
+              aria-pressed="${issue.status === "closed"}"
+            >${statusLabel(issue.status)}</button>
+          </td>
+        </tr>
+      `).join("");
+    }
+
+    async function loadIssues() {
+      const tableBody = document.getElementById("issueTableBody");
+      try {
+        renderIssueRows(await fetchIssues());
+      } catch (error) {
+        tableBody.innerHTML = `<tr><td colspan="9" class="empty-state" style="text-align: center;">Could not load issues. Is the database configured?</td></tr>`;
+      }
+    }
+
+    async function handleStatusToggle(event) {
+      const button = event.target.closest(".status-toggle");
+      if (!button) {
+        return;
+      }
+      const nextStatus = button.classList.contains("open") ? "closed" : "open";
+      button.disabled = true;
+      try {
+        const response = await fetch(`/issues/${button.dataset.issueId}/status`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status: nextStatus })
+        });
+        if (!response.ok) {
+          throw new Error(`Failed to update status (${response.status})`);
+        }
+        const updated = await response.json();
+        button.classList.remove("open", "closed");
+        button.classList.add(updated.status);
+        button.textContent = statusLabel(updated.status);
+        button.setAttribute("aria-pressed", String(updated.status === "closed"));
+      } catch (error) {
+        console.error(error);
+      } finally {
+        button.disabled = false;
+      }
+    }
+
+    loadIssues();
+    document.getElementById("issueTableBody").addEventListener("click", handleStatusToggle);
+
+    async function logoutDashboard() {
+      const logoutButton = document.getElementById("logoutButton");
+      logoutButton.disabled = true;
+      try {
+        await fetch("/auth/logout", { method: "POST" });
+      } finally {
+        window.location.assign("/auth");
+      }
+    }
+
+    document.getElementById("logoutButton").addEventListener("click", logoutDashboard);
+  </script>
 </body>
 </html>

@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Analytics - Echidra OSS | Qyleron</title>
+  <link rel="icon" href="/assets/qyleron_logo.png" type="image/png" />
+  <link rel="stylesheet" href="/dashboard.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <a href="/" class="logo" aria-label="Qyleron home">
+        <img src="/assets/Qyleron_Banner.png" alt="Qyleron" />
+      </a>
+      <div class="product-name">Echidra OSS</div>
+    </header>
+
+    <nav class="navbar" aria-label="Primary dashboard navigation">
+      <div class="nav-links">
+        <a class="nav-link" href="/dashboard">Overview</a>
+        <a class="nav-link" href="/dashboard/sessions">Sessions</a>
+        <a class="nav-link active" href="/dashboard/analytics">Analytics</a>
+        <a class="nav-link" href="/dashboard/intelligence">Intelligence</a>
+        <a class="nav-link" href="/dashboard/personas">Personas</a>
+      </div>
+      <button id="logoutButton" class="logout-button" type="button">Logout</button>
+    </nav>
+
+    <main class="dashboard-main">
+      <section class="page-panel" aria-labelledby="analyticsTitle">
+        <div class="page-panel-header">
+          <div class="page-panel-title">
+            <h1 id="analyticsTitle">Intent Breakdown</h1>
+          </div>
+          <div class="page-panel-actions">
+            <div class="time-range-control">
+              <button id="timeRangeButton" class="text-button" type="button">Loading range...</button>
+              <div id="timeRangePanel" class="time-range-panel">
+                <div class="time-range-row">
+                  <div class="time-range-group">
+                    <label for="rangeFromDate">From date</label>
+                    <input type="date" id="rangeFromDate" />
+                  </div>
+                  <div class="time-range-group">
+                    <label for="rangeFromHour">From hour</label>
+                    <select id="rangeFromHour"></select>
+                  </div>
+                </div>
+                <div class="time-range-row">
+                  <div class="time-range-group">
+                    <label for="rangeToDate">To date</label>
+                    <input type="date" id="rangeToDate" />
+                  </div>
+                  <div class="time-range-group">
+                    <label for="rangeToHour">To hour</label>
+                    <select id="rangeToHour"></select>
+                  </div>
+                </div>
+                <div class="time-range-actions">
+                  <button id="applyRangeButton" class="text-button" type="button">Apply</button>
+                </div>
+              </div>
+            </div>
+            <button class="text-button" type="button">Export CSV</button>
+          </div>
+        </div>
+        <div class="chart-body">
+          <section class="metric-grid" aria-label="Intent breakdown">
+            <article class="metric-card">
+              <strong class="metric-value metric-danger" id="intentCredentialAccess">0</strong>
+              <span class="metric-label">Credential Access</span>
+            </article>
+            <article class="metric-card">
+              <strong class="metric-value" id="intentReconnaissance">0</strong>
+              <span class="metric-label">Reconnaissance</span>
+            </article>
+            <article class="metric-card">
+              <strong class="metric-value metric-warning" id="intentPersistenceSetup">0</strong>
+              <span class="metric-label">Persistence Setup</span>
+            </article>
+            <article class="metric-card">
+              <strong class="metric-value metric-success" id="intentScannerValidation">0</strong>
+              <span class="metric-label">Scanner Validation</span>
+            </article>
+          </section>
+        </div>
+      </section>
+
+      <section class="analytics-grid" aria-label="Attack analytics">
+        <section class="chart-card" aria-labelledby="attacksByHourTitle">
+          <div class="page-panel-header">
+            <div class="page-panel-title">
+              <h2 id="attacksByHourTitle">Attacks By Hour</h2>
+              <p>When captured sessions are most active.</p>
+            </div>
+          </div>
+          <div class="chart-body">
+            <div id="attacksByHourChart" class="bar-chart" aria-label="Bar chart of attacks by hour"></div>
+          </div>
+        </section>
+
+        <section class="chart-card" aria-labelledby="riskTrendTitle">
+          <div class="page-panel-header">
+            <div class="page-panel-title">
+              <h2 id="riskTrendTitle">Risk Trend</h2>
+              <p>High, medium, and low risk session volume over time.</p>
+            </div>
+          </div>
+          <div class="chart-body">
+            <div id="riskTrendChart" class="bar-chart" aria-label="Stacked bar chart of risk over time"></div>
+          </div>
+        </section>
+
+        <div class="chart-row">
+          <section class="chart-card" aria-labelledby="topCommandsTitle">
+            <div class="page-panel-header">
+              <div class="page-panel-title">
+                <h2 id="topCommandsTitle">Top Commands</h2>
+                <p>Most common commands observed in captured sessions.</p>
+              </div>
+            </div>
+            <div class="chart-body">
+              <ol id="topCommandsList" class="rank-list"></ol>
+            </div>
+          </section>
+
+          <section class="chart-card" aria-labelledby="targetedPersonasTitle">
+            <div class="page-panel-header">
+              <div class="page-panel-title">
+                <h2 id="targetedPersonasTitle">Top Targeted Personas</h2>
+                <p>Which deception profiles attracted the most activity.</p>
+              </div>
+            </div>
+            <div class="chart-body">
+              <ol id="personasList" class="rank-list"></ol>
+            </div>
+          </section>
+
+          <section class="chart-card" aria-labelledby="countriesTitle">
+            <div class="page-panel-header">
+              <div class="page-panel-title">
+                <h2 id="countriesTitle">Top Countries</h2>
+                <p>Source geography by captured session count.</p>
+              </div>
+            </div>
+            <div class="chart-body">
+              <ol id="countriesList" class="rank-list"></ol>
+            </div>
+          </section>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    const COMMAND_POOL = ["whoami", "uname -a", "cat /etc/passwd", "wget", "id", "ls -la", "netstat -tulpn", "crontab -l", "pwd", "cat /etc/issue"];
+    const PERSONA_POOL = ["Ubuntu Web Server", "Debian Mail Gateway", "CentOS Database", "Generic Linux Shell"];
+    const COUNTRY_POOL = ["Russia", "China", "Brazil", "USA", "Germany"];
+    const INTENT_POOL = ["Credential Access", "Reconnaissance", "Persistence Setup", "Scanner Validation"];
+    const RISK_POOL = ["high", "medium", "medium", "low"];
+    const HOUR_WEIGHTS = [4, 3, 3, 2, 3, 4, 5, 6, 7, 8, 8, 9, 10, 12, 14, 12, 11, 10, 9, 8, 7, 6, 5, 4];
+    const SYNTHETIC_NOW = new Date("2026-06-24T23:59:00");
+    const SYNTHETIC_SPAN_DAYS = 21;
+
+    function mulberry32(seed) {
+      return function generate() {
+        seed |= 0;
+        seed = (seed + 0x6D2B79F5) | 0;
+        let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+        t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+      };
+    }
+
+    function weightedHour(rng) {
+      const total = HOUR_WEIGHTS.reduce((sum, weight) => sum + weight, 0);
+      let pick = rng() * total;
+      for (let hour = 0; hour < HOUR_WEIGHTS.length; hour++) {
+        pick -= HOUR_WEIGHTS[hour];
+        if (pick <= 0) {
+          return hour;
+        }
+      }
+      return HOUR_WEIGHTS.length - 1;
+    }
+
+    function pickFrom(pool, rng) {
+      return pool[Math.floor(rng() * pool.length)];
+    }
+
+    // Stands in for a future "GET /analytics/events?from=..&to=.." backend call: every
+    // event already carries the same fields the aggregators below expect, so swapping
+    // this generator for a real fetch is the only change needed once that endpoint exists.
+    function generateSyntheticEvents() {
+      const rng = mulberry32(20260624);
+      const events = [];
+      let id = 1;
+      for (let daysAgo = 0; daysAgo < SYNTHETIC_SPAN_DAYS; daysAgo++) {
+        const sessionsThisDay = 12 + Math.floor(rng() * 10);
+        for (let i = 0; i < sessionsThisDay; i++) {
+          const timestamp = new Date(SYNTHETIC_NOW);
+          timestamp.setDate(timestamp.getDate() - daysAgo);
+          timestamp.setHours(weightedHour(rng), Math.floor(rng() * 60), 0, 0);
+          events.push({
+            id: `evt-${id++}`,
+            timestamp,
+            persona: pickFrom(PERSONA_POOL, rng),
+            country: pickFrom(COUNTRY_POOL, rng),
+            intent: pickFrom(INTENT_POOL, rng),
+            risk: pickFrom(RISK_POOL, rng),
+            commands: [pickFrom(COMMAND_POOL, rng), pickFrom(COMMAND_POOL, rng)]
+          });
+        }
+      }
+      return events;
+    }
+
+    const SYNTHETIC_EVENTS = generateSyntheticEvents();
+
+    function localDateKey(date) {
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, "0");
+      const day = String(date.getDate()).padStart(2, "0");
+      return `${year}-${month}-${day}`;
+    }
+
+    function topNCounts(values, limit) {
+      const counts = new Map();
+      values.forEach((value) => counts.set(value, (counts.get(value) || 0) + 1));
+      return [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, limit);
+    }
+
+    function aggregateAttacksByHour(events) {
+      const buckets = new Map();
+      for (let hour = 0; hour < 24; hour++) {
+        buckets.set(hour, 0);
+      }
+      events.forEach((event) => {
+        const hour = event.timestamp.getHours();
+        buckets.set(hour, buckets.get(hour) + 1);
+      });
+      return [...buckets.entries()].map(([hour, count]) => [String(hour).padStart(2, "0"), count]);
+    }
+
+    function aggregateIntentCounts(events) {
+      const counts = new Map(INTENT_POOL.map((intent) => [intent, 0]));
+      events.forEach((event) => counts.set(event.intent, counts.get(event.intent) + 1));
+      return counts;
+    }
+
+    function aggregateRiskTrend(events) {
+      const buckets = new Map();
+      events.forEach((event) => {
+        const key = localDateKey(event.timestamp);
+        const bucket = buckets.get(key) || { date: event.timestamp, count: 0 };
+        bucket.count += 1;
+        buckets.set(key, bucket);
+      });
+      return [...buckets.entries()]
+        .sort(([a], [b]) => (a < b ? -1 : 1))
+        .map(([, bucket]) => [
+          bucket.date.toLocaleDateString("en-GB", { day: "2-digit", month: "short" }),
+          bucket.count
+        ]);
+    }
+
+    function aggregateAnalytics(events) {
+      return {
+        attacksByHour: aggregateAttacksByHour(events),
+        riskTrend: aggregateRiskTrend(events),
+        topCommands: topNCounts(events.flatMap((event) => event.commands), 5),
+        targetedPersonas: topNCounts(events.map((event) => event.persona), 4),
+        countries: topNCounts(events.map((event) => event.country), 5),
+        intents: aggregateIntentCounts(events)
+      };
+    }
+
+    function renderBars(containerId, points) {
+      const max = Math.max(...points.map(([, value]) => value)) || 1;
+      document.getElementById(containerId).innerHTML = points.map(([label, value]) => `
+        <div class="bar-column">
+          <span class="bar-value">${value}</span>
+          <span class="bar-fill" style="height: ${Math.max(8, (value / max) * 170)}px;"></span>
+          <span class="bar-label">${label}</span>
+        </div>
+      `).join("");
+    }
+
+    function renderRankedList(containerId, rows) {
+      const max = Math.max(...rows.map(([, value]) => value)) || 1;
+      document.getElementById(containerId).innerHTML = rows.map(([label, value]) => `
+        <li class="rank-item">
+          <div class="rank-row">
+            <span>${label}</span>
+            <span>${value}</span>
+          </div>
+          <div class="rank-track">
+            <span class="rank-fill" style="width: ${(value / max) * 100}%;"></span>
+          </div>
+        </li>
+      `).join("");
+    }
+
+    const INTENT_METRIC_IDS = {
+      "Credential Access": "intentCredentialAccess",
+      "Reconnaissance": "intentReconnaissance",
+      "Persistence Setup": "intentPersistenceSetup",
+      "Scanner Validation": "intentScannerValidation"
+    };
+
+    function renderIntentMetrics(counts) {
+      INTENT_POOL.forEach((intent) => {
+        document.getElementById(INTENT_METRIC_IDS[intent]).textContent = counts.get(intent);
+      });
+    }
+
+    function renderAnalytics(events) {
+      const aggregates = aggregateAnalytics(events);
+      renderBars("attacksByHourChart", aggregates.attacksByHour);
+      renderBars("riskTrendChart", aggregates.riskTrend);
+      renderRankedList("topCommandsList", aggregates.topCommands);
+      renderRankedList("personasList", aggregates.targetedPersonas);
+      renderRankedList("countriesList", aggregates.countries);
+      renderIntentMetrics(aggregates.intents);
+    }
+
+    const HOUR_OPTIONS = Array.from({ length: 24 }, (_, hour) => {
+      const period = hour < 12 ? "AM" : "PM";
+      const displayHour = hour % 12 === 0 ? 12 : hour % 12;
+      return { hour, label: `${displayHour} ${period}` };
+    });
+
+    function populateHourSelect(select, defaultHour) {
+      select.innerHTML = HOUR_OPTIONS.map(({ hour, label }) => `<option value="${hour}">${label}</option>`).join("");
+      select.value = String(defaultHour);
+    }
+
+    function formatRangeLabel(from, to) {
+      const fmt = (date) => date.toLocaleDateString("en-GB", { day: "2-digit", month: "short" });
+      return `${fmt(from)} – ${fmt(to)}`;
+    }
+
+    function readRange() {
+      const fromDate = document.getElementById("rangeFromDate").value;
+      const fromHour = Number(document.getElementById("rangeFromHour").value);
+      const toDate = document.getElementById("rangeToDate").value;
+      const toHour = Number(document.getElementById("rangeToHour").value);
+
+      const from = new Date(`${fromDate}T00:00:00`);
+      from.setHours(fromHour, 0, 0, 0);
+
+      const to = new Date(`${toDate}T00:00:00`);
+      to.setHours(toHour, 59, 59, 999);
+
+      return { from, to };
+    }
+
+    function applyRange() {
+      const { from, to } = readRange();
+      const filtered = SYNTHETIC_EVENTS.filter((event) => event.timestamp >= from && event.timestamp <= to);
+      renderAnalytics(filtered);
+      document.getElementById("timeRangeButton").textContent = formatRangeLabel(from, to);
+    }
+
+    function initTimeRangeControl() {
+      const fromDateInput = document.getElementById("rangeFromDate");
+      const toDateInput = document.getElementById("rangeToDate");
+      const fromHourSelect = document.getElementById("rangeFromHour");
+      const toHourSelect = document.getElementById("rangeToHour");
+      const timeRangeButton = document.getElementById("timeRangeButton");
+      const timeRangePanel = document.getElementById("timeRangePanel");
+
+      populateHourSelect(fromHourSelect, 0);
+      populateHourSelect(toHourSelect, 23);
+      toDateInput.value = localDateKey(SYNTHETIC_NOW);
+      const defaultFrom = new Date(SYNTHETIC_NOW);
+      defaultFrom.setDate(defaultFrom.getDate() - 6);
+      fromDateInput.value = localDateKey(defaultFrom);
+
+      timeRangeButton.addEventListener("click", (event) => {
+        event.stopPropagation();
+        timeRangePanel.classList.toggle("open");
+      });
+
+      document.getElementById("applyRangeButton").addEventListener("click", () => {
+        applyRange();
+        timeRangePanel.classList.remove("open");
+      });
+
+      document.addEventListener("click", (event) => {
+        if (!event.target.closest(".time-range-control")) {
+          timeRangePanel.classList.remove("open");
+        }
+      });
+
+      document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") {
+          timeRangePanel.classList.remove("open");
+        }
+      });
+
+      applyRange();
+    }
+
+    async function logoutDashboard() {
+      const logoutButton = document.getElementById("logoutButton");
+      logoutButton.disabled = true;
+      try {
+        await fetch("/auth/logout", { method: "POST" });
+      } finally {
+        window.location.assign("/auth");
+      }
+    }
+
+    initTimeRangeControl();
+    document.getElementById("logoutButton").addEventListener("click", logoutDashboard);
+  </script>
+</body>
+</html>
