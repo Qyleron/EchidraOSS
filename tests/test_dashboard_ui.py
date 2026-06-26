@@ -15,12 +15,12 @@ def test_all_dashboard_html_pages_use_shared_branding_and_tablet_viewport():
         assert "Echidra" in html
 
 
-def test_dashboard_uses_shared_stylesheet_and_wordmark_header():
+def test_dashboard_uses_shared_stylesheet_and_banner_header():
     html = (DASHBOARD_PUBLIC_PATH / "index.html").read_text(encoding="utf-8")
     css = (DASHBOARD_PUBLIC_PATH / "dashboard.css").read_text(encoding="utf-8")
 
     assert 'href="/dashboard.css"' in html
-    assert '<div class="brand-wordmark">Qyleron</div>' in html
+    assert 'src="/assets/Qyleron_Banner.png"' in html
     assert '<div class="product-name">Echidra OSS</div>' in html
     assert "@media (max-width: 768px)" in css
 
@@ -47,3 +47,23 @@ def test_dashboard_map_uses_leaflet_mock_attack_origins():
     assert "Moscow" in html
     assert "Beijing" in html
     assert "Sao Paulo" in html
+
+
+def test_sessions_page_uses_shared_styles_and_session_table_columns():
+    html = (DASHBOARD_PUBLIC_PATH / "sessions.html").read_text(encoding="utf-8")
+
+    assert "<style>" not in html
+    assert 'href="/dashboard.css"' in html
+    for heading in [
+        "Time",
+        "Source IP",
+        "Country",
+        "Persona",
+        "Protocol",
+        "Risk",
+        "Intent",
+    ]:
+        assert f">{heading}<" in html
+    assert ">Report<" not in html
+    assert "Download CSV Report" in html
+    assert "data-session-row" in html

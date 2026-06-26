@@ -18,6 +18,8 @@ from classifier.storage import (
     DashboardReportSummary,
     DashboardUserRecord,
     DatabaseNotConfiguredError,
+    IssueRecord,
+    IssueStatusUpdate,
     ManualLabelInput,
     ManualLabelRecord,
     StoredClassifierRun,
@@ -212,7 +214,7 @@ def test_login_dashboard_user_sets_cookie_for_valid_credentials(monkeypatch):
 
     assert body == {"authenticated": True, "email": "analyst@example.com"}
     assert app_module.DASHBOARD_AUTH_COOKIE in response.headers["set-cookie"]
-    assert "Max-Age=28800" in response.headers["set-cookie"]
+    assert f"Max-Age={app_module.SESSION_MAX_AGE_SECONDS}" in response.headers["set-cookie"]
 
 
 def test_login_dashboard_user_rejects_invalid_credentials(monkeypatch):
@@ -745,3 +747,116 @@ def test_classify_session_route_accepts_session_record_body_model():
 
     assert route.body_field is not None
     assert route.body_field.type_ is SessionRecord
+
+
+def make_issue(**overrides):
+    fields = {
+        "title": "SSH password authentication is being targeted.",
+        "severity": "high",
+        "evidence": "37 brute-force sessions across 4 personas.",
+        "recommended_fix": "Disable password login, enforce SSH keys.",
+        "impact": "Reduces credential-access exposure.",
+        "session_count": 37,
+        "persona_count": 4,
+        "status": "open",
+    }
+    fields.update(overrides)
+    return IssueRecord(**fields)
+
+
+def test_list_issues_endpoint_returns_stored_issues(monkeypatch):
+    route = route_for("/issues", "GET")
+    issue = make_issue()
+
+    class FakeRepository:
+        def list_issues(self, *, status, limit):
+            assert status == "open"
+            assert limit == 50
+            return [issue]
+
+    monkeypatch.setattr(app_module, "PostgresClassifierRepository", FakeRepository)
+
+    response = route.endpoint(dashboard_request(), status="open", limit=50)
+
+    assert response == [issue]
+
+
+def test_list_issues_endpoint_requires_dashboard_session():
+    route = route_for("/issues", "GET")
+
+    with pytest.raises(HTTPException) as exc_info:
+        route.endpoint(dashboard_request(authenticated=False), status=None, limit=100)
+
+    assert exc_info.value.status_code == 401
+    assert exc_info.value.detail == "dashboard auth required"
+
+
+def test_list_issues_endpoint_reports_missing_database(monkeypatch):
+    route = route_for("/issues", "GET")
+
+    class MissingDatabaseRepository:
+        def __init__(self):
+            raise DatabaseNotConfiguredError("ECHIDRA_DATABASE_URL must be set")
+
+    monkeypatch.setattr(app_module, "PostgresClassifierRepository", MissingDatabaseRepository)
+
+    with pytest.raises(HTTPException) as exc_info:
+        route.endpoint(dashboard_request(), status=None, limit=100)
+
+    assert exc_info.value.status_code == 503
+    assert exc_info.value.detail == "ECHIDRA_DATABASE_URL must be set"
+
+
+def test_update_issue_status_endpoint_returns_updated_issue(monkeypatch):
+    route = route_for("/issues/{issue_id}/status", "PATCH")
+    issue = make_issue(status="closed")
+
+    class FakeRepository:
+        def update_issue_status(self, issue_id, status):
+            assert issue_id == issue.id
+            assert status == "closed"
+            return issue
+
+    monkeypatch.setattr(app_module, "PostgresClassifierRepository", FakeRepository)
+
+    response = route.endpoint(issue.id, IssueStatusUpdate(status="closed"), dashboard_request())
+
+    assert response == issue
+
+
+def test_update_issue_status_endpoint_reports_missing_issue(monkeypatch):
+    route = route_for("/issues/{issue_id}/status", "PATCH")
+    issue_id = make_issue().id
+
+    class FakeRepository:
+        def update_issue_status(self, requested_issue_id, status):
+            assert requested_issue_id == issue_id
+            return None
+
+    monkeypatch.setattr(app_module, "PostgresClassifierRepository", FakeRepository)
+
+    with pytest.raises(HTTPException) as exc_info:
+        route.endpoint(issue_id, IssueStatusUpdate(status="closed"), dashboard_request())
+
+    assert exc_info.value.status_code == 404
+    assert exc_info.value.detail == "issue not found"
+
+
+def test_update_issue_status_endpoint_requires_dashboard_session():
+    route = route_for("/issues/{issue_id}/status", "PATCH")
+    issue_id = make_issue().id
+
+    with pytest.raises(HTTPException) as exc_info:
+        route.endpoint(
+            issue_id,
+            IssueStatusUpdate(status="closed"),
+            dashboard_request(authenticated=False),
+        )
+
+    assert exc_info.value.status_code == 401
+    assert exc_info.value.detail == "dashboard auth required"
+
+
+def test_issue_status_update_rejects_unsupported_status_value():
+    with pytest.raises(ValidationError, match="status must be one of"):
+        IssueStatusUpdate(status="archived")

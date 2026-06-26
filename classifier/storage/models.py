@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, validator
 
 from classifier.schemas.session import SessionRecord
 from classifier.scoring.session import ClassificationSummary
@@ -167,6 +167,66 @@ class ClassifyAndStoreResponse(BaseModel):
 
     run_id: UUID
     summary: ClassificationSummary
+
+    class Config:
+        extra = "forbid"
+
+
+ISSUE_SEVERITIES = {"high", "medium", "low"}
+ISSUE_STATUSES = {"open", "closed"}
+
+
+class MitreTechnique(BaseModel):
+    """One MITRE ATT&CK technique referenced by a detected issue."""
+
+    id: str
+    name: str
+
+    class Config:
+        extra = "forbid"
+
+
+class IssueRecord(BaseModel):
+    """One persisted issue detected from recurring attacker behavior."""
+
+    id: UUID = Field(default_factory=uuid4)
+    title: str
+    severity: str
+    evidence: str
+    recommended_fix: str
+    impact: str
+    session_count: int = Field(ge=0)
+    persona_count: int = Field(ge=0)
+    status: str = "open"
+    mitre: list[MitreTechnique] = Field(default_factory=list)
+    created_at: datetime = Field(default_factory=_utc_now)
+
+    @validator("severity")
+    def validate_severity(cls, value: str) -> str:
+        if value not in ISSUE_SEVERITIES:
+            raise ValueError(f"severity must be one of {sorted(ISSUE_SEVERITIES)}")
+        return value
+
+    @validator("status")
+    def validate_status(cls, value: str) -> str:
+        if value not in ISSUE_STATUSES:
+            raise ValueError(f"status must be one of {sorted(ISSUE_STATUSES)}")
+        return value
+
+    class Config:
+        extra = "forbid"
+
+
+class IssueStatusUpdate(BaseModel):
+    """Analyst-submitted status change for one issue."""
+
+    status: str
+
+    @validator("status")
+    def validate_status(cls, value: str) -> str:
+        if value not in ISSUE_STATUSES:
+            raise ValueError(f"status must be one of {sorted(ISSUE_STATUSES)}")
+        return value
 
     class Config:
         extra = "forbid"
