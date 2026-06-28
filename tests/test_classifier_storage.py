@@ -15,8 +15,10 @@ from classifier.storage.models import (
     ClassifierRunRecord,
     DashboardReportSummary,
     DashboardUserRecord,
+    IssueRecord,
     ManualLabelInput,
     ManualLabelRecord,
+    MitreTechnique,
 )
 from classifier.storage.repository import (
     DatabaseNotConfiguredError,
@@ -29,7 +31,9 @@ from classifier.storage.repository import (
     dashboard_user_from_row,
     dashboard_user_insert_params,
     issue_from_row,
+    issue_insert_params,
     issue_list_query,
+    issue_upsert_statements,
     session_event_insert_params,
     session_insert_params,
     manual_label_from_row,
@@ -446,6 +450,94 @@ def test_repository_update_issue_status_returns_updated_record(monkeypatch):
     assert updated.mitre[0].id == "T1595"
 
 
+def make_issue(**overrides):
+    fields = {
+        "title": "SSH password authentication is being targeted.",
+        "severity": "high",
+        "evidence": "37 brute-force sessions across 4 personas.",
+        "recommended_fix": "Disable password login, enforce SSH keys.",
+        "impact": "Reduces credential-access exposure.",
+        "session_count": 37,
+        "persona_count": 4,
+        "status": "open",
+        "mitre": [MitreTechnique(id="T1110", name="Brute Force")],
+    }
+    fields.update(overrides)
+    return IssueRecord(**fields)
+
+
+def test_issue_insert_params_match_storage_columns():
+    issue = make_issue()
+
+    params = issue_insert_params(issue)
+
+    assert params["id"] == issue.id
+    assert params["title"] == issue.title
+    assert params["severity"] == "high"
+    assert params["session_count"] == 37
+    assert params["persona_count"] == 4
+    assert params["status"] == "open"
+
+
+def test_issue_upsert_statements_includes_parent_and_child_writes():
+    issue = make_issue(
+        mitre=[
+            MitreTechnique(id="T1110", name="Brute Force"),
+            MitreTechnique(id="T1078", name="Valid Accounts"),
+        ]
+    )
+
+    statements = issue_upsert_statements(issue)
+
+    assert "INSERT INTO issues" in statements[0][0]
+    assert "ON CONFLICT (id) DO UPDATE" in statements[0][0]
+    assert "status" not in statements[0][0].split("DO UPDATE SET")[1]
+    assert "DELETE FROM issue_mitre_techniques" in statements[1][0]
+    assert statements[1][1] == {"issue_id": issue.id}
+    assert len(statements) == 4
+    assert statements[2][1]["technique_id"] == "T1110"
+    assert statements[3][1]["technique_id"] == "T1078"
+
+
+def test_repository_aggregate_classifier_runs_by_actor_and_technique_queries_signals(monkeypatch):
+    rows = [{"actor_label": "automated_scanner", "mitre_tag": "T1087", "session_count": 24, "persona_count": 3, "max_risk_rank": 2}]
+    calls = []
+
+    def fake_fetch_all(database_url, sql, params):
+        calls.append(sql)
+        return rows
+
+    monkeypatch.setattr("classifier.storage.repository._fetch_all", fake_fetch_all)
+
+    result = PostgresClassifierRepository(
+        "postgresql://example/echidra"
+    ).aggregate_classifier_runs_by_actor_and_technique()
+
+    assert result == rows
+    assert "classifier_signals" in calls[0]
+    assert "signal_type = 'mitre_tag'" in calls[0]
+    assert "classifier_runs.actor_label" in calls[0]
+
+
+def test_repository_upsert_issue_refetches_persisted_status(monkeypatch):
+    issue = make_issue(status="open")
+    persisted_row = {**issue.dict(exclude={"mitre"}), "status": "closed"}
+    mitre_rows = [
+        {"issue_id": issue.id, "technique_index": 0, "technique_id": "T1110", "technique_name": "Brute Force"}
+    ]
+
+    monkeypatch.setattr("classifier.storage.repository._execute_statements", lambda *args, **kwargs: None)
+    monkeypatch.setattr("classifier.storage.repository._fetch_one", lambda *args, **kwargs: persisted_row)
+    monkeypatch.setattr("classifier.storage.repository._fetch_all", lambda *args, **kwargs: mitre_rows)
+
+    result = PostgresClassifierRepository("postgresql://example/echidra").upsert_issue(issue)
+
+    # Even though the in-memory issue says "open", the DB already had this
+    # issue closed by an analyst — the upsert must not silently reopen it.
+    assert result.status == "closed"
+    assert result.mitre[0].id == "T1110"
+
+
 def test_dashboard_report_summary_combines_database_aggregates(monkeypatch):
     overview = {
         "total_runs": 12,
@@ -635,6 +727,71 @@ def test_storage_cli_init_db_redacts_database_url_in_errors(
     monkeypatch.setattr(storage_cli, "apply_schema", failing_apply_schema)
 
     exit_code = storage_cli.main(["init-db", "--schema", str(schema_path)])
+
+    captured = capsys.readouterr()
+    assert exit_code == 2
+    assert "postgresql://user:***@example.local:5432/echidra" in captured.err
+    assert "secret" not in captured.err
+
+
+def test_storage_cli_sync_issues_requires_database_url(monkeypatch, capsys):
+    monkeypatch.delenv("ECHIDRA_DATABASE_URL", raising=False)
+
+    exit_code = storage_cli.main(["sync-issues"])
+
+    captured = capsys.readouterr()
+    assert exit_code == 2
+    assert "ECHIDRA_DATABASE_URL is not set" in captured.err
+    assert "postgresql://" not in captured.err
+
+
+def test_storage_cli_sync_issues_reports_placeholder_database_url(monkeypatch, capsys):
+    database_url = "postgresql://YOUR_USER:secret@example.local:5432/echidra"
+    monkeypatch.setenv("ECHIDRA_DATABASE_URL", database_url)
+
+    def failing_sync(**kwargs):
+        raise AssertionError("should not attempt to connect with placeholders")
+
+    monkeypatch.setattr(storage_cli, "sync_issues_from_classifier_runs", failing_sync)
+
+    exit_code = storage_cli.main(["sync-issues"])
+
+    captured = capsys.readouterr()
+    assert exit_code == 2
+    assert "still contains the placeholder YOUR_USER" in captured.err
+    assert "secret" not in captured.err
+
+
+def test_storage_cli_sync_issues_runs_sync_and_prints_count(monkeypatch, capsys):
+    database_url = "postgresql://user:secret@example.local:5432/echidra"
+    calls = []
+
+    def fake_sync(**kwargs):
+        calls.append(kwargs)
+        return [object(), object()]
+
+    monkeypatch.setenv("ECHIDRA_DATABASE_URL", database_url)
+    monkeypatch.setattr(storage_cli, "sync_issues_from_classifier_runs", fake_sync)
+
+    exit_code = storage_cli.main(["sync-issues"])
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert calls[0]["database_url"] == database_url
+    assert captured.out == "synced 2 issue(s)\n"
+    assert "secret" not in captured.out
+
+
+def test_storage_cli_sync_issues_redacts_database_url_in_errors(monkeypatch, capsys):
+    database_url = "postgresql://user:secret@example.local:5432/echidra"
+    monkeypatch.setenv("ECHIDRA_DATABASE_URL", database_url)
+
+    def failing_sync(**kwargs):
+        raise RuntimeError(f"could not connect to {kwargs['database_url']}")
+
+    monkeypatch.setattr(storage_cli, "sync_issues_from_classifier_runs", failing_sync)
+
+    exit_code = storage_cli.main(["sync-issues"])
 
     captured = capsys.readouterr()
     assert exit_code == 2
