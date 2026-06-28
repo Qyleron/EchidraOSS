@@ -32,22 +32,18 @@
         <div class="page-panel-header">
           <div class="page-panel-title">
             <h1 id="issuesTitle">Issue Intelligence</h1>
-            <p>Recurring attacker behavior, the fix that closes it, and whether it's been applied yet.</p>
           </div>
         </div>
 
         <div class="table-shell">
-          <table class="data-table issue-table" aria-describedby="issuesTitle">
+          <table class="data-table" aria-describedby="issuesTitle">
             <colgroup>
-              <col style="width: 14%;" />
-              <col style="width: 7%;" />
-              <col style="width: 14%;" />
-              <col style="width: 7%;" />
-              <col style="width: 7%;" />
-              <col style="width: 15%;" />
-              <col style="width: 15%;" />
-              <col style="width: 12%;" />
-              <col style="width: 9%;" />
+              <col style="width: 28%;" />
+              <col style="width: 10%;" />
+              <col style="width: 29%;" />
+              <col style="width: 11%;" />
+              <col style="width: 11%;" />
+              <col style="width: 11%;" />
             </colgroup>
             <thead>
               <tr>
@@ -56,9 +52,6 @@
                 <th>MITRE Techniques</th>
                 <th>Session Count</th>
                 <th>Persona Count</th>
-                <th>Evidence</th>
-                <th>Recommended Fix</th>
-                <th>Impact</th>
                 <th>Status</th>
               </tr>
             </thead>
@@ -71,6 +64,7 @@
 
   <script>
     const SEVERITY_LABELS = { high: "High", medium: "Medium", low: "Low" };
+    let currentIssues = [];
 
     function statusLabel(status) {
       return status === "open" ? "Open" : "Closed";
@@ -87,11 +81,11 @@
     function renderIssueRows(issues) {
       const tableBody = document.getElementById("issueTableBody");
       if (issues.length === 0) {
-        tableBody.innerHTML = `<tr><td colspan="9" class="empty-state" style="text-align: center;">No issues detected yet.</td></tr>`;
+        tableBody.innerHTML = `<tr><td colspan="6" class="empty-state" style="text-align: center;">No issues detected yet.</td></tr>`;
         return;
       }
       tableBody.innerHTML = issues.map((issue) => `
-        <tr data-issue-row="${issue.id}">
+        <tr data-issue-row="${issue.id}" tabindex="0" aria-expanded="false">
           <td><div class="cell-primary"><strong>${issue.title}</strong></div></td>
           <td><span class="risk-badge ${issue.severity}">${SEVERITY_LABELS[issue.severity]}</span></td>
           <td>
@@ -101,9 +95,6 @@
           </td>
           <td>${issue.session_count}</td>
           <td>${issue.persona_count}</td>
-          <td><span class="cell-bright">${issue.evidence}</span></td>
-          <td><span class="cell-bright">${issue.recommended_fix}</span></td>
-          <td><span class="cell-bright">${issue.impact}</span></td>
           <td>
             <button
               type="button"
@@ -116,20 +107,55 @@
       `).join("");
     }
 
+    function toggleIssue(issueId) {
+      const row = document.querySelector(`[data-issue-row="${issueId}"]`);
+      const existingDetail = document.getElementById(`${issueId}-detail`);
+      document.querySelectorAll(".issue-detail-row").forEach((detail) => detail.remove());
+      document.querySelectorAll("[data-issue-row]").forEach((issueRow) => {
+        issueRow.classList.remove("selected");
+        issueRow.setAttribute("aria-expanded", "false");
+      });
+
+      if (existingDetail) {
+        return;
+      }
+
+      const issue = currentIssues.find((item) => item.id === issueId);
+      row.classList.add("selected");
+      row.setAttribute("aria-expanded", "true");
+      row.insertAdjacentHTML("afterend", `
+        <tr id="${issue.id}-detail" class="issue-detail-row">
+          <td colspan="6">
+            <div class="issue-detail">
+              <section class="detail-block" aria-label="Evidence">
+                <h3>Evidence</h3>
+                <p>${issue.evidence}</p>
+              </section>
+              <section class="detail-block" aria-label="Recommended fix">
+                <h3>Recommended Fix</h3>
+                <p>${issue.recommended_fix}</p>
+              </section>
+              <section class="detail-block" aria-label="Impact">
+                <h3>Impact</h3>
+                <p>${issue.impact}</p>
+              </section>
+            </div>
+          </td>
+        </tr>
+      `);
+    }
+
     async function loadIssues() {
       const tableBody = document.getElementById("issueTableBody");
       try {
-        renderIssueRows(await fetchIssues());
+        currentIssues = await fetchIssues();
+        renderIssueRows(currentIssues);
       } catch (error) {
-        tableBody.innerHTML = `<tr><td colspan="9" class="empty-state" style="text-align: center;">Could not load issues. Is the database configured?</td></tr>`;
+        tableBody.innerHTML = `<tr><td colspan="6" class="empty-state" style="text-align: center;">Could not load issues. Is the database configured?</td></tr>`;
       }
     }
 
-    async function handleStatusToggle(event) {
-      const button = event.target.closest(".status-toggle");
-      if (!button) {
-        return;
-      }
+    async function handleStatusToggle(button) {
       const nextStatus = button.classList.contains("open") ? "closed" : "open";
       button.disabled = true;
       try {
@@ -146,6 +172,10 @@
         button.classList.add(updated.status);
         button.textContent = statusLabel(updated.status);
         button.setAttribute("aria-pressed", String(updated.status === "closed"));
+        const cached = currentIssues.find((item) => item.id === updated.id);
+        if (cached) {
+          cached.status = updated.status;
+        }
       } catch (error) {
         console.error(error);
       } finally {
@@ -153,8 +183,35 @@
       }
     }
 
+    const issueTableBody = document.getElementById("issueTableBody");
+
+    issueTableBody.addEventListener("click", (event) => {
+      const statusButton = event.target.closest(".status-toggle");
+      if (statusButton) {
+        handleStatusToggle(statusButton);
+        return;
+      }
+      const row = event.target.closest("[data-issue-row]");
+      if (row) {
+        toggleIssue(row.dataset.issueRow);
+      }
+    });
+
+    issueTableBody.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") {
+        return;
+      }
+      if (event.target.closest(".status-toggle")) {
+        return;
+      }
+      const row = event.target.closest("[data-issue-row]");
+      if (row) {
+        event.preventDefault();
+        toggleIssue(row.dataset.issueRow);
+      }
+    });
+
     loadIssues();
-    document.getElementById("issueTableBody").addEventListener("click", handleStatusToggle);
 
     async function logoutDashboard() {
       const logoutButton = document.getElementById("logoutButton");

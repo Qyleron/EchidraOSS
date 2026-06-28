@@ -324,6 +324,83 @@ SET status = %(status)s
 WHERE id = %(id)s
 """
 
+UPSERT_ISSUE_SQL = """
+INSERT INTO issues (
+    id,
+    title,
+    severity,
+    evidence,
+    recommended_fix,
+    impact,
+    session_count,
+    persona_count,
+    status,
+    created_at
+) VALUES (
+    %(id)s,
+    %(title)s,
+    %(severity)s,
+    %(evidence)s,
+    %(recommended_fix)s,
+    %(impact)s,
+    %(session_count)s,
+    %(persona_count)s,
+    %(status)s,
+    %(created_at)s
+)
+ON CONFLICT (id) DO UPDATE SET
+    title = EXCLUDED.title,
+    severity = EXCLUDED.severity,
+    evidence = EXCLUDED.evidence,
+    recommended_fix = EXCLUDED.recommended_fix,
+    impact = EXCLUDED.impact,
+    session_count = EXCLUDED.session_count,
+    persona_count = EXCLUDED.persona_count
+"""
+
+DELETE_ISSUE_MITRE_TECHNIQUES_SQL = """
+DELETE FROM issue_mitre_techniques
+WHERE issue_id = %(issue_id)s
+"""
+
+INSERT_ISSUE_MITRE_TECHNIQUE_SQL = """
+INSERT INTO issue_mitre_techniques (
+    issue_id,
+    technique_index,
+    technique_id,
+    technique_name
+) VALUES (
+    %(issue_id)s,
+    %(technique_index)s,
+    %(technique_id)s,
+    %(technique_name)s
+)
+"""
+
+SELECT_ACTOR_MITRE_AGGREGATES_SQL = """
+SELECT
+    classifier_runs.actor_label AS actor_label,
+    mitre_signals.signal_value AS mitre_tag,
+    COUNT(DISTINCT classifier_runs.session_id) AS session_count,
+    COUNT(DISTINCT sessions.persona_id) AS persona_count,
+    MAX(
+        CASE classifier_runs.risk_level
+            WHEN 'critical' THEN 4
+            WHEN 'high' THEN 3
+            WHEN 'medium' THEN 2
+            WHEN 'low' THEN 1
+            ELSE 0
+        END
+    ) AS max_risk_rank
+FROM classifier_runs
+JOIN sessions ON sessions.id = classifier_runs.session_id
+JOIN classifier_signals AS mitre_signals
+    ON mitre_signals.classifier_run_id = classifier_runs.id
+    AND mitre_signals.signal_type = 'mitre_tag'
+WHERE classifier_runs.actor_label IS NOT NULL
+GROUP BY classifier_runs.actor_label, mitre_signals.signal_value
+"""
+
 # Limit validation constants
 MAX_LIMIT = 1000
 MAX_MANUAL_LABEL_LIMIT = 1000
@@ -578,6 +655,21 @@ class PostgresClassifierRepository:
         )
         return issue_from_row(row, mitre_rows)
 
+    def aggregate_classifier_runs_by_actor_and_technique(self) -> list[dict[str, Any]]:
+        """Aggregate stored classifier runs by (actor_label, MITRE technique)."""
+        return _fetch_all(self.database_url, SELECT_ACTOR_MITRE_AGGREGATES_SQL, {})
+
+    def upsert_issue(self, issue: IssueRecord) -> IssueRecord:
+        """Persist one issue and its MITRE techniques, preserving its prior status."""
+        _execute_statements(self.database_url, issue_upsert_statements(issue))
+        row = _fetch_one(self.database_url, SELECT_ISSUE_BY_ID_SQL, {"id": issue.id})
+        mitre_rows = _fetch_all(
+            self.database_url,
+            SELECT_ISSUE_MITRE_TECHNIQUES_SQL,
+            {"issue_ids": [issue.id]},
+        )
+        return issue_from_row(row, mitre_rows)
+
 
 def classifier_run_insert_params(record: ClassifierRunRecord) -> dict[str, Any]:
     """Return SQL parameters for the compact classifier_runs row."""
@@ -767,6 +859,43 @@ def issue_from_row(
             for mitre_row in mitre_rows
         ],
     )
+
+
+def issue_insert_params(issue: IssueRecord) -> dict[str, Any]:
+    """Return SQL parameters for upserting the parent issues row."""
+    return {
+        "id": issue.id,
+        "title": issue.title,
+        "severity": issue.severity,
+        "evidence": issue.evidence,
+        "recommended_fix": issue.recommended_fix,
+        "impact": issue.impact,
+        "session_count": issue.session_count,
+        "persona_count": issue.persona_count,
+        "status": issue.status,
+        "created_at": issue.created_at,
+    }
+
+
+def issue_upsert_statements(issue: IssueRecord) -> list[tuple[str, dict[str, Any]]]:
+    """Return all SQL writes needed to upsert one issue and its MITRE techniques."""
+    statements = [
+        (UPSERT_ISSUE_SQL, issue_insert_params(issue)),
+        (DELETE_ISSUE_MITRE_TECHNIQUES_SQL, {"issue_id": issue.id}),
+    ]
+    statements.extend(
+        (
+            INSERT_ISSUE_MITRE_TECHNIQUE_SQL,
+            {
+                "issue_id": issue.id,
+                "technique_index": index,
+                "technique_id": technique.id,
+                "technique_name": technique.name,
+            },
+        )
+        for index, technique in enumerate(issue.mitre)
+    )
+    return statements
 
 
 def _count_map(rows: list[dict[str, Any]]) -> dict[str, int]:

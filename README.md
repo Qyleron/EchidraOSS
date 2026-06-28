@@ -364,13 +364,54 @@ The storage schema keeps relationships explicit:
   votes, matched rules, MITRE tags, evidence, features, and recommendations.
 - `manual_labels` references both `sessions(id)` and, when available,
   `classifier_runs(id)`.
+- `issues` stores one row per recurring weakness shown on the Intelligence
+  dashboard page, with `issue_mitre_techniques` holding its MITRE ATT&CK tags.
 
 For early local development, the schema intentionally drops and recreates these
-five tables. If you are okay losing local classifier data, rerun:
+tables. If you are okay losing local classifier data, rerun:
 
 ```bash
 python -m classifier.storage.cli init-db
 ```
+
+`issues` is populated separately, by rolling up everything stored in
+`classifier_runs`/`classifier_signals`, grouped by the real `(actor_label,
+MITRE technique)` pairs your classifier has actually produced — not by which
+rule fired. Each pair maps to a stable issue, so re-running this is
+idempotent: counts refresh from real captured sessions but an analyst's
+open/closed status on an existing issue is never reset. Run it after
+classifying and storing new sessions (`POST /classify/session/store`) to keep
+the Intelligence page current:
+
+```bash
+python -m classifier.storage.cli sync-issues
+```
+
+The Intelligence-page copy for each `(actor_label, MITRE technique)` pair
+(title, recommended fix, and impact) is a knowledge base in
+[classifier/rules/issue_playbook.yaml](classifier/rules/issue_playbook.yaml)'s
+`fixes` section. A pair with no entry still produces an issue — title and
+fix fall back to a generic, still-data-driven description — so new attacker
+behavior always surfaces even before you've written copy for it. Because the
+lookup key is `(actor_label, technique)` rather than a rule id, a fix you
+write once is automatically reused by any future rule that produces the same
+pair.
+
+MITRE technique display names resolve in three steps: an override in
+`issue_playbook.yaml`'s `mitre_technique_names`, then the full ATT&CK catalog
+in `classifier/rules/mitre_technique_names.json`, then the bare id as a last
+resort. The catalog file covers all current and future technique ids your
+rules might tag (not just the ones rules happen to use today) and is
+generated from the official MITRE dataset:
+
+```bash
+python scripts/sync_mitre_technique_names.py
+```
+
+This only adds correct *display names* for ids you tag — it does not expand
+what Echidra can detect. Detecting a new technique still requires writing a
+rule for it in `default_rules.yaml`; the catalog just means whatever id that
+rule tags will always show its real ATT&CK name instead of a raw code.
 
 See [docs/PROJECT_PLAN.md](docs/PROJECT_PLAN.md) for the current build plan,
 status, next steps, and simplest end-to-end flow.

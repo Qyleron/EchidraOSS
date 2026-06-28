@@ -1,0 +1,55 @@
+# Knowledge base for the Intelligence page: maps an (actor_label, MITRE
+# technique) pair observed in real classifier_runs/classifier_signals to a
+# recommended fix. This is intentionally a lookup table, not a model -- the
+# fix is rule-based, but it's triggered by what your honeypot actually
+# captured, not by a hardcoded example. A pair with no entry here still
+# produces an issue (title/fix fall back to a generic description), so new
+# attacker behavior always surfaces even before you've written copy for it.
+#
+# MITRE technique display names come from classifier/rules/mitre_technique_names.json
+# (the full ATT&CK catalog). mitre_technique_names below is only for
+# overriding a specific id's display name; empty by default.
+mitre_technique_names: {}
+
+actor_label_names:
+  automated_scanner: Automated scanners
+  brute_force_bot: Brute-force bots
+  commodity_bot: Commodity bots
+  script_kiddie: Script kiddies
+  skilled_human_operator: Skilled human operators
+
+fixes:
+  # Dormant: no rule in default_rules.yaml currently classifies anything as
+  # brute_force_bot, so this never surfaces until a password/SSH brute-force
+  # detection rule is written. Kept here so that fix is ready the moment it is.
+  brute_force_bot:
+    T1110:
+      title: Brute-force bots are targeting password authentication.
+      recommended_fix: Disable password login, enforce SSH keys, add rate limiting, and block repeated scanner ASNs.
+      impact: Reduces credential-access exposure.
+
+  automated_scanner:
+    T1087:
+      title: Automated scanners are enumerating accounts before deciding where to focus.
+      recommended_fix: Return uniform error messages with no user-existence hints, and rate-limit account-discovery command bursts.
+      impact: Removes the reconnaissance signal scanners use to pick high-value targets.
+    T1082:
+      title: Automated scanners are fingerprinting the system before staging payloads.
+      recommended_fix: Trim shell banner detail, randomize first-command response timing, and alert on rapid fingerprinting sequences with no clean exit.
+      impact: Shortens attacker dwell time before detection.
+
+  commodity_bot:
+    T1005:
+      title: Commodity bots are reading local files surfaced as decoys.
+      recommended_fix: Tune decoy file placement and add tripwire alerts on sensitive-file reads.
+      impact: Confirms which decoy bait is effective and where real systems should add equivalent monitoring.
+    T1552.001:
+      title: Commodity bots are searching for credentials stored in files.
+      recommended_fix: Remove plaintext credentials from disk, rotate decoy credentials periodically, and alert on credential-file access.
+      impact: Closes a common, low-effort path to lateral movement.
+
+  skilled_human_operator:
+    T1059:
+      title: A skilled human operator is interacting with the shell at an interactive, low-and-slow pace.
+      recommended_fix: Flag low-and-slow interactive sessions for manual review and extend engagement to gather more attacker behavior before disconnecting.
+      impact: Distinguishes scripted bots from real human operators, who carry more investigative value.

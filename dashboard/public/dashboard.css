@@ -419,12 +419,15 @@ a {
   transition: background 0.2s ease;
 }
 
-.data-table tbody tr[data-session-row] {
+.data-table tbody tr[data-session-row],
+.data-table tbody tr[data-issue-row] {
   cursor: pointer;
 }
 
 .data-table tbody tr[data-session-row]:hover,
-.data-table tbody tr[data-session-row].selected {
+.data-table tbody tr[data-session-row].selected,
+.data-table tbody tr[data-issue-row]:hover,
+.data-table tbody tr[data-issue-row].selected {
   background: var(--surface-hover);
 }
 
@@ -453,6 +456,7 @@ a {
 }
 
 .mono-cell {
+  overflow-wrap: anywhere;
   color: #d7d7d7;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
 }
@@ -478,7 +482,7 @@ a {
 
 .session-detail {
   display: grid;
-  grid-template-columns: minmax(240px, 0.9fr) minmax(320px, 1.35fr) minmax(240px, 0.9fr);
+  grid-template-columns: minmax(280px, 1fr) minmax(280px, 1fr);
   gap: 18px;
   padding: 18px 20px 20px;
 }
@@ -493,24 +497,24 @@ a {
 .detail-block h3 {
   margin: 0;
   color: var(--text);
-  font-size: 13px;
+  font-size: 16px;
   line-height: 1.2;
   font-weight: 700;
 }
 
-.detail-block p,
-.detail-list {
+.detail-block p {
   margin: 0;
   color: var(--muted);
   font-size: 13px;
   line-height: 1.5;
 }
 
-.detail-list {
-  display: grid;
-  gap: 8px;
-  padding: 0;
-  list-style: none;
+.session-detail .detail-block h3 {
+  font-size: 16px;
+}
+
+.session-detail .detail-block p {
+  font-size: 16px;
 }
 
 .command-list {
@@ -529,7 +533,7 @@ a {
   color: #d7d7d7;
   background: var(--surface);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
-  font-size: 12px;
+  font-size: 14px;
 }
 
 .empty-state {
@@ -644,10 +648,6 @@ a {
   background: #f6691d;
 }
 
-.issue-table {
-  min-width: 1700px;
-}
-
 .mitre-technique-list {
   display: grid;
   gap: 6px;
@@ -669,12 +669,29 @@ a {
   line-height: 1.4;
 }
 
-.cell-bright {
-  overflow-wrap: anywhere;
+.issue-detail-row td {
+  padding: 0;
+  background: var(--surface-strong);
+}
+
+.issue-detail {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  align-items: start;
+  gap: 18px;
+  padding: 18px 20px 20px;
+}
+
+.issue-detail .detail-block h3 {
+  color: var(--muted);
+}
+
+
+.issue-detail .detail-block p {
   color: var(--text);
   font-size: 16px;
-  line-height: 1.5;
 }
+
 
 .status-toggle {
   display: inline-flex;
@@ -863,7 +880,8 @@ a {
     min-height: 320px;
   }
 
-  .session-detail {
+  .session-detail,
+  .issue-detail {
     grid-template-columns: 1fr;
   }
 
@@ -881,10 +899,6 @@ a {
   .data-table td {
     padding: 16px 18px;
     font-size: 15px;
-  }
-
-  .issue-table {
-    min-width: 1440px;
   }
 }
 
@@ -949,10 +963,6 @@ a {
     min-width: 660px;
   }
 
-  .issue-table {
-    min-width: 1240px;
-  }
-
   .mitre-technique-list li {
     font-size: 14px;
   }
@@ -968,8 +978,17 @@ a {
     font-size: 12px;
   }
 
-  .cell-bright {
+  .issue-detail .detail-block p {
+    font-size: 16px;
+  }
+
+  .session-detail .detail-block h3,
+  .session-detail .detail-block p {
     font-size: 14px;
+  }
+
+  .command-list li {
+    font-size: 13px;
   }
 
   .risk-badge {

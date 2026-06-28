@@ -1,1 +1,0 @@
-See intelligence page should be like sessions page in a taable format with columns Event (its title actually from the object) , Severity, MITRE Techniques with ID and Names, session Cunt, Persona Count, Evidence,  Recommended Fix, and should there be a open/closed to toggle whether the fix was applied on their side, so that it could e shown as closed or open
