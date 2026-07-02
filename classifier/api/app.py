@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import email.mime.multipart
+import email.mime.text
 import hashlib
 import hmac
 import logging
 import os
 import re
 import secrets
+import smtplib
+import ssl
 import time
 from pathlib import Path
 from uuid import UUID
@@ -20,6 +24,10 @@ from classifier.pipeline import classify_session
 from classifier.schemas.session import SessionRecord
 from classifier.scoring.session import ClassificationSummary
 from classifier.storage import (
+    AlertConfigInput,
+    AlertConfigRecord,
+    AlertEventRecord,
+    ClassifierRunRecord,
     ClassifyAndStoreResponse,
     DashboardReportSummary,
     DashboardUserRecord,
@@ -28,6 +36,9 @@ from classifier.storage import (
     IssueRecord,
     IssueStatusUpdate,
     ManualLabelRecord,
+    PersonaAnalytics,
+    PersonaConfigInput,
+    PersonaConfigRecord,
     PostgresClassifierRepository,
     StoredClassifierRun,
 )
@@ -287,8 +298,26 @@ def create_app() -> FastAPI:
     def classify_and_store_session_endpoint(
         session: SessionRecord,
     ) -> ClassifyAndStoreResponse:
-        """Classify one session and persist the classifier run."""
-        summary = _classify_or_http_error(session)
+        """Classify one session and persist the classifier run.
+
+        Unlike /classify/session, this endpoint has DB access at call time.
+        It queries the session count for the peer IP before classifying so
+        that the cross-session brute_force_bot YAML rule can match — the
+        stateless endpoint cannot do this and always leaves that feature None.
+        """
+        # Look up cross-session connection count before classification so the
+        # repeat_connections_same_ip rule can fire on this session.
+        connection_count: int | None = None
+        if session.peer_ip:
+            try:
+                _repo = PostgresClassifierRepository()
+                connection_count = _repo.count_sessions_from_ip(session.peer_ip)
+            except (DatabaseDriverMissingError, DatabaseNotConfiguredError):
+                pass  # classify without brute_force_bot detection if DB unavailable
+
+        summary = _classify_or_http_error(
+            session, connection_count_from_same_ip=connection_count
+        )
         try:
             repository = PostgresClassifierRepository()
             run = repository.save_classifier_run(session, summary)
@@ -300,6 +329,9 @@ def create_app() -> FastAPI:
                 exc,
             )
             raise HTTPException(status_code=500, detail="internal server error")
+
+        # Fire email alert asynchronously-ish — errors here never fail the run.
+        _maybe_send_alert(run, session, summary)
 
         return ClassifyAndStoreResponse(run_id=run.id, summary=summary)
 
@@ -485,13 +517,249 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=404, detail="issue not found")
         return issue
 
+    @api.get(
+        "/persona-configs",
+        response_model=list[PersonaConfigRecord],
+        tags=["personas"],
+    )
+    def list_persona_configs_endpoint(request: Request) -> list[PersonaConfigRecord]:
+        """Return all saved persona configurations."""
+        _require_dashboard_auth(request)
+        try:
+            repository = PostgresClassifierRepository()
+            return repository.list_persona_configs()
+        except (DatabaseDriverMissingError, DatabaseNotConfiguredError) as exc:
+            raise HTTPException(status_code=503, detail=str(exc))
+        except Exception as exc:
+            logger.exception("Unhandled exception in list_persona_configs_endpoint: %s", exc)
+            raise HTTPException(status_code=500, detail="internal server error")
+
+    @api.post(
+        "/persona-configs",
+        response_model=PersonaConfigRecord,
+        status_code=201,
+        tags=["personas"],
+    )
+    def create_persona_config_endpoint(
+        persona_id: str,
+        payload: PersonaConfigInput,
+        request: Request,
+    ) -> PersonaConfigRecord:
+        """Create a new persona configuration. Returns 409 if the slug already exists."""
+        _require_dashboard_auth(request)
+        try:
+            repository = PostgresClassifierRepository()
+            if repository.get_persona_config(persona_id) is not None:
+                raise HTTPException(status_code=409, detail="persona config already exists")
+            return repository.create_persona_config(persona_id, payload)
+        except HTTPException:
+            raise
+        except (DatabaseDriverMissingError, DatabaseNotConfiguredError) as exc:
+            raise HTTPException(status_code=503, detail=str(exc))
+        except Exception as exc:
+            logger.exception("Unhandled exception in create_persona_config_endpoint: %s", exc)
+            raise HTTPException(status_code=500, detail="internal server error")
+
+    @api.get(
+        "/persona-configs/{persona_id}",
+        response_model=PersonaConfigRecord,
+        tags=["personas"],
+    )
+    def get_persona_config_endpoint(
+        persona_id: str,
+        request: Request,
+    ) -> PersonaConfigRecord:
+        """Return one persona configuration by slug ID."""
+        _require_dashboard_auth(request)
+        try:
+            repository = PostgresClassifierRepository()
+            config = repository.get_persona_config(persona_id)
+        except (DatabaseDriverMissingError, DatabaseNotConfiguredError) as exc:
+            raise HTTPException(status_code=503, detail=str(exc))
+        except Exception as exc:
+            logger.exception("Unhandled exception in get_persona_config_endpoint: %s", exc)
+            raise HTTPException(status_code=500, detail="internal server error")
+
+        if config is None:
+            raise HTTPException(status_code=404, detail="persona config not found")
+        return config
+
+    @api.put(
+        "/persona-configs/{persona_id}",
+        response_model=PersonaConfigRecord,
+        tags=["personas"],
+    )
+    def update_persona_config_endpoint(
+        persona_id: str,
+        payload: PersonaConfigInput,
+        request: Request,
+    ) -> PersonaConfigRecord:
+        """Update one persona configuration by slug ID."""
+        _require_dashboard_auth(request)
+        try:
+            repository = PostgresClassifierRepository()
+            config = repository.update_persona_config(persona_id, payload)
+        except (DatabaseDriverMissingError, DatabaseNotConfiguredError) as exc:
+            raise HTTPException(status_code=503, detail=str(exc))
+        except Exception as exc:
+            logger.exception("Unhandled exception in update_persona_config_endpoint: %s", exc)
+            raise HTTPException(status_code=500, detail="internal server error")
+
+        if config is None:
+            raise HTTPException(status_code=404, detail="persona config not found")
+        return config
+
+    @api.delete(
+        "/persona-configs/{persona_id}",
+        status_code=204,
+        response_model=None,
+        tags=["personas"],
+    )
+    def delete_persona_config_endpoint(
+        persona_id: str,
+        request: Request,
+    ) -> None:
+        """Delete one persona configuration by slug ID."""
+        _require_dashboard_auth(request)
+        try:
+            repository = PostgresClassifierRepository()
+            deleted = repository.delete_persona_config(persona_id)
+        except (DatabaseDriverMissingError, DatabaseNotConfiguredError) as exc:
+            raise HTTPException(status_code=503, detail=str(exc))
+        except Exception as exc:
+            logger.exception("Unhandled exception in delete_persona_config_endpoint: %s", exc)
+            raise HTTPException(status_code=500, detail="internal server error")
+
+        if not deleted:
+            raise HTTPException(status_code=404, detail="persona config not found")
+
+    @api.get(
+        "/persona-configs/{persona_id}/analytics",
+        response_model=PersonaAnalytics,
+        tags=["personas"],
+    )
+    def get_persona_analytics_endpoint(
+        persona_id: str,
+        request: Request,
+    ) -> PersonaAnalytics:
+        """Return aggregated session analytics for one persona ID."""
+        _require_dashboard_auth(request)
+        try:
+            repository = PostgresClassifierRepository()
+            return repository.get_persona_analytics(persona_id)
+        except (DatabaseDriverMissingError, DatabaseNotConfiguredError) as exc:
+            raise HTTPException(status_code=503, detail=str(exc))
+        except Exception as exc:
+            logger.exception("Unhandled exception in get_persona_analytics_endpoint: %s", exc)
+            raise HTTPException(status_code=500, detail="internal server error")
+
+    @api.get(
+        "/alerts/config",
+        response_model=AlertConfigRecord,
+        tags=["alerts"],
+    )
+    def get_alert_config_endpoint(request: Request) -> AlertConfigRecord:
+        """Return the current global SMTP alert configuration."""
+        _require_dashboard_auth(request)
+        try:
+            repository = PostgresClassifierRepository()
+            config = repository.get_alert_config()
+            return config or AlertConfigRecord(
+                enabled=False,
+                smtp_host=None,
+                smtp_port=587,
+                smtp_username=None,
+                smtp_password_configured=False,
+                smtp_from_email=None,
+                smtp_use_tls=True,
+                global_min_risk_level="high",
+            )
+        except (DatabaseDriverMissingError, DatabaseNotConfiguredError) as exc:
+            raise HTTPException(status_code=503, detail=str(exc))
+        except Exception as exc:
+            logger.exception("Unhandled exception in get_alert_config_endpoint: %s", exc)
+            raise HTTPException(status_code=500, detail="internal server error")
+
+    @api.put(
+        "/alerts/config",
+        response_model=AlertConfigRecord,
+        tags=["alerts"],
+    )
+    def update_alert_config_endpoint(
+        payload: AlertConfigInput,
+        request: Request,
+    ) -> AlertConfigRecord:
+        """Persist the global SMTP alert configuration."""
+        _require_dashboard_auth(request)
+        try:
+            repository = PostgresClassifierRepository()
+            return repository.upsert_alert_config(payload)
+        except (DatabaseDriverMissingError, DatabaseNotConfiguredError) as exc:
+            raise HTTPException(status_code=503, detail=str(exc))
+        except Exception as exc:
+            logger.exception("Unhandled exception in update_alert_config_endpoint: %s", exc)
+            raise HTTPException(status_code=500, detail="internal server error")
+
+    @api.post(
+        "/alerts/test",
+        tags=["alerts"],
+    )
+    def send_test_alert_endpoint(request: Request) -> dict[str, str]:
+        """Send a test email using the current alert config."""
+        _require_dashboard_auth(request)
+        try:
+            repository = PostgresClassifierRepository()
+            config = repository.get_alert_config()
+        except (DatabaseDriverMissingError, DatabaseNotConfiguredError) as exc:
+            raise HTTPException(status_code=503, detail=str(exc))
+        except Exception as exc:
+            logger.exception("Unhandled exception in send_test_alert_endpoint: %s", exc)
+            raise HTTPException(status_code=500, detail="internal server error")
+
+        if config is None or not config.enabled:
+            raise HTTPException(status_code=400, detail="alerts not enabled")
+        if not config.smtp_host or not config.smtp_from_email:
+            raise HTTPException(status_code=400, detail="smtp_host and smtp_from_email are required")
+
+        err = _dispatch_test_email(config)
+        if err:
+            raise HTTPException(status_code=502, detail=f"SMTP error: {err}")
+        return {"status": "sent"}
+
+    @api.get(
+        "/alerts/events",
+        response_model=list[AlertEventRecord],
+        tags=["alerts"],
+    )
+    def list_alert_events_endpoint(
+        request: Request,
+        limit: int = Query(default=100, ge=1, le=500),
+    ) -> list[AlertEventRecord]:
+        """Return recent alert dispatch records, newest first."""
+        _require_dashboard_auth(request)
+        try:
+            repository = PostgresClassifierRepository()
+            return repository.list_alert_events(limit=limit)
+        except (DatabaseDriverMissingError, DatabaseNotConfiguredError) as exc:
+            raise HTTPException(status_code=503, detail=str(exc))
+        except Exception as exc:
+            logger.exception("Unhandled exception in list_alert_events_endpoint: %s", exc)
+            raise HTTPException(status_code=500, detail="internal server error")
+
     return api
 
 
-def _classify_or_http_error(session: SessionRecord) -> ClassificationSummary:
+def _classify_or_http_error(
+    session: SessionRecord,
+    *,
+    connection_count_from_same_ip: int | None = None,
+) -> ClassificationSummary:
     """Run classification and map pipeline failures to HTTP errors."""
     try:
-        return classify_session(session)
+        return classify_session(
+            session,
+            connection_count_from_same_ip=connection_count_from_same_ip,
+        )
     except ValueError as exc:
         raise HTTPException(
             status_code=400,
@@ -503,6 +771,151 @@ def _classify_or_http_error(session: SessionRecord) -> ClassificationSummary:
             status_code=500,
             detail="internal server error",
         )
+
+
+_RISK_LEVEL_ORDER = ("critical", "high", "medium", "low", "none")
+
+
+def _risk_meets_threshold(risk_level: str, min_risk_level: str) -> bool:
+    """Return True when risk_level is at or above min_risk_level in severity."""
+    try:
+        return _RISK_LEVEL_ORDER.index(risk_level) <= _RISK_LEVEL_ORDER.index(min_risk_level)
+    except ValueError:
+        return False
+
+
+def _maybe_send_alert(
+    run: ClassifierRunRecord,
+    session: SessionRecord,
+    summary: ClassificationSummary,
+) -> None:
+    """Fire an email alert if the run meets the configured threshold.
+
+    Never raises — alert errors are logged and recorded but the classifier run
+    was already persisted and the HTTP response was already sent.
+    """
+    if summary.risk_level in ("none", "low"):
+        return  # Quick exit before any DB queries
+    try:
+        repository = PostgresClassifierRepository()
+        config = repository.get_alert_config()
+        if config is None or not config.enabled:
+            return
+
+        # Check global threshold first
+        if not _risk_meets_threshold(summary.risk_level, config.global_min_risk_level):
+            return
+
+        # Check persona routing preference
+        persona_config = repository.get_persona_config(session.persona_id)
+        if persona_config is None or persona_config.alert_routing_level not in ("email", "both"):
+            return
+        if not persona_config.contact_email:
+            return
+
+        # Per-persona threshold override
+        effective_threshold = persona_config.alert_min_risk_level or config.global_min_risk_level
+        if not _risk_meets_threshold(summary.risk_level, effective_threshold):
+            return
+
+        err = _dispatch_alert_email(config, persona_config.contact_email, run, session, summary)
+        repository.insert_alert_event(
+            AlertEventRecord(
+                run_id=run.id,
+                session_id=session.session_id,
+                persona_id=session.persona_id,
+                risk_level=summary.risk_level,
+                actor_label=summary.actor_label,
+                contact_email=persona_config.contact_email,
+                success=err is None,
+                error_message=err,
+            )
+        )
+    except Exception:
+        logger.exception("Alert dispatch failed — classifier run was saved normally")
+
+
+def _dispatch_alert_email(
+    config: AlertConfigRecord,
+    recipient: str,
+    run: ClassifierRunRecord,
+    session: SessionRecord,
+    summary: ClassificationSummary,
+) -> str | None:
+    """Send the alert email. Returns an error string on failure, None on success."""
+    subject = f"[Echidra Alert] {summary.risk_level.upper()} risk session on {session.persona_id}"
+    mitre_str = ", ".join(summary.mitre_tags) if summary.mitre_tags else "none"
+    evidence_lines = "\n".join(f"  - {e.text}" for e in summary.evidence) or "  (none)"
+    body = (
+        f"ECHIDRA HONEYPOT ALERT\n"
+        f"{'=' * 40}\n\n"
+        f"Risk Level:    {summary.risk_level.upper()}\n"
+        f"Risk Score:    {summary.risk_score}/100\n"
+        f"Actor:         {summary.actor_label or 'unknown'}\n"
+        f"Behavior:      {summary.behavior_stage}\n"
+        f"Intent:        {summary.intent}\n"
+        f"Persona:       {session.persona_id}\n"
+        f"Peer IP:       {session.peer_ip or 'unknown'}\n"
+        f"Session ID:    {session.session_id}\n"
+        f"Run ID:        {run.id}\n\n"
+        f"MITRE: {mitre_str}\n\n"
+        f"Evidence:\n{evidence_lines}\n"
+    )
+    return _smtp_send(config, recipient, subject, body)
+
+
+def _dispatch_test_email(config: AlertConfigRecord) -> str | None:
+    """Send a test email using the current alert config. Returns error or None."""
+    recipient = config.smtp_from_email or ""
+    if not recipient:
+        return "smtp_from_email must be set to receive the test email"
+    subject = "[Echidra] SMTP alert test"
+    body = "This is a test alert from your Echidra OSS honeypot. SMTP is configured correctly."
+    return _smtp_send(config, recipient, subject, body)
+
+
+def _smtp_send(
+    config: AlertConfigRecord,
+    recipient: str,
+    subject: str,
+    body: str,
+) -> str | None:
+    """Low-level SMTP send. Returns error string on failure, None on success."""
+    if not config.smtp_host:
+        return "smtp_host not configured"
+    msg = email.mime.multipart.MIMEMultipart()
+    msg["From"] = config.smtp_from_email or config.smtp_host
+    msg["To"] = recipient
+    msg["Subject"] = subject
+    msg.attach(email.mime.text.MIMEText(body, "plain"))
+    try:
+        context = ssl.create_default_context() if config.smtp_use_tls else None
+        with smtplib.SMTP(config.smtp_host, config.smtp_port, timeout=10) as server:
+            if config.smtp_use_tls:
+                server.starttls(context=context)
+            if config.smtp_username:
+                # Password is stored in DB but not in AlertConfigRecord (redacted).
+                # Re-fetch the raw password for sending only.
+                from classifier.storage.config import get_database_url
+                try:
+                    import psycopg
+                    db_url = get_database_url()
+                    if db_url:
+                        with psycopg.connect(db_url) as conn:
+                            row = conn.execute(
+                                "SELECT smtp_password FROM alert_config WHERE id = 1"
+                            ).fetchone()
+                            raw_password = row[0] if row else None
+                    else:
+                        raw_password = None
+                except Exception:
+                    raw_password = None
+                if raw_password:
+                    server.login(config.smtp_username, raw_password)
+            server.sendmail(msg["From"], [recipient], msg.as_string())
+        return None
+    except Exception as exc:
+        return str(exc)
 
 
 def _dashboard_persona_from_preset(persona: Persona) -> DashboardPersonaPreset:
