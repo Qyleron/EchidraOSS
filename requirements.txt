@@ -11,3 +11,4 @@ PyYAML==6.0
 typing_extensions==4.15.0
 fastapi==0.94.0
 uvicorn==0.21.0
+geoip2fast

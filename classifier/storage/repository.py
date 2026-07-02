@@ -13,10 +13,14 @@ from classifier.storage.models import (
     ClassifierRunRecord,
     DashboardReportSummary,
     DashboardUserRecord,
+    DecoyFile,
     IssueRecord,
     ManualLabelInput,
     ManualLabelRecord,
     MitreTechnique,
+    PersonaAnalytics,
+    PersonaConfigInput,
+    PersonaConfigRecord,
     StoredClassifierRun,
     StoredClassifierSignal,
 )
@@ -89,6 +93,7 @@ INSERT INTO sessions (
     peer_port,
     latitude,
     longitude,
+    country,
     persona_id,
     started_at,
     ended_at,
@@ -100,6 +105,7 @@ INSERT INTO sessions (
     %(peer_port)s,
     %(latitude)s,
     %(longitude)s,
+    %(country)s,
     %(persona_id)s,
     %(started_at)s,
     %(ended_at)s,
@@ -111,6 +117,7 @@ ON CONFLICT (id) DO UPDATE SET
     peer_port = EXCLUDED.peer_port,
     latitude = EXCLUDED.latitude,
     longitude = EXCLUDED.longitude,
+    country = EXCLUDED.country,
     persona_id = EXCLUDED.persona_id,
     started_at = EXCLUDED.started_at,
     ended_at = EXCLUDED.ended_at,
@@ -152,6 +159,7 @@ SELECT
     sessions.peer_port,
     sessions.latitude,
     sessions.longitude,
+    sessions.country,
     sessions.persona_id,
     sessions.started_at,
     sessions.ended_at,
@@ -203,6 +211,7 @@ SELECT
     sessions.peer_port,
     sessions.latitude,
     sessions.longitude,
+    sessions.country,
     sessions.persona_id,
     sessions.started_at,
     sessions.ended_at,
@@ -399,6 +408,208 @@ JOIN classifier_signals AS mitre_signals
     AND mitre_signals.signal_type = 'mitre_tag'
 WHERE classifier_runs.actor_label IS NOT NULL
 GROUP BY classifier_runs.actor_label, mitre_signals.signal_value
+"""
+
+SELECT_REPEAT_CONNECTION_AGGREGATE_SQL = """
+WITH offending_ips AS (
+    SELECT peer_ip
+    FROM sessions
+    WHERE peer_ip IS NOT NULL
+      AND started_at >= EXTRACT(EPOCH FROM now()) - %(window_seconds)s
+    GROUP BY peer_ip
+    HAVING COUNT(*) >= %(min_sessions)s
+)
+SELECT
+    COUNT(*) AS session_count,
+    COUNT(DISTINCT sessions.persona_id) AS persona_count,
+    COUNT(DISTINCT sessions.peer_ip) AS source_ip_count
+FROM sessions
+JOIN offending_ips ON offending_ips.peer_ip = sessions.peer_ip
+WHERE sessions.started_at >= EXTRACT(EPOCH FROM now()) - %(window_seconds)s
+"""
+
+INSERT_PERSONA_CONFIG_SQL = """
+INSERT INTO persona_configs (
+    id, name, os_banner, ssh_banner, hostname, timezone, internal_notes,
+    ssh_enabled, ssh_port, http_enabled, http_port, ftp_enabled, ftp_port,
+    telnet_enabled, telnet_port,
+    fake_users, running_processes, decoy_files,
+    alert_routing_level, alert_min_risk_level, contact_email, slack_webhook, interaction_depth,
+    created_at, updated_at
+) VALUES (
+    %(id)s, %(name)s, %(os_banner)s, %(ssh_banner)s, %(hostname)s, %(timezone)s, %(internal_notes)s,
+    %(ssh_enabled)s, %(ssh_port)s, %(http_enabled)s, %(http_port)s, %(ftp_enabled)s, %(ftp_port)s,
+    %(telnet_enabled)s, %(telnet_port)s,
+    %(fake_users)s, %(running_processes)s, %(decoy_files)s::jsonb,
+    %(alert_routing_level)s, %(alert_min_risk_level)s, %(contact_email)s, %(slack_webhook)s, %(interaction_depth)s,
+    %(created_at)s, %(updated_at)s
+)
+"""
+
+UPDATE_PERSONA_CONFIG_SQL = """
+UPDATE persona_configs SET
+    name = %(name)s,
+    os_banner = %(os_banner)s,
+    ssh_banner = %(ssh_banner)s,
+    hostname = %(hostname)s,
+    timezone = %(timezone)s,
+    internal_notes = %(internal_notes)s,
+    ssh_enabled = %(ssh_enabled)s,
+    ssh_port = %(ssh_port)s,
+    http_enabled = %(http_enabled)s,
+    http_port = %(http_port)s,
+    ftp_enabled = %(ftp_enabled)s,
+    ftp_port = %(ftp_port)s,
+    telnet_enabled = %(telnet_enabled)s,
+    telnet_port = %(telnet_port)s,
+    fake_users = %(fake_users)s,
+    running_processes = %(running_processes)s,
+    decoy_files = %(decoy_files)s::jsonb,
+    alert_routing_level = %(alert_routing_level)s,
+    alert_min_risk_level = %(alert_min_risk_level)s,
+    contact_email = %(contact_email)s,
+    slack_webhook = %(slack_webhook)s,
+    interaction_depth = %(interaction_depth)s,
+    updated_at = %(updated_at)s
+WHERE id = %(id)s
+"""
+
+SELECT_PERSONA_CONFIG_COLS = """
+    id, name, os_banner, ssh_banner, hostname, timezone, internal_notes,
+    ssh_enabled, ssh_port, http_enabled, http_port, ftp_enabled, ftp_port,
+    telnet_enabled, telnet_port,
+    fake_users, running_processes, decoy_files,
+    alert_routing_level, alert_min_risk_level, contact_email, slack_webhook, interaction_depth,
+    created_at, updated_at
+"""
+
+SELECT_PERSONA_CONFIG_BASE_SQL = (
+    "SELECT " + SELECT_PERSONA_CONFIG_COLS + " FROM persona_configs "
+)
+
+SELECT_PERSONA_CONFIG_BY_ID_SQL = (
+    SELECT_PERSONA_CONFIG_BASE_SQL + "WHERE id = %(id)s"
+)
+
+DELETE_PERSONA_CONFIG_SQL = "DELETE FROM persona_configs WHERE id = %(id)s"
+
+SELECT_PERSONA_SESSION_COUNT_SQL = """
+SELECT COUNT(*) AS total
+FROM sessions
+WHERE persona_id = %(persona_id)s
+"""
+
+SELECT_PERSONA_SESSIONS_TREND_SQL = """
+SELECT
+    to_char(to_timestamp(started_at)::date, 'YYYY-MM-DD') AS date,
+    COUNT(*) AS count
+FROM sessions
+WHERE persona_id = %(persona_id)s
+  AND started_at >= EXTRACT(EPOCH FROM now()) - 30 * 86400
+GROUP BY date
+ORDER BY date
+"""
+
+SELECT_PERSONA_INTENT_COUNTS_SQL = """
+SELECT cr.intent AS key, COUNT(*) AS count
+FROM classifier_runs cr
+JOIN sessions s ON s.id = cr.session_id
+WHERE s.persona_id = %(persona_id)s
+GROUP BY cr.intent
+ORDER BY count DESC, key
+"""
+
+SELECT_PERSONA_RISK_COUNTS_SQL = """
+SELECT cr.risk_level AS key, COUNT(*) AS count
+FROM classifier_runs cr
+JOIN sessions s ON s.id = cr.session_id
+WHERE s.persona_id = %(persona_id)s
+GROUP BY cr.risk_level
+ORDER BY count DESC
+"""
+
+SELECT_PERSONA_TOP_TECHNIQUES_SQL = """
+SELECT cs.signal_value AS technique_id, COUNT(*) AS count
+FROM classifier_signals cs
+JOIN classifier_runs cr ON cr.id = cs.classifier_run_id
+JOIN sessions s ON s.id = cr.session_id
+WHERE s.persona_id = %(persona_id)s
+  AND cs.signal_type = 'mitre_tag'
+GROUP BY cs.signal_value
+ORDER BY count DESC
+LIMIT 10
+"""
+
+SELECT_PERSONA_PEAK_HOURS_SQL = """
+SELECT
+    EXTRACT(HOUR FROM to_timestamp(started_at))::int AS hour,
+    COUNT(*) AS count
+FROM sessions
+WHERE persona_id = %(persona_id)s
+GROUP BY hour
+ORDER BY hour
+"""
+
+SELECT_PERSONA_TOP_COUNTRIES_SQL = """
+SELECT country AS key, COUNT(*) AS count
+FROM sessions
+WHERE persona_id = %(persona_id)s
+  AND country IS NOT NULL
+GROUP BY country
+ORDER BY count DESC
+LIMIT 10
+"""
+
+SELECT_SESSIONS_FROM_IP_SQL = """
+SELECT COUNT(*) AS cnt
+FROM sessions
+WHERE peer_ip = %(peer_ip)s
+  AND started_at >= EXTRACT(EPOCH FROM now()) - %(window_seconds)s
+"""
+
+UPSERT_ALERT_CONFIG_SQL = """
+INSERT INTO alert_config (
+    id, enabled, smtp_host, smtp_port, smtp_username, smtp_password,
+    smtp_from_email, smtp_use_tls, global_min_risk_level, updated_at
+) VALUES (
+    1, %(enabled)s, %(smtp_host)s, %(smtp_port)s, %(smtp_username)s, %(smtp_password)s,
+    %(smtp_from_email)s, %(smtp_use_tls)s, %(global_min_risk_level)s, now()
+)
+ON CONFLICT (id) DO UPDATE SET
+    enabled = EXCLUDED.enabled,
+    smtp_host = EXCLUDED.smtp_host,
+    smtp_port = EXCLUDED.smtp_port,
+    smtp_username = EXCLUDED.smtp_username,
+    smtp_password = COALESCE(EXCLUDED.smtp_password, alert_config.smtp_password),
+    smtp_from_email = EXCLUDED.smtp_from_email,
+    smtp_use_tls = EXCLUDED.smtp_use_tls,
+    global_min_risk_level = EXCLUDED.global_min_risk_level,
+    updated_at = now()
+"""
+
+SELECT_ALERT_CONFIG_SQL = """
+SELECT enabled, smtp_host, smtp_port, smtp_username,
+       (smtp_password IS NOT NULL AND smtp_password != '') AS smtp_password_configured,
+       smtp_from_email, smtp_use_tls, global_min_risk_level, updated_at
+FROM alert_config WHERE id = 1
+"""
+
+INSERT_ALERT_EVENT_SQL = """
+INSERT INTO alert_events (
+    id, run_id, session_id, persona_id, risk_level, actor_label,
+    contact_email, sent_at, success, error_message
+) VALUES (
+    %(id)s, %(run_id)s, %(session_id)s, %(persona_id)s, %(risk_level)s, %(actor_label)s,
+    %(contact_email)s, %(sent_at)s, %(success)s, %(error_message)s
+)
+"""
+
+SELECT_ALERT_EVENTS_SQL = """
+SELECT id, run_id, session_id, persona_id, risk_level, actor_label,
+       contact_email, sent_at, success, error_message
+FROM alert_events
+ORDER BY sent_at DESC
+LIMIT %(limit)s
 """
 
 # Limit validation constants
@@ -655,9 +866,126 @@ class PostgresClassifierRepository:
         )
         return issue_from_row(row, mitre_rows)
 
+    def create_persona_config(
+        self,
+        persona_id: str,
+        config: PersonaConfigInput,
+    ) -> PersonaConfigRecord:
+        """Create a new persona config and return the stored record."""
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc)
+        record = PersonaConfigRecord(id=persona_id, created_at=now, updated_at=now, **config.dict())
+        _execute_insert(
+            self.database_url,
+            INSERT_PERSONA_CONFIG_SQL,
+            _persona_config_params(record),
+        )
+        return record
+
+    def get_persona_config(self, persona_id: str) -> PersonaConfigRecord | None:
+        """Fetch one persona config by slug ID."""
+        row = _fetch_one(
+            self.database_url,
+            SELECT_PERSONA_CONFIG_BY_ID_SQL,
+            {"id": persona_id},
+        )
+        return _persona_config_from_row(row) if row is not None else None
+
+    def list_persona_configs(self) -> list[PersonaConfigRecord]:
+        """Fetch all persisted persona configs ordered by ID."""
+        rows = _fetch_all(
+            self.database_url,
+            SELECT_PERSONA_CONFIG_BASE_SQL + "ORDER BY id",
+            {},
+        )
+        return [_persona_config_from_row(row) for row in rows]
+
+    def update_persona_config(
+        self,
+        persona_id: str,
+        config: PersonaConfigInput,
+    ) -> PersonaConfigRecord | None:
+        """Update one persona config and return the stored record, or None if not found."""
+        from datetime import datetime, timezone
+        existing = self.get_persona_config(persona_id)
+        if existing is None:
+            return None
+        now = datetime.now(timezone.utc)
+        record = PersonaConfigRecord(
+            id=persona_id,
+            created_at=existing.created_at,
+            updated_at=now,
+            **config.dict(),
+        )
+        _execute_insert(
+            self.database_url,
+            UPDATE_PERSONA_CONFIG_SQL,
+            _persona_config_params(record),
+        )
+        return record
+
+    def delete_persona_config(self, persona_id: str) -> bool:
+        """Delete one persona config by ID. Returns True if it existed."""
+        if self.get_persona_config(persona_id) is None:
+            return False
+        _execute_insert(
+            self.database_url,
+            DELETE_PERSONA_CONFIG_SQL,
+            {"id": persona_id},
+        )
+        return True
+
+    def get_persona_analytics(self, persona_id: str) -> PersonaAnalytics:
+        """Aggregate session + classifier data for one persona ID."""
+        params = {"persona_id": persona_id}
+        total_row = _fetch_one(self.database_url, SELECT_PERSONA_SESSION_COUNT_SQL, params)
+        sessions_captured = int(total_row["total"]) if total_row else 0
+
+        trend_rows = _fetch_all(self.database_url, SELECT_PERSONA_SESSIONS_TREND_SQL, params)
+        intent_rows = _fetch_all(self.database_url, SELECT_PERSONA_INTENT_COUNTS_SQL, params)
+        risk_rows = _fetch_all(self.database_url, SELECT_PERSONA_RISK_COUNTS_SQL, params)
+        technique_rows = _fetch_all(self.database_url, SELECT_PERSONA_TOP_TECHNIQUES_SQL, params)
+        hour_rows = _fetch_all(self.database_url, SELECT_PERSONA_PEAK_HOURS_SQL, params)
+        country_rows = _fetch_all(self.database_url, SELECT_PERSONA_TOP_COUNTRIES_SQL, params)
+
+        return PersonaAnalytics(
+            sessions_captured=sessions_captured,
+            sessions_trend=[{"date": row["date"], "count": int(row["count"])} for row in trend_rows],
+            intent_counts={str(row["key"]): int(row["count"]) for row in intent_rows},
+            risk_counts={str(row["key"]): int(row["count"]) for row in risk_rows},
+            top_techniques=[
+                {"id": row["technique_id"], "name": None, "count": int(row["count"])}
+                for row in technique_rows
+            ],
+            peak_hours=[{"hour": int(row["hour"]), "count": int(row["count"])} for row in hour_rows],
+            top_countries=[{"country": str(row["key"]), "count": int(row["count"])} for row in country_rows],
+        )
+
     def aggregate_classifier_runs_by_actor_and_technique(self) -> list[dict[str, Any]]:
         """Aggregate stored classifier runs by (actor_label, MITRE technique)."""
         return _fetch_all(self.database_url, SELECT_ACTOR_MITRE_AGGREGATES_SQL, {})
+
+    def aggregate_repeat_connections_by_peer_ip(
+        self,
+        *,
+        window_seconds: int = 86_400,
+        min_sessions: int = 5,
+    ) -> dict[str, Any] | None:
+        """Aggregate sessions from source IPs that reconnected repeatedly.
+
+        A proxy signal for automated credential/access testing: this honeypot
+        has no auth step to literally brute-force, so this counts repeated
+        rapid connections from one peer_ip instead. Returns None if no peer_ip
+        crossed the threshold within the window.
+        """
+        row = _fetch_one(
+            self.database_url,
+            SELECT_REPEAT_CONNECTION_AGGREGATE_SQL,
+            {"window_seconds": window_seconds, "min_sessions": min_sessions},
+        )
+        if row is None or row["session_count"] == 0:
+            return None
+        return row
 
     def upsert_issue(self, issue: IssueRecord) -> IssueRecord:
         """Persist one issue and its MITRE techniques, preserving its prior status."""
@@ -669,6 +997,114 @@ class PostgresClassifierRepository:
             {"issue_ids": [issue.id]},
         )
         return issue_from_row(row, mitre_rows)
+
+    def count_sessions_from_ip(
+        self,
+        peer_ip: str,
+        *,
+        window_seconds: int = 86_400,
+    ) -> int:
+        """Count sessions from a given peer IP in the last window_seconds.
+
+        Used at store-time to populate the cross-session brute_force_bot feature.
+        Not called by the stateless /classify/session endpoint by design.
+        """
+        row = _fetch_one(
+            self.database_url,
+            SELECT_SESSIONS_FROM_IP_SQL,
+            {"peer_ip": peer_ip, "window_seconds": window_seconds},
+        )
+        return int(row["cnt"]) if row else 0
+
+    def get_alert_config(self) -> "AlertConfigRecord | None":
+        """Return the singleton global alert config, or None if never configured."""
+        from classifier.storage.models import AlertConfigRecord
+        row = _fetch_one(self.database_url, SELECT_ALERT_CONFIG_SQL, {})
+        if row is None:
+            return None
+        return AlertConfigRecord(
+            enabled=row["enabled"],
+            smtp_host=row["smtp_host"],
+            smtp_port=row["smtp_port"],
+            smtp_username=row["smtp_username"],
+            smtp_password_configured=bool(row["smtp_password_configured"]),
+            smtp_from_email=row["smtp_from_email"],
+            smtp_use_tls=row["smtp_use_tls"],
+            global_min_risk_level=row["global_min_risk_level"],
+            updated_at=row["updated_at"],
+        )
+
+    def upsert_alert_config(self, config: "AlertConfigInput") -> "AlertConfigRecord":
+        """Persist the global alert config (password only updated if non-None)."""
+        from classifier.storage.models import AlertConfigInput, AlertConfigRecord
+        _execute_insert(
+            self.database_url,
+            UPSERT_ALERT_CONFIG_SQL,
+            {
+                "enabled": config.enabled,
+                "smtp_host": config.smtp_host,
+                "smtp_port": config.smtp_port,
+                "smtp_username": config.smtp_username,
+                "smtp_password": config.smtp_password,
+                "smtp_from_email": config.smtp_from_email,
+                "smtp_use_tls": config.smtp_use_tls,
+                "global_min_risk_level": config.global_min_risk_level,
+            },
+        )
+        return self.get_alert_config() or AlertConfigRecord(
+            enabled=config.enabled,
+            smtp_host=config.smtp_host,
+            smtp_port=config.smtp_port,
+            smtp_username=config.smtp_username,
+            smtp_password_configured=config.smtp_password is not None,
+            smtp_from_email=config.smtp_from_email,
+            smtp_use_tls=config.smtp_use_tls,
+            global_min_risk_level=config.global_min_risk_level,
+        )
+
+    def insert_alert_event(self, event: "AlertEventRecord") -> "AlertEventRecord":
+        """Persist one alert dispatch record."""
+        _execute_insert(
+            self.database_url,
+            INSERT_ALERT_EVENT_SQL,
+            {
+                "id": event.id,
+                "run_id": event.run_id,
+                "session_id": event.session_id,
+                "persona_id": event.persona_id,
+                "risk_level": event.risk_level,
+                "actor_label": event.actor_label,
+                "contact_email": event.contact_email,
+                "sent_at": event.sent_at,
+                "success": event.success,
+                "error_message": event.error_message,
+            },
+        )
+        return event
+
+    def list_alert_events(self, *, limit: int = 100) -> "list[AlertEventRecord]":
+        """Return recent alert dispatch records, newest first."""
+        from classifier.storage.models import AlertEventRecord
+        rows = _fetch_all(
+            self.database_url,
+            SELECT_ALERT_EVENTS_SQL,
+            {"limit": min(limit, 500)},
+        )
+        return [
+            AlertEventRecord(
+                id=row["id"],
+                run_id=row["run_id"],
+                session_id=row["session_id"],
+                persona_id=row["persona_id"],
+                risk_level=row["risk_level"],
+                actor_label=row["actor_label"],
+                contact_email=row["contact_email"],
+                sent_at=row["sent_at"],
+                success=row["success"],
+                error_message=row["error_message"],
+            )
+            for row in rows
+        ]
 
 
 def classifier_run_insert_params(record: ClassifierRunRecord) -> dict[str, Any]:
@@ -709,14 +1145,17 @@ def classifier_run_statements(
 
 def session_insert_params(record: ClassifierRunRecord) -> dict[str, Any]:
     """Return SQL parameters for upserting the parent session row."""
+    from classifier.storage.geolocation import resolve_country
     session_record = record.session_record
+    peer_ip = session_record.get("peer_ip")
     return {
         "id": record.session_id,
         "protocol": record.protocol,
-        "peer_ip": session_record.get("peer_ip"),
+        "peer_ip": peer_ip,
         "peer_port": session_record.get("peer_port"),
         "latitude": session_record.get("latitude"),
         "longitude": session_record.get("longitude"),
+        "country": resolve_country(peer_ip),
         "persona_id": record.persona_id,
         "started_at": session_record["started_at"],
         "ended_at": session_record["ended_at"],
@@ -896,6 +1335,71 @@ def issue_upsert_statements(issue: IssueRecord) -> list[tuple[str, dict[str, Any
         for index, technique in enumerate(issue.mitre)
     )
     return statements
+
+
+def _persona_config_params(record: PersonaConfigRecord) -> dict[str, Any]:
+    """Return SQL parameters for inserting or updating a persona config row."""
+    import json
+    return {
+        "id": record.id,
+        "name": record.name,
+        "os_banner": record.os_banner,
+        "ssh_banner": record.ssh_banner,
+        "hostname": record.hostname,
+        "timezone": record.timezone,
+        "internal_notes": record.internal_notes,
+        "ssh_enabled": record.ssh_enabled,
+        "ssh_port": record.ssh_port,
+        "http_enabled": record.http_enabled,
+        "http_port": record.http_port,
+        "ftp_enabled": record.ftp_enabled,
+        "ftp_port": record.ftp_port,
+        "telnet_enabled": record.telnet_enabled,
+        "telnet_port": record.telnet_port,
+        "fake_users": list(record.fake_users),
+        "running_processes": list(record.running_processes),
+        "decoy_files": json.dumps([f.dict() for f in record.decoy_files]),
+        "alert_routing_level": record.alert_routing_level,
+        "alert_min_risk_level": record.alert_min_risk_level,
+        "contact_email": record.contact_email,
+        "slack_webhook": record.slack_webhook,
+        "interaction_depth": record.interaction_depth,
+        "created_at": record.created_at,
+        "updated_at": record.updated_at,
+    }
+
+
+def _persona_config_from_row(row: dict[str, Any]) -> PersonaConfigRecord:
+    """Build a PersonaConfigRecord from a DB query result row."""
+    raw_decoy = row.get("decoy_files") or []
+    decoy_files = [DecoyFile(**f) for f in raw_decoy] if isinstance(raw_decoy, list) else []
+    return PersonaConfigRecord(
+        id=row["id"],
+        name=row["name"],
+        os_banner=row["os_banner"],
+        ssh_banner=row["ssh_banner"],
+        hostname=row["hostname"],
+        timezone=row["timezone"],
+        internal_notes=row["internal_notes"],
+        ssh_enabled=row["ssh_enabled"],
+        ssh_port=row["ssh_port"],
+        http_enabled=row["http_enabled"],
+        http_port=row["http_port"],
+        ftp_enabled=row["ftp_enabled"],
+        ftp_port=row["ftp_port"],
+        telnet_enabled=row["telnet_enabled"],
+        telnet_port=row["telnet_port"],
+        fake_users=list(row["fake_users"] or []),
+        running_processes=list(row["running_processes"] or []),
+        decoy_files=decoy_files,
+        alert_routing_level=row["alert_routing_level"],
+        alert_min_risk_level=row.get("alert_min_risk_level"),
+        contact_email=row["contact_email"],
+        slack_webhook=row["slack_webhook"],
+        interaction_depth=row["interaction_depth"],
+        created_at=row["created_at"],
+        updated_at=row["updated_at"],
+    )
 
 
 def _count_map(rows: list[dict[str, Any]]) -> dict[str, int]:

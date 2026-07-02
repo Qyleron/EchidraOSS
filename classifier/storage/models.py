@@ -130,6 +130,7 @@ class StoredClassifierRun(BaseModel):
     peer_port: int | None = None
     latitude: float | None = Field(default=None, ge=-90, le=90)
     longitude: float | None = Field(default=None, ge=-180, le=180)
+    country: str | None = None
     persona_id: str
     started_at: float
     ended_at: float
@@ -227,6 +228,157 @@ class IssueStatusUpdate(BaseModel):
         if value not in ISSUE_STATUSES:
             raise ValueError(f"status must be one of {sorted(ISSUE_STATUSES)}")
         return value
+
+    class Config:
+        extra = "forbid"
+
+
+PERSONA_ALERT_ROUTING_LEVELS = {"none", "email", "slack", "both"}
+PERSONA_INTERACTION_DEPTHS = {"minimal", "standard", "deep"}
+RISK_LEVELS_ORDERED = ("critical", "high", "medium", "low")
+
+
+class DecoyFile(BaseModel):
+    """One fake file path and content stored in a persona config."""
+
+    path: str
+    content: str
+
+    class Config:
+        extra = "forbid"
+
+
+class PersonaConfigInput(BaseModel):
+    """Analyst-submitted configuration for one honeypot persona."""
+
+    name: str
+    os_banner: str = ""
+    ssh_banner: str = ""
+    hostname: str = ""
+    timezone: str = "UTC"
+    internal_notes: str = ""
+    ssh_enabled: bool = False
+    ssh_port: int | None = None
+    http_enabled: bool = False
+    http_port: int | None = None
+    ftp_enabled: bool = False
+    ftp_port: int | None = None
+    telnet_enabled: bool = False
+    telnet_port: int | None = None
+    fake_users: list[str] = Field(default_factory=list)
+    running_processes: list[str] = Field(default_factory=list)
+    decoy_files: list[DecoyFile] = Field(default_factory=list)
+    alert_routing_level: str = "none"
+    alert_min_risk_level: str | None = None
+    contact_email: str | None = None
+    slack_webhook: str | None = None
+    interaction_depth: str = "minimal"
+
+    @validator("alert_routing_level")
+    def validate_routing(cls, value: str) -> str:
+        if value not in PERSONA_ALERT_ROUTING_LEVELS:
+            raise ValueError(
+                f"alert_routing_level must be one of {sorted(PERSONA_ALERT_ROUTING_LEVELS)}"
+            )
+        return value
+
+    @validator("alert_min_risk_level")
+    def validate_alert_min_risk_level(cls, value: str | None) -> str | None:
+        if value is not None and value not in RISK_LEVELS_ORDERED:
+            raise ValueError(
+                f"alert_min_risk_level must be one of {list(RISK_LEVELS_ORDERED)} or null"
+            )
+        return value
+
+    @validator("interaction_depth")
+    def validate_depth(cls, value: str) -> str:
+        if value not in PERSONA_INTERACTION_DEPTHS:
+            raise ValueError(
+                f"interaction_depth must be one of {sorted(PERSONA_INTERACTION_DEPTHS)}"
+            )
+        return value
+
+    class Config:
+        extra = "forbid"
+
+
+class PersonaConfigRecord(PersonaConfigInput):
+    """One persisted persona configuration row."""
+
+    id: str
+    created_at: datetime = Field(default_factory=_utc_now)
+    updated_at: datetime = Field(default_factory=_utc_now)
+
+
+class PersonaAnalytics(BaseModel):
+    """Aggregated session analytics for one persona ID."""
+
+    sessions_captured: int = Field(ge=0)
+    sessions_trend: list[dict[str, Any]] = Field(default_factory=list)
+    intent_counts: dict[str, int] = Field(default_factory=dict)
+    risk_counts: dict[str, int] = Field(default_factory=dict)
+    top_techniques: list[dict[str, Any]] = Field(default_factory=list)
+    peak_hours: list[dict[str, Any]] = Field(default_factory=list)
+    top_countries: list[dict[str, Any]] = Field(default_factory=list)
+
+    class Config:
+        extra = "forbid"
+
+
+class AlertConfigInput(BaseModel):
+    """Analyst-submitted global SMTP alert configuration."""
+
+    enabled: bool = False
+    smtp_host: str | None = None
+    smtp_port: int = 587
+    smtp_username: str | None = None
+    smtp_password: str | None = None
+    smtp_from_email: str | None = None
+    smtp_use_tls: bool = True
+    global_min_risk_level: str = "high"
+
+    @validator("global_min_risk_level")
+    def validate_global_min_risk_level(cls, value: str) -> str:
+        if value not in RISK_LEVELS_ORDERED:
+            raise ValueError(
+                f"global_min_risk_level must be one of {list(RISK_LEVELS_ORDERED)}"
+            )
+        return value
+
+    class Config:
+        extra = "forbid"
+
+
+class AlertConfigRecord(BaseModel):
+    """Persisted global SMTP alert configuration (password never returned)."""
+
+    enabled: bool
+    smtp_host: str | None
+    smtp_port: int
+    smtp_username: str | None
+    smtp_password_configured: bool
+    smtp_from_email: str | None
+    smtp_use_tls: bool
+    global_min_risk_level: str
+    updated_at: datetime = Field(default_factory=_utc_now)
+
+    class Config:
+        extra = "forbid"
+
+
+class AlertEventRecord(BaseModel):
+    """One persisted record of an attempted alert email dispatch."""
+
+    id: UUID = Field(default_factory=uuid4)
+    run_id: UUID | None = None
+    session_id: UUID | None = None
+    persona_id: str
+    risk_level: str
+    actor_label: str | None = None
+    contact_email: str | None = None
+    sent_at: datetime = Field(default_factory=_utc_now)
+    success: bool
+    error_message: str | None = None
 
     class Config:
         extra = "forbid"
