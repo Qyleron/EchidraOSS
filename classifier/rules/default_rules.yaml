@@ -41,6 +41,20 @@ rules:
         operator: gte
         value: 1
 
+  - id: repeat_connections_same_ip
+    name: Repeat connections from same source IP
+    actor_label: brute_force_bot
+    confidence: 0.75
+    risk_score: 55
+    mitre_tags:
+      - T1110
+    evidence:
+      - Source IP reconnected at least 5 times in 24 hours, consistent with automated credential or access testing.
+    conditions:
+      - field: connection_count_from_same_ip
+        operator: gte
+        value: 5
+
   - id: interactive_low_and_slow
     name: Interactive low and slow shell use
     actor_label: skilled_human_operator

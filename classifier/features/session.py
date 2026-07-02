@@ -52,12 +52,19 @@ class SessionFeatures(BaseModel):
     inter_command_intervals_seconds: list[float]
     average_inter_command_interval_seconds: float | None
     command_names: list[str]
+    # Cross-session feature — only populated by the store-time path when the DB
+    # is available; None in the stateless /classify/session endpoint by design.
+    connection_count_from_same_ip: int | None = None
 
     class Config:
         extra = "forbid"
 
 
-def extract_session_features(session: SessionRecord) -> SessionFeatures:
+def extract_session_features(
+    session: SessionRecord,
+    *,
+    connection_count_from_same_ip: int | None = None,
+) -> SessionFeatures:
     """Convert one validated session into deterministic behavioral measurements."""
     command_names = []
     discovery_command_count = 0
@@ -109,6 +116,7 @@ def extract_session_features(session: SessionRecord) -> SessionFeatures:
         inter_command_intervals_seconds=intervals,
         average_inter_command_interval_seconds=average_interval,
         command_names=command_names,
+        connection_count_from_same_ip=connection_count_from_same_ip,
     )
 
 
