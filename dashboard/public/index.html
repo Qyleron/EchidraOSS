@@ -11,22 +11,24 @@
 <body>
   <div class="app-shell">
     <header class="topbar">
-      <a href="/" class="logo" aria-label="Qyleron home">
+      <div class="topbar-row1">
+        <a href="/" class="logo" aria-label="Qyleron home">
         <img src="/assets/Qyleron_Banner.png" alt="Qyleron" />
       </a>
       <div class="product-name">Echidra OSS</div>
-    </header>
-
-    <nav class="navbar" aria-label="Primary dashboard navigation">
-      <div class="nav-links">
+      </div>
+      <nav class="navbar" aria-label="Primary dashboard navigation">
+        <div class="nav-links">
         <a class="nav-link active" href="/dashboard">Overview</a>
         <a class="nav-link" href="/dashboard/sessions">Sessions</a>
         <a class="nav-link" href="/dashboard/analytics">Analytics</a>
         <a class="nav-link" href="/dashboard/intelligence">Intelligence</a>
         <a class="nav-link" href="/dashboard/personas">Personas</a>
+        <a class="nav-link" href="/dashboard/alerts">Alerts</a>
       </div>
       <button id="logoutButton" class="logout-button" type="button">Logout</button>
-    </nav>
+      </nav>
+    </header>
 
     <main class="dashboard-main">
       <section class="metric-grid" aria-label="Security overview metrics">
@@ -36,7 +38,7 @@
         </article>
         <article class="metric-card">
           <strong class="metric-value metric-success">1,489</strong>
-          <span class="metric-label">Trusted Sessions</span>
+          <span class="metric-label">Low Risk Sessions</span>
         </article>
         <article class="metric-card">
           <strong class="metric-value metric-warning">43</strong>
@@ -136,8 +138,9 @@
       const map = L.map("attackOriginMap", {
         attributionControl: false,
         zoomControl: true,
-        worldCopyJump: true
+        worldCopyJump: true      
       }).setView([22, 8], 2);
+
 
       L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
         className: "dark-tiles",
@@ -152,23 +155,20 @@
           fillColor: color,
           fillOpacity: origin.risk === "high" ? 0.18 : 0.12,
           opacity: 0.5,
-          weight: 1
+          weight: 1,
+          interactive: false
         }).addTo(map);
 
-        L.circleMarker([origin.lat, origin.lng], {
+        const marker = L.circleMarker([origin.lat, origin.lng], {
           radius: origin.risk === "high" ? 7 : 5,
           color,
           fillColor: color,
           fillOpacity: 0.9,
           weight: 2
         })
-          .bindTooltip(`${origin.city}, ${origin.country}`, {
-            permanent: true,
-            direction: "top",
-            className: "city-label",
-            offset: [0, -8]
-          })
-          .bindPopup(`<b>${origin.city}, ${origin.country}</b><br>Event: ${origin.type}<br>Source IP: ${origin.ip}<br>Risk: ${origin.risk}`)
+          .bindPopup(
+            `<b>${origin.city}, ${origin.country}</b><br>Event: ${origin.type}<br>Source IP: ${origin.ip}<br>Risk: ${origin.risk}`,
+          )
           .addTo(map);
       }
     }

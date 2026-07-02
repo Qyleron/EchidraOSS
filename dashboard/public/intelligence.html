@@ -10,22 +10,24 @@
 <body>
   <div class="app-shell">
     <header class="topbar">
-      <a href="/" class="logo" aria-label="Qyleron home">
-        <img src="/assets/Qyleron_Banner.png" alt="Qyleron" />
-      </a>
-      <div class="product-name">Echidra OSS</div>
-    </header>
-
-    <nav class="navbar" aria-label="Primary dashboard navigation">
-      <div class="nav-links">
-        <a class="nav-link" href="/dashboard">Overview</a>
-        <a class="nav-link" href="/dashboard/sessions">Sessions</a>
-        <a class="nav-link" href="/dashboard/analytics">Analytics</a>
-        <a class="nav-link active" href="/dashboard/intelligence">Intelligence</a>
-        <a class="nav-link" href="/dashboard/personas">Personas</a>
+      <div class="topbar-row1">
+        <a href="/" class="logo" aria-label="Qyleron home">
+          <img src="/assets/Qyleron_Banner.png" alt="Qyleron" />
+        </a>
+        <div class="product-name">Echidra OSS</div>
       </div>
-      <button id="logoutButton" class="logout-button" type="button">Logout</button>
-    </nav>
+      <nav class="navbar" aria-label="Primary dashboard navigation">
+        <div class="nav-links">
+          <a class="nav-link" href="/dashboard">Overview</a>
+          <a class="nav-link" href="/dashboard/sessions">Sessions</a>
+          <a class="nav-link" href="/dashboard/analytics">Analytics</a>
+          <a class="nav-link active" href="/dashboard/intelligence">Intelligence</a>
+          <a class="nav-link" href="/dashboard/personas">Personas</a>
+          <a class="nav-link" href="/dashboard/alerts">Alerts</a>
+        </div>
+        <button id="logoutButton" class="logout-button" type="button">Logout</button>
+      </nav>
+    </header>
 
     <main class="dashboard-main">
       <section class="page-panel" aria-labelledby="issuesTitle">

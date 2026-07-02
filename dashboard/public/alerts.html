@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Alerts - Echidra OSS | Qyleron</title>
+  <link rel="icon" href="/assets/qyleron_logo.png" type="image/png" />
+  <link rel="stylesheet" href="/dashboard.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="topbar-row1">
+        <a href="/" class="logo" aria-label="Qyleron home">
+          <img src="/assets/Qyleron_Banner.png" alt="Qyleron" />
+        </a>
+        <div class="product-name">Echidra OSS</div>
+      </div>
+      <nav class="navbar" aria-label="Primary dashboard navigation">
+        <div class="nav-links">
+          <a class="nav-link" href="/dashboard">Overview</a>
+          <a class="nav-link" href="/dashboard/sessions">Sessions</a>
+          <a class="nav-link" href="/dashboard/analytics">Analytics</a>
+          <a class="nav-link" href="/dashboard/intelligence">Intelligence</a>
+          <a class="nav-link" href="/dashboard/personas">Personas</a>
+          <a class="nav-link active" href="/dashboard/alerts">Alerts</a>
+        </div>
+        <button id="logoutButton" class="logout-button" type="button">Logout</button>
+      </nav>
+    </header>
+    <main class="dashboard-main">
+
+      <!-- SMTP Configuration -->
+      <section class="page-panel" aria-labelledby="smtpTitle" style="margin-bottom:24px;">
+        <div class="page-panel-header">
+          <div class="page-panel-title">
+            <h1 id="smtpTitle">Alert Configuration</h1>
+          </div>
+          <div class="page-panel-actions">
+            <button type="button" class="text-button" id="testEmailBtn">Send Test Email</button>
+          </div>
+        </div>
+
+        <form id="smtpForm" autocomplete="off" style="padding:22px;">
+          <div class="alert-config-form" style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+
+            <!-- Enable toggle -->
+            <div style="grid-column:1/-1;display:flex;align-items:center;gap:14px;padding-bottom:16px;border-bottom:1px solid var(--line);margin-bottom:4px;">
+              <label class="toggle-switch" aria-label="Enable email alerts">
+                <input type="checkbox" class="toggle-input" id="alertEnabled" />
+                <span class="toggle-visual"><span class="toggle-knob"></span></span>
+              </label>
+              <span style="font-size:14px;font-weight:560;">Enable email alerts</span>
+              <span class="form-status" id="smtpStatus" style="margin-left:auto;"></span>
+            </div>
+
+            <!-- Left column -->
+            <div class="form-row">
+              <label class="form-label">SMTP Host</label>
+              <input class="form-input" id="smtpHost" type="text" placeholder="smtp.example.com" />
+            </div>
+            <div class="form-row">
+              <label class="form-label">SMTP Port</label>
+              <input class="form-input" id="smtpPort" type="number" min="1" max="65535" value="587" />
+            </div>
+            <div class="form-row">
+              <label class="form-label">Username</label>
+              <input class="form-input" id="smtpUsername" type="text" placeholder="alerts@example.com" />
+            </div>
+            <div class="form-row">
+              <label class="form-label">Password</label>
+              <input class="form-input" id="smtpPassword" type="password" placeholder="leave blank to keep existing" autocomplete="new-password" />
+            </div>
+            <div class="form-row">
+              <label class="form-label">From Email</label>
+              <input class="form-input" id="smtpFromEmail" type="email" placeholder="echidra@example.com" />
+            </div>
+            <div class="form-row" style="align-self:end;">
+              <label class="form-label">Use TLS (STARTTLS)</label>
+              <div style="display:flex;align-items:center;gap:10px;padding-top:6px;">
+                <label class="toggle-switch" aria-label="Use TLS">
+                  <input type="checkbox" class="toggle-input" id="smtpUseTls" checked />
+                  <span class="toggle-visual"><span class="toggle-knob"></span></span>
+                </label>
+              </div>
+            </div>
+
+            <!-- Global threshold -->
+            <div class="form-row" style="grid-column:1/-1;display:flex;align-items:center;gap:14px;padding-top:8px;">
+              <label class="form-label" style="margin:0;white-space:nowrap;">Global minimum risk level to trigger alert</label>
+              <select class="form-select" id="globalMinRiskLevel" style="width:160px;flex-shrink:0;">
+                <option value="critical">Critical</option>
+                <option value="high" selected>High</option>
+                <option value="medium">Medium</option>
+                <option value="low">Low</option>
+              </select>
+              <span style="font-size:12px;color:var(--muted);">Per-persona overrides are set on the Personas page.</span>
+            </div>
+
+            <div style="grid-column:1/-1;padding-top:4px;">
+              <button type="submit" class="text-button">Save Configuration</button>
+              <span id="pwConfigured" style="margin-left:12px;font-size:12px;color:var(--muted);"></span>
+            </div>
+
+          </div>
+        </form>
+      </section>
+
+      <!-- Alert History -->
+      <section class="page-panel" aria-labelledby="historyTitle">
+        <div class="page-panel-header">
+          <div class="page-panel-title">
+            <h2 id="historyTitle">Alert History</h2>
+            <p>Email dispatch records for all attempted alert notifications.</p>
+          </div>
+        </div>
+
+        <div class="metric-grid" id="alertSummary" style="padding:16px 22px 0;">
+          <div class="metric-card">
+            <div class="metric-value" id="metricTotal">—</div>
+            <div class="metric-label">Total Alerts</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-value" id="metricLast24h">—</div>
+            <div class="metric-label">Last 24 h</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-value" id="metricSuccess">—</div>
+            <div class="metric-label">Delivered</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-value" id="metricFailed">—</div>
+            <div class="metric-label">Failed</div>
+          </div>
+        </div>
+
+        <div class="table-shell" style="margin-top:16px;">
+          <table class="data-table alert-events-table" aria-describedby="historyTitle">
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Persona</th>
+                <th>Risk</th>
+                <th>Actor</th>
+                <th>Recipient</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody id="alertEventsBody"></tbody>
+          </table>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <script>
+    // ── SMTP config ────────────────────────────────────────────────────────────
+    var smtpForm = document.getElementById("smtpForm");
+    var smtpStatus = document.getElementById("smtpStatus");
+
+    async function loadAlertConfig() {
+      try {
+        var r = await fetch("/alerts/config");
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        var cfg = await r.json();
+        document.getElementById("alertEnabled").checked = cfg.enabled;
+        document.getElementById("smtpHost").value = cfg.smtp_host || "";
+        document.getElementById("smtpPort").value = cfg.smtp_port || 587;
+        document.getElementById("smtpUsername").value = cfg.smtp_username || "";
+        document.getElementById("smtpFromEmail").value = cfg.smtp_from_email || "";
+        document.getElementById("smtpUseTls").checked = cfg.smtp_use_tls !== false;
+        document.getElementById("globalMinRiskLevel").value = cfg.global_min_risk_level || "high";
+        var pwEl = document.getElementById("pwConfigured");
+        pwEl.textContent = cfg.smtp_password_configured ? "Password saved." : "No password saved.";
+      } catch (err) {
+        smtpStatus.textContent = "Could not load config: " + err.message;
+        smtpStatus.style.color = "var(--critical)";
+      }
+    }
+
+    smtpForm.addEventListener("submit", async function(evt) {
+      evt.preventDefault();
+      smtpStatus.textContent = "Saving…";
+      smtpStatus.style.color = "var(--muted)";
+      var pw = document.getElementById("smtpPassword").value;
+      var payload = {
+        enabled: document.getElementById("alertEnabled").checked,
+        smtp_host: document.getElementById("smtpHost").value.trim() || null,
+        smtp_port: parseInt(document.getElementById("smtpPort").value) || 587,
+        smtp_username: document.getElementById("smtpUsername").value.trim() || null,
+        smtp_password: pw || null,
+        smtp_from_email: document.getElementById("smtpFromEmail").value.trim() || null,
+        smtp_use_tls: document.getElementById("smtpUseTls").checked,
+        global_min_risk_level: document.getElementById("globalMinRiskLevel").value,
+      };
+      try {
+        var r = await fetch("/alerts/config", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        if (!r.ok) { var e = await r.json().catch(function(){return{};}); throw new Error(e.detail || "HTTP " + r.status); }
+        smtpStatus.textContent = "Saved.";
+        smtpStatus.style.color = "var(--low)";
+        document.getElementById("smtpPassword").value = "";
+        var cfg = await r.json();
+        document.getElementById("pwConfigured").textContent = cfg.smtp_password_configured ? "Password saved." : "No password saved.";
+      } catch (err) {
+        smtpStatus.textContent = "Error: " + err.message;
+        smtpStatus.style.color = "var(--critical)";
+      }
+    });
+
+    document.getElementById("testEmailBtn").addEventListener("click", async function() {
+      var btn = this;
+      btn.disabled = true;
+      btn.textContent = "Sending…";
+      try {
+        var r = await fetch("/alerts/test", { method: "POST" });
+        if (!r.ok) { var e = await r.json().catch(function(){return{};}); throw new Error(e.detail || "HTTP " + r.status); }
+        smtpStatus.textContent = "Test email sent.";
+        smtpStatus.style.color = "var(--low)";
+      } catch (err) {
+        smtpStatus.textContent = "Test failed: " + err.message;
+        smtpStatus.style.color = "var(--critical)";
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "Send Test Email";
+      }
+    });
+
+    // ── Alert history ──────────────────────────────────────────────────────────
+    async function loadAlertEvents() {
+      var tbody = document.getElementById("alertEventsBody");
+      try {
+        var r = await fetch("/alerts/events?limit=200");
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        var events = await r.json();
+        renderSummary(events);
+        if (!events.length) {
+          tbody.innerHTML = '<tr><td colspan="6" class="empty-state">No alerts dispatched yet.</td></tr>';
+          return;
+        }
+        tbody.innerHTML = events.map(function(ev) {
+          var dt = new Date(ev.sent_at);
+          var timeStr = dt.toLocaleString();
+          var riskClass = (ev.risk_level === "critical" || ev.risk_level === "high")
+            ? "var(--critical)"
+            : ev.risk_level === "medium"
+            ? "var(--medium)"
+            : "var(--low)";
+          var errorSnippet = ev.error_message
+            ? '<div style="font-size:11px;color:var(--muted);margin-top:3px;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + escAttr(ev.error_message) + '">' + escHtml(ev.error_message.slice(0, 60)) + '</div>'
+            : '';
+          var statusHtml = ev.success
+            ? '<span class="alert-status-badge ok">Delivered</span>'
+            : '<span class="alert-status-badge fail">Failed</span>' + errorSnippet;
+          return '<tr>'
+            + '<td class="mono-cell" style="font-size:12px;">' + escHtml(timeStr) + '</td>'
+            + '<td>' + escHtml(ev.persona_id) + '</td>'
+            + '<td><span class="risk-badge" style="min-width:60px;background:rgba(0,0,0,0.3);color:' + riskClass + ';">' + escHtml(ev.risk_level) + '</span></td>'
+            + '<td>' + escHtml(ev.actor_label || "—") + '</td>'
+            + '<td class="mono-cell" style="font-size:12px;">' + escHtml(ev.contact_email || "—") + '</td>'
+            + '<td>' + statusHtml + '</td>'
+            + '</tr>';
+        }).join("");
+      } catch (err) {
+        tbody.innerHTML = '<tr><td colspan="6" class="empty-state">Could not load alert history. Is the database configured?</td></tr>';
+        ["metricTotal","metricLast24h","metricSuccess","metricFailed"].forEach(function(id) {
+          var el = document.getElementById(id);
+          if (el) el.textContent = "N/A";
+        });
+      }
+    }
+
+    function renderSummary(events) {
+      var now = Date.now();
+      var day = 24 * 60 * 60 * 1000;
+      var last24 = events.filter(function(e) { return (now - new Date(e.sent_at).getTime()) < day; });
+      var success = events.filter(function(e) { return e.success; });
+      var failed = events.filter(function(e) { return !e.success; });
+      document.getElementById("metricTotal").textContent = events.length;
+      document.getElementById("metricLast24h").textContent = last24.length;
+      document.getElementById("metricSuccess").textContent = success.length;
+      document.getElementById("metricFailed").textContent = failed.length;
+    }
+
+    function escHtml(str) {
+      return String(str == null ? "" : str)
+        .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    }
+    function escAttr(str) {
+      return String(str == null ? "" : str)
+        .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    }
+
+    // ── Logout ─────────────────────────────────────────────────────────────────
+    async function logoutDashboard() {
+      var btn = document.getElementById("logoutButton");
+      btn.disabled = true;
+      try { await fetch("/auth/logout", { method: "POST" }); } finally { window.location.assign("/auth"); }
+    }
+    document.getElementById("logoutButton").addEventListener("click", logoutDashboard);
+
+    // ── Boot ───────────────────────────────────────────────────────────────────
+    loadAlertConfig();
+    loadAlertEvents();
+  </script>
+</body>
+</html>
