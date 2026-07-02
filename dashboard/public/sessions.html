@@ -10,22 +10,24 @@
 <body>
   <div class="app-shell">
     <header class="topbar">
-      <a href="/" class="logo" aria-label="Qyleron home">
-        <img src="/assets/Qyleron_Banner.png" alt="Qyleron" />
-      </a>
-      <div class="product-name">Echidra OSS</div>
-    </header>
-
-    <nav class="navbar" aria-label="Primary dashboard navigation">
-      <div class="nav-links">
-        <a class="nav-link" href="/dashboard">Overview</a>
-        <a class="nav-link active" href="/dashboard/sessions">Sessions</a>
-        <a class="nav-link" href="/dashboard/analytics">Analytics</a>
-        <a class="nav-link" href="/dashboard/intelligence">Intelligence</a>
-        <a class="nav-link" href="/dashboard/personas">Personas</a>
+      <div class="topbar-row1">
+        <a href="/" class="logo" aria-label="Qyleron home">
+          <img src="/assets/Qyleron_Banner.png" alt="Qyleron" />
+        </a>
+        <div class="product-name">Echidra OSS</div>
       </div>
-      <button id="logoutButton" class="logout-button" type="button">Logout</button>
-    </nav>
+      <nav class="navbar" aria-label="Primary dashboard navigation">
+        <div class="nav-links">
+          <a class="nav-link" href="/dashboard">Overview</a>
+          <a class="nav-link active" href="/dashboard/sessions">Sessions</a>
+          <a class="nav-link" href="/dashboard/analytics">Analytics</a>
+          <a class="nav-link" href="/dashboard/intelligence">Intelligence</a>
+          <a class="nav-link" href="/dashboard/personas">Personas</a>
+          <a class="nav-link" href="/dashboard/alerts">Alerts</a>
+        </div>
+        <button id="logoutButton" class="logout-button" type="button">Logout</button>
+      </nav>
+    </header>
 
     <main class="dashboard-main">
       <section class="page-panel" aria-labelledby="sessionsTitle">
@@ -62,7 +64,7 @@
                 </div>
               </div>
             </div>
-            <button id="downloadVisibleButton" class="text-button" type="button">Download CSV Report</button>
+            <button id="downloadVisibleButton" class="text-button" type="button">Export CSV</button>
           </div>
         </div>
 
@@ -75,6 +77,7 @@
                 <th>Country</th>
                 <th>Persona</th>
                 <th>Protocol</th>
+                <th>Actor</th>
                 <th>Risk</th>
                 <th>Intent</th>
               </tr>
@@ -95,6 +98,7 @@
         country: "Russia",
         persona: "Ubuntu Web Server",
         protocol: "SSH",
+        actor: "commodity_bot",
         risk: "high",
         intent: "Credential Access",
         duration: "4m 18s",
@@ -108,6 +112,7 @@
         country: "China",
         persona: "Debian Mail Gateway",
         protocol: "SSH",
+        actor: "automated_scanner",
         risk: "medium",
         intent: "Reconnaissance",
         duration: "1m 42s",
@@ -121,6 +126,7 @@
         country: "USA",
         persona: "Generic Linux Shell",
         protocol: "SSH",
+        actor: "automated_scanner",
         risk: "low",
         intent: "Scanner Validation",
         duration: "24s",
@@ -134,6 +140,7 @@
         country: "Brazil",
         persona: "CentOS Database",
         protocol: "SSH",
+        actor: "skilled_human_operator",
         risk: "high",
         intent: "Persistence Setup",
         duration: "6m 03s",
@@ -145,6 +152,14 @@
     const NOW = new Date("2026-06-24T23:59:00");
     const tableBody = document.getElementById("sessionsTableBody");
     let visibleSessions = sessions;
+
+    const ACTOR_LABELS = {
+      automated_scanner: "Automated Scanner",
+      brute_force_bot: "Brute-Force Bot",
+      commodity_bot: "Commodity Bot",
+      script_kiddie: "Script Kiddie",
+      skilled_human_operator: "Skilled Human Operator"
+    };
 
     function formatSessionTime(date) {
       const day = String(date.getDate()).padStart(2, "0");
@@ -166,7 +181,7 @@
 
     function renderSessions(sessionsToRender) {
       if (sessionsToRender.length === 0) {
-        tableBody.innerHTML = `<tr><td colspan="7" class="empty-state" style="text-align: center;">No sessions in this range.</td></tr>`;
+        tableBody.innerHTML = `<tr><td colspan="8" class="empty-state" style="text-align: center;">No sessions in this range.</td></tr>`;
         return;
       }
       tableBody.innerHTML = sessionsToRender.map((session) => `
@@ -186,6 +201,11 @@
             </div>
           </td>
           <td>${session.protocol}</td>
+          <td>
+            <span class="actor-badge ${session.actor === "skilled_human_operator" ? "human" : "bot"}">
+              ${ACTOR_LABELS[session.actor]}
+            </span>
+          </td>
           <td><span class="risk-badge ${session.risk}">${session.risk}</span></td>
           <td>${session.intent}</td>
         </tr>
@@ -210,7 +230,7 @@
       row.setAttribute("aria-expanded", "true");
       row.insertAdjacentHTML("afterend", `
         <tr id="${session.id}-detail" class="session-detail-row">
-          <td colspan="7">
+          <td colspan="8">
             <div class="session-detail">
               <section class="detail-block" aria-label="Session evidence">
                 <h3>Evidence</h3>
@@ -261,13 +281,14 @@
 
     document.getElementById("downloadVisibleButton").addEventListener("click", () => {
       const rows = [
-        ["Time", "Source IP", "Country", "Persona", "Protocol", "Risk", "Intent"],
+        ["Time", "Source IP", "Country", "Persona", "Protocol", "Actor", "Risk", "Intent"],
         ...visibleSessions.map((session) => [
           formatSessionTime(session.timestamp),
           session.sourceIp,
           session.country,
           session.persona,
           session.protocol,
+          ACTOR_LABELS[session.actor],
           session.risk,
           session.intent
         ])
