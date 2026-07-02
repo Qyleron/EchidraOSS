@@ -27,14 +27,23 @@ DEFAULT_RULES_PATH = Path(__file__).parent / "rules" / "default_rules.yaml"
 def classify_session(
     session: SessionRecord,
     rules: RuleSet | list[ClassificationRule] | None = None,
+    *,
+    connection_count_from_same_ip: int | None = None,
 ) -> ClassificationSummary:
     """Classify one validated post-session record into an analyst summary.
 
     Raises ValueError when a rule references an unknown feature field or uses an
     operator against an incompatible feature value.
+
+    connection_count_from_same_ip is a cross-session feature passed only by the
+    store-time path (/classify/session/store) after a DB lookup; the stateless
+    /classify/session endpoint always leaves it None.
     """
     active_rules = rules if rules is not None else load_rules(DEFAULT_RULES_PATH)
-    features = extract_session_features(session)
+    features = extract_session_features(
+        session,
+        connection_count_from_same_ip=connection_count_from_same_ip,
+    )
     evaluation = evaluate_rules(features, active_rules)
     return summarize_rule_evaluation(evaluation, features)
 
