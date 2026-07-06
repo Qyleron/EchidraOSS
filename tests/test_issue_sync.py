@@ -1,4 +1,5 @@
 from classifier.rules.issue_playbook import IssueFixEntry, IssuePlaybook
+from classifier.rules.mitre_playbook import get_playbook_entry
 from classifier.storage import issue_sync
 from classifier.storage.models import MitreTechnique
 
@@ -43,18 +44,33 @@ def test_build_issue_uses_curated_fix_when_pair_has_an_entry():
     assert "24 sessions across 3 personas exhibited Account Discovery behavior in captured data." == issue.evidence
 
 
-def test_build_issue_falls_back_when_pair_has_no_curated_fix():
+def test_build_issue_falls_back_to_technique_playbook_when_pair_has_no_curated_fix():
     aggregate = make_aggregate(actor_label="brute_force_bot", mitre_tag="T1110", max_risk_rank=3)
     playbook = IssuePlaybook()
     mitre_catalog = {"T1110": "Brute Force"}
 
     issue = issue_sync._build_issue(aggregate, playbook, mitre_catalog)
 
+    technique_entry = get_playbook_entry("T1110")
     assert issue.title == "Brute Force Bot are exhibiting Brute Force behavior."
-    assert issue.recommended_fix == issue_sync._FALLBACK_RECOMMENDED_FIX
-    assert issue.impact == issue_sync._FALLBACK_IMPACT
+    assert issue.recommended_fix == technique_entry.recommended_fix
+    assert issue.impact == technique_entry.impact
+    assert technique_entry.is_fallback is False
     assert issue.severity == "high"
     assert issue.mitre == [MitreTechnique(id="T1110", name="Brute Force")]
+
+
+def test_build_issue_falls_back_to_generic_entry_for_technique_playbook_gap():
+    aggregate = make_aggregate(actor_label="script_kiddie", mitre_tag="T9999", max_risk_rank=1)
+    playbook = IssuePlaybook()
+    mitre_catalog = {}
+
+    issue = issue_sync._build_issue(aggregate, playbook, mitre_catalog)
+
+    technique_entry = get_playbook_entry("T9999")
+    assert technique_entry.is_fallback is True
+    assert issue.recommended_fix == technique_entry.recommended_fix
+    assert issue.impact == technique_entry.impact
 
 
 def test_build_issue_uses_actor_label_display_override():
