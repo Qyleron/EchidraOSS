@@ -37,16 +37,18 @@ def test_dashboard_exposes_security_overview_without_filters():
     assert "Clear" not in html
 
 
-def test_dashboard_map_uses_leaflet_mock_attack_origins():
+def test_dashboard_map_and_events_are_backed_by_live_api_calls():
     html = (DASHBOARD_PUBLIC_PATH / "index.html").read_text(encoding="utf-8")
 
     assert 'id="attackOriginMap"' in html
     assert "L.map(\"attackOriginMap\"" in html
-    assert "L.circle([origin.lat, origin.lng]" in html
-    assert "L.circleMarker([origin.lat, origin.lng]" in html
-    assert "Moscow" in html
-    assert "Beijing" in html
-    assert "Sao Paulo" in html
+    assert "L.circle([run.latitude, run.longitude]" in html
+    assert "L.circleMarker([run.latitude, run.longitude]" in html
+    assert 'fetchJSON("/reports/summary")' in html
+    assert 'fetchJSON("/classifier/runs?limit=10&order=desc")' in html
+    # The old static mock dataset must be gone.
+    assert "attackOrigins" not in html
+    assert "Moscow" not in html
 
 
 def test_personas_page_uses_shared_styles_and_form_sections():
@@ -62,6 +64,9 @@ def test_personas_page_uses_shared_styles_and_form_sections():
     assert "buildPersonaRow" in html
     assert "persona-config-form" in html
     assert "toggle-switch" in html
+    assert "analyticsPlaceholder" in html
+    assert "initCustomSelects" in html
+    assert "custom-select" in html
 
 
 def test_sessions_page_uses_shared_styles_and_session_table_columns():
@@ -83,3 +88,4 @@ def test_sessions_page_uses_shared_styles_and_session_table_columns():
     assert ">Report<" not in html
     assert "Export CSV" in html
     assert "data-session-row" in html
+    assert "Analyst Recommendation" in html
