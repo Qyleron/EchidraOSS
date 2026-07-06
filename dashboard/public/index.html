@@ -97,13 +97,20 @@
       normal: "#51cf66"
     };
 
+    function escHtml(str) {
+      return String(str == null ? "" : str)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+    }
+
     function actorDisplay(actorLabel) {
       if (!actorLabel) return "Unclassified activity";
       return ACTOR_LABELS[actorLabel] || actorLabel;
     }
 
     function eventTitle(run) {
-      return `${actorDisplay(run.actor_label)} — ${run.protocol.toUpperCase()} session`;
+      return `${actorDisplay(run.actor_label)} — ${(run.protocol || "unknown").toUpperCase()} session`;
     }
 
     // classifier_runs.risk_level is one of none/low/medium/high/critical;
@@ -150,10 +157,10 @@
       eventList.innerHTML = runs.map((run) => `
         <article class="event-row">
           <div class="event-copy">
-            <strong>${eventTitle(run)}</strong>
-            <span>IP: ${run.peer_ip || "unknown"} · Location: ${run.country || "Unknown"} · ${timeAgo(run.ended_at)}</span>
+            <strong>${escHtml(eventTitle(run))}</strong>
+            <span>IP: ${escHtml(run.peer_ip || "unknown")} · Location: ${escHtml(run.country || "Unknown")} · ${escHtml(timeAgo(run.ended_at))}</span>
           </div>
-          <span class="risk-badge ${badgeTier(run.risk_level)}">${run.risk_level}</span>
+          <span class="risk-badge ${escHtml(badgeTier(run.risk_level))}">${escHtml(run.risk_level)}</span>
         </article>
       `).join("");
     }
@@ -197,7 +204,7 @@
           weight: 2
         })
           .bindPopup(
-            `<b>${run.country || "Unknown"}</b><br>Actor: ${actorDisplay(run.actor_label)}<br>Source IP: ${run.peer_ip || "unknown"}<br>Risk: ${run.risk_level}`,
+            `<b>${escHtml(run.country || "Unknown")}</b><br>Actor: ${escHtml(actorDisplay(run.actor_label))}<br>Source IP: ${escHtml(run.peer_ip || "unknown")}<br>Risk: ${escHtml(run.risk_level)}`,
           )
           .addTo(map);
       }

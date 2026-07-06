@@ -68,6 +68,13 @@
     const SEVERITY_LABELS = { high: "High", medium: "Medium", low: "Low" };
     let currentIssues = [];
 
+    function escHtml(str) {
+      return String(str == null ? "" : str)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+    }
+
     function statusLabel(status) {
       return status === "open" ? "Open" : "Closed";
     }
@@ -87,23 +94,23 @@
         return;
       }
       tableBody.innerHTML = issues.map((issue) => `
-        <tr data-issue-row="${issue.id}" tabindex="0" aria-expanded="false">
-          <td><div class="cell-primary"><strong>${issue.title}</strong></div></td>
-          <td><span class="risk-badge ${issue.severity}">${SEVERITY_LABELS[issue.severity]}</span></td>
+        <tr data-issue-row="${escHtml(issue.id)}" tabindex="0" aria-expanded="false">
+          <td><div class="cell-primary"><strong>${escHtml(issue.title)}</strong></div></td>
+          <td><span class="risk-badge ${escHtml(issue.severity)}">${escHtml(SEVERITY_LABELS[issue.severity] ?? issue.severity ?? "Unknown")}</span></td>
           <td>
             <ul class="mitre-technique-list">
-              ${issue.mitre.map((technique) => `<li>${technique.id} - ${technique.name}</li>`).join("")}
+              ${issue.mitre.map((technique) => `<li>${escHtml(technique.id)} - ${escHtml(technique.name)}</li>`).join("")}
             </ul>
           </td>
-          <td>${issue.session_count}</td>
-          <td>${issue.persona_count}</td>
+          <td>${escHtml(issue.session_count)}</td>
+          <td>${escHtml(issue.persona_count)}</td>
           <td>
             <button
               type="button"
-              class="status-toggle ${issue.status}"
-              data-issue-id="${issue.id}"
+              class="status-toggle ${escHtml(issue.status)}"
+              data-issue-id="${escHtml(issue.id)}"
               aria-pressed="${issue.status === "closed"}"
-            >${statusLabel(issue.status)}</button>
+            >${escHtml(statusLabel(issue.status))}</button>
           </td>
         </tr>
       `).join("");
@@ -126,20 +133,20 @@
       row.classList.add("selected");
       row.setAttribute("aria-expanded", "true");
       row.insertAdjacentHTML("afterend", `
-        <tr id="${issue.id}-detail" class="issue-detail-row">
+        <tr id="${escHtml(issue.id)}-detail" class="issue-detail-row">
           <td colspan="6">
             <div class="issue-detail">
               <section class="detail-block" aria-label="Evidence">
                 <h3>Evidence</h3>
-                <p>${issue.evidence}</p>
+                <p>${escHtml(issue.evidence)}</p>
               </section>
               <section class="detail-block" aria-label="Recommended fix">
                 <h3>Recommended Fix</h3>
-                <p>${issue.recommended_fix}</p>
+                <p>${escHtml(issue.recommended_fix)}</p>
               </section>
               <section class="detail-block" aria-label="Impact">
                 <h3>Impact</h3>
-                <p>${issue.impact}</p>
+                <p>${escHtml(issue.impact)}</p>
               </section>
             </div>
           </td>
