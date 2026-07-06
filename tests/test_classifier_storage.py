@@ -141,7 +141,8 @@ def test_session_insert_params_match_storage_columns():
     assert params["longitude"] == 77.5946
     assert params["persona_id"] == "generic_linux"
     assert params["end_reason"] == "disconnect"
-    assert len(params) == 10
+    assert params["country"] is None  # 127.0.0.1 is private/localhost
+    assert len(params) == 11
 
 
 def test_session_event_insert_params_normalize_timeline_and_exposures():

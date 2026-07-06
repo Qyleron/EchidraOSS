@@ -46,6 +46,11 @@ HOST = os.getenv("ECHIDRA_HOST", "0.0.0.0")
 # Non-privileged SSH-like test port
 PORT = _port_from_env("ECHIDRA_PORT", 2222)
 
+# Additional protocol listener ports (set to 0 to disable)
+HTTP_PORT = _int_from_env("ECHIDRA_HTTP_PORT", 8080)
+FTP_PORT = _int_from_env("ECHIDRA_FTP_PORT", 2121)
+TELNET_PORT = _int_from_env("ECHIDRA_TELNET_PORT", 2323)
+
 # Maximum number of active client sessions
 MAX_CONNECTIONS = _positive_int_from_env("ECHIDRA_MAX_CONNECTIONS", 100)
 

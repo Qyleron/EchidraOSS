@@ -29,7 +29,7 @@ def test_dashboard_exposes_security_overview_without_filters():
     html = (DASHBOARD_PUBLIC_PATH / "index.html").read_text(encoding="utf-8")
 
     assert "Active Threats" in html
-    assert "Trusted Sessions" in html
+    assert "Low Risk Sessions" in html
     assert "Warnings" in html
     assert "Total Events" in html
     assert "Recent Security Events" in html
@@ -49,6 +49,21 @@ def test_dashboard_map_uses_leaflet_mock_attack_origins():
     assert "Sao Paulo" in html
 
 
+def test_personas_page_uses_shared_styles_and_form_sections():
+    html = (DASHBOARD_PUBLIC_PATH / "personas.html").read_text(encoding="utf-8")
+
+    assert "<style>" not in html
+    assert 'href="/dashboard.css"' in html
+    assert 'href="/assets/qyleron_logo.png"' in html
+    for section in ["Identity", "Services", "Deception", "Alerting"]:
+        assert section in html
+    for view in ["Configuration", "Analytics"]:
+        assert view in html
+    assert "buildPersonaRow" in html
+    assert "persona-config-form" in html
+    assert "toggle-switch" in html
+
+
 def test_sessions_page_uses_shared_styles_and_session_table_columns():
     html = (DASHBOARD_PUBLIC_PATH / "sessions.html").read_text(encoding="utf-8")
 
@@ -60,10 +75,11 @@ def test_sessions_page_uses_shared_styles_and_session_table_columns():
         "Country",
         "Persona",
         "Protocol",
+        "Actor",
         "Risk",
         "Intent",
     ]:
         assert f">{heading}<" in html
     assert ">Report<" not in html
-    assert "Download CSV Report" in html
+    assert "Export CSV" in html
     assert "data-session-row" in html

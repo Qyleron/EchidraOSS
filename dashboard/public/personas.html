@@ -143,6 +143,10 @@
             </div>
           </div>
           <p id="analyticsEmpty" class="empty-state" hidden>No session data for this persona yet.</p>
+          <div id="analyticsPlaceholder" class="analytics-placeholder">
+            <div class="analytics-placeholder-value">N/A</div>
+            <p id="analyticsPlaceholderText" class="analytics-placeholder-text">Select a persona above to view analytics.</p>
+          </div>
         </div>
       </section>
     </main>
@@ -337,6 +341,7 @@
 
       modalContainer.innerHTML = html;
       modalBackdrop.hidden = false;
+      initCustomSelects(modalContainer);
     }
 
     // Wire close button and backdrop click
@@ -429,6 +434,7 @@
 
       modalContainer.innerHTML = html;
       modalBackdrop.hidden = false;
+      initCustomSelects(modalContainer);
     }
 
     document.getElementById("createPersonaBtn").addEventListener("click", function() {
@@ -470,6 +476,106 @@
         return '<option value="' + escAttr(v) + '"' + (v === selected ? " selected" : "") + '>' + escHtml(v) + '</option>';
       }).join("");
     }
+
+    // ── Custom-styled dropdowns (native <select> popups can't be restyled via CSS) ──
+    function initCustomSelects(root) {
+      var selects = root.querySelectorAll("select.form-select:not([data-custom-select-init])");
+      Array.prototype.forEach.call(selects, function(select) {
+        select.setAttribute("data-custom-select-init", "true");
+
+        var wrapper = document.createElement("div");
+        wrapper.className = "custom-select";
+        select.parentNode.insertBefore(wrapper, select);
+        wrapper.appendChild(select);
+        select.classList.add("custom-select-native");
+
+        var trigger = document.createElement("div");
+        trigger.className = "custom-select-trigger";
+        trigger.setAttribute("tabindex", "0");
+        trigger.setAttribute("role", "combobox");
+        trigger.setAttribute("aria-haspopup", "listbox");
+        trigger.setAttribute("aria-expanded", "false");
+        wrapper.appendChild(trigger);
+
+        var listbox = document.createElement("div");
+        listbox.className = "custom-select-listbox";
+        listbox.setAttribute("role", "listbox");
+        wrapper.appendChild(listbox);
+
+        function renderOptions() {
+          listbox.innerHTML = "";
+          Array.prototype.forEach.call(select.options, function(opt) {
+            var item = document.createElement("div");
+            item.className = "custom-select-option" + (opt.value === select.value ? " is-selected" : "");
+            item.setAttribute("role", "option");
+            item.textContent = opt.textContent;
+            item.addEventListener("click", function() {
+              select.value = opt.value;
+              select.dispatchEvent(new Event("change", { bubbles: true }));
+              syncTrigger();
+              wrapper.classList.remove("open");
+            });
+            listbox.appendChild(item);
+          });
+        }
+
+        function syncTrigger() {
+          var current = select.options[select.selectedIndex];
+          trigger.textContent = current ? current.textContent : "";
+          Array.prototype.forEach.call(listbox.children, function(item, i) {
+            item.classList.toggle("is-selected", i === select.selectedIndex);
+          });
+        }
+
+        trigger.addEventListener("click", function() {
+          if (wrapper.classList.contains("open")) {
+            wrapper.classList.remove("open");
+            return;
+          }
+          var rect = trigger.getBoundingClientRect();
+          listbox.style.left = rect.left + "px";
+          listbox.style.top = (rect.bottom + 4) + "px";
+          listbox.style.width = rect.width + "px";
+          wrapper.classList.add("open");
+        });
+
+        trigger.addEventListener("keydown", function(evt) {
+          if (evt.key === "Enter" || evt.key === " ") {
+            evt.preventDefault();
+            trigger.click();
+          }
+        });
+
+        renderOptions();
+        syncTrigger();
+      });
+    }
+
+    document.addEventListener("click", function(evt) {
+      Array.prototype.forEach.call(document.querySelectorAll(".custom-select.open"), function(w) {
+        if (!w.contains(evt.target)) w.classList.remove("open");
+      });
+    });
+
+    document.addEventListener("keydown", function(evt) {
+      if (evt.key === "Escape") {
+        Array.prototype.forEach.call(document.querySelectorAll(".custom-select.open"), function(w) {
+          w.classList.remove("open");
+        });
+      }
+    });
+
+    window.addEventListener("scroll", function() {
+      Array.prototype.forEach.call(document.querySelectorAll(".custom-select.open"), function(w) {
+        w.classList.remove("open");
+      });
+    }, true);
+
+    window.addEventListener("resize", function() {
+      Array.prototype.forEach.call(document.querySelectorAll(".custom-select.open"), function(w) {
+        w.classList.remove("open");
+      });
+    });
 
     // ── Config form submit ─────────────────────────────────────────────────────
     async function savePersonaConfig(personaId, isNew) {
@@ -632,13 +738,22 @@
           sel.appendChild(opt);
         }
       });
+
+      var placeholderText = document.getElementById("analyticsPlaceholderText");
+      placeholderText.textContent = sel.options.length > 1
+        ? "Select a persona above to view analytics."
+        : "No personas configured yet — create one to see analytics.";
+
+      initCustomSelects(document.getElementById("analyticsView"));
     }
 
     document.getElementById("personaSelector").addEventListener("change", async function(evt) {
       var personaId = evt.target.value;
       var content = document.getElementById("analyticsContent");
       var empty = document.getElementById("analyticsEmpty");
-      if (!personaId) { content.hidden = true; empty.hidden = true; return; }
+      var placeholder = document.getElementById("analyticsPlaceholder");
+      if (!personaId) { content.hidden = true; empty.hidden = true; placeholder.hidden = false; return; }
+      placeholder.hidden = true;
       try {
         var data = await fetchAnalytics(personaId);
         renderAnalytics(data);

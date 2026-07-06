@@ -98,25 +98,34 @@ def test_issue_id_for_pair_is_stable_and_unique():
     )
 
 
-def test_sync_issues_from_classifier_runs_upserts_one_issue_per_pair(monkeypatch):
-    aggregates = [
-        make_aggregate(actor_label="automated_scanner", mitre_tag="T1087", session_count=24, persona_count=3, max_risk_rank=2),
-        make_aggregate(actor_label="commodity_bot", mitre_tag="T1552.001", session_count=9, persona_count=2, max_risk_rank=3),
-    ]
-    upserted = []
-
+def make_fake_repository(actor_aggregates, repeat_aggregate=None):
     class FakeRepository:
         def __init__(self, database_url):
             assert database_url == "postgresql://example/echidra"
 
         def aggregate_classifier_runs_by_actor_and_technique(self):
-            return aggregates
+            return actor_aggregates
+
+        def aggregate_repeat_connections_by_peer_ip(self, *, window_seconds, min_sessions):
+            assert window_seconds == issue_sync._REPEAT_CONNECTION_WINDOW_SECONDS
+            assert min_sessions == issue_sync._REPEAT_CONNECTION_MIN_SESSIONS
+            return repeat_aggregate
 
         def upsert_issue(self, issue):
-            upserted.append(issue)
+            self.upserted.append(issue)
             return issue
 
-    monkeypatch.setattr(issue_sync, "PostgresClassifierRepository", FakeRepository)
+    FakeRepository.upserted = []
+    return FakeRepository
+
+
+def test_sync_issues_from_classifier_runs_upserts_one_issue_per_pair(monkeypatch):
+    aggregates = [
+        make_aggregate(actor_label="automated_scanner", mitre_tag="T1087", session_count=24, persona_count=3, max_risk_rank=2),
+        make_aggregate(actor_label="commodity_bot", mitre_tag="T1552.001", session_count=9, persona_count=2, max_risk_rank=3),
+    ]
+    fake_repository = make_fake_repository(aggregates, repeat_aggregate=None)
+    monkeypatch.setattr(issue_sync, "PostgresClassifierRepository", fake_repository)
 
     result = issue_sync.sync_issues_from_classifier_runs(database_url="postgresql://example/echidra")
 
@@ -125,6 +134,93 @@ def test_sync_issues_from_classifier_runs_upserts_one_issue_per_pair(monkeypatch
         "Automated scanners are enumerating accounts before deciding where to focus.",
         "Commodity bots are searching for credentials stored in files.",
     ]
-    assert result == upserted
+    assert result == fake_repository.upserted
     assert result[0].severity == "medium"
     assert result[1].severity == "high"
+
+
+def test_sync_issues_from_classifier_runs_skips_repeat_connections_when_none_qualify(monkeypatch):
+    fake_repository = make_fake_repository([], repeat_aggregate=None)
+    monkeypatch.setattr(issue_sync, "PostgresClassifierRepository", fake_repository)
+
+    result = issue_sync.sync_issues_from_classifier_runs(database_url="postgresql://example/echidra")
+
+    assert result == []
+
+
+def test_sync_issues_from_classifier_runs_includes_repeat_connection_issue(monkeypatch):
+    repeat_aggregate = {"session_count": 62, "persona_count": 4, "source_ip_count": 3}
+    fake_repository = make_fake_repository([], repeat_aggregate=repeat_aggregate)
+    monkeypatch.setattr(issue_sync, "PostgresClassifierRepository", fake_repository)
+
+    result = issue_sync.sync_issues_from_classifier_runs(database_url="postgresql://example/echidra")
+
+    assert len(result) == 1
+    issue = result[0]
+    assert issue.session_count == 62
+    assert issue.persona_count == 4
+    assert issue.severity == "high"
+    assert issue.mitre == [MitreTechnique(id="T1110", name="Brute Force")]
+    assert "62 connection attempts across 4 personas from 3 source IPs" in issue.evidence
+    assert "each making at least 5 connections within 1 day" in issue.evidence
+
+
+def test_build_repeat_connection_issue_severity_thresholds():
+    playbook = IssuePlaybook()
+    low = issue_sync._build_repeat_connection_issue(
+        {"session_count": 6, "persona_count": 1, "source_ip_count": 1},
+        playbook,
+        mitre_catalog={},
+        window_seconds=3600,
+        min_sessions=5,
+    )
+    medium = issue_sync._build_repeat_connection_issue(
+        {"session_count": 20, "persona_count": 1, "source_ip_count": 1},
+        playbook,
+        mitre_catalog={},
+        window_seconds=3600,
+        min_sessions=5,
+    )
+    high = issue_sync._build_repeat_connection_issue(
+        {"session_count": 80, "persona_count": 1, "source_ip_count": 1},
+        playbook,
+        mitre_catalog={},
+        window_seconds=3600,
+        min_sessions=5,
+    )
+
+    assert (low.severity, medium.severity, high.severity) == ("low", "medium", "high")
+    assert "1 hour" in low.evidence
+
+
+def test_repository_aggregate_repeat_connections_returns_none_when_no_offenders(monkeypatch):
+    from classifier.storage.repository import PostgresClassifierRepository
+
+    monkeypatch.setattr(
+        "classifier.storage.repository._fetch_one",
+        lambda *args, **kwargs: {"session_count": 0, "persona_count": 0, "source_ip_count": 0},
+    )
+
+    result = PostgresClassifierRepository("postgresql://example/echidra").aggregate_repeat_connections_by_peer_ip()
+
+    assert result is None
+
+
+def test_repository_aggregate_repeat_connections_returns_row_when_offenders_exist(monkeypatch):
+    from classifier.storage.repository import PostgresClassifierRepository
+
+    row = {"session_count": 12, "persona_count": 2, "source_ip_count": 1}
+    calls = []
+
+    def fake_fetch_one(database_url, sql, params):
+        calls.append(params)
+        return row
+
+    monkeypatch.setattr("classifier.storage.repository._fetch_one", fake_fetch_one)
+
+    result = PostgresClassifierRepository("postgresql://example/echidra").aggregate_repeat_connections_by_peer_ip(
+        window_seconds=3600, min_sessions=10
+    )
+
+    assert result == row
+    assert calls == [{"window_seconds": 3600, "min_sessions": 10}]

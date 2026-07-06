@@ -19,14 +19,16 @@ actor_label_names:
   skilled_human_operator: Skilled human operators
 
 fixes:
-  # Dormant: no rule in default_rules.yaml currently classifies anything as
-  # brute_force_bot, so this never surfaces until a password/SSH brute-force
-  # detection rule is written. Kept here so that fix is ready the moment it is.
+  # This honeypot has no auth step, so nothing can literally brute-force a
+  # password. brute_force_bot/T1110 is produced by issue_sync's repeat
+  # connection check instead (classifier/storage/issue_sync.py), off raw
+  # connection frequency per source IP in `sessions` -- not from a
+  # default_rules.yaml rule like every other entry below.
   brute_force_bot:
     T1110:
-      title: Brute-force bots are targeting password authentication.
-      recommended_fix: Disable password login, enforce SSH keys, add rate limiting, and block repeated scanner ASNs.
-      impact: Reduces credential-access exposure.
+      title: The same source IP is reconnecting far more often than normal, consistent with automated credential or access testing.
+      recommended_fix: Rate-limit or temporarily block source IPs that exceed a connection threshold within a short window (fail2ban-style), and watch for the same IP touching multiple personas.
+      impact: Catches automated hammering even though this honeypot has no password prompt to literally brute-force.
 
   automated_scanner:
     T1087:

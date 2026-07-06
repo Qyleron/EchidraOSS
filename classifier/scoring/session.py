@@ -8,6 +8,7 @@ from classifier.features.session import SessionFeatures
 from classifier.rules.engine import ACTOR_LABELS, ActorLabel, RuleEvaluation, RuleMatch
 
 
+ClassificationStatus = Literal["complete", "partial", "insufficient_data"]
 RiskLevel = Literal["none", "low", "medium", "high", "critical"]
 BehaviorStage = Literal[
     "none",
@@ -90,6 +91,8 @@ class ClassificationSummary(BaseModel):
 
     classifier_version: str
     rules_version: str
+    classification_status: ClassificationStatus
+    insufficient_data_reason: str | None
     actor_label: ActorLabel | None
     actor_votes: dict[str, int]
     confidence: float = Field(ge=0, le=1)
@@ -114,9 +117,12 @@ def summarize_rule_evaluation(
 ) -> ClassificationSummary:
     """Aggregate rule matches into one risk and evidence summary."""
     if not evaluation.matched_rules:
+        status, reason = _classification_status(features, [])
         return ClassificationSummary(
             classifier_version=CLASSIFIER_VERSION,
             rules_version=evaluation.rules_version,
+            classification_status=status,
+            insufficient_data_reason=reason,
             actor_label=None,
             actor_votes=_actor_vote_tally([]),
             confidence=0.0,
@@ -133,6 +139,7 @@ def summarize_rule_evaluation(
         )
 
     matched_rules = evaluation.matched_rules
+    status, reason = _classification_status(features, matched_rules)
     risk_score = _combined_risk_score(matched_rules)
     actor_label, confidence = _actor_vote(matched_rules)
     risk_level = _risk_level(risk_score)
@@ -154,6 +161,8 @@ def summarize_rule_evaluation(
     return ClassificationSummary(
         classifier_version=CLASSIFIER_VERSION,
         rules_version=evaluation.rules_version,
+        classification_status=status,
+        insufficient_data_reason=reason,
         actor_label=actor_label,
         actor_votes=_actor_vote_tally(matched_rules),
         confidence=confidence,
@@ -174,6 +183,31 @@ def summarize_rule_evaluation(
         evidence=evidence,
         matched_rule_ids=[match.rule_id for match in matched_rules],
     )
+
+
+def _classification_status(
+    features: SessionFeatures | None,
+    matched_rules: list[RuleMatch],
+) -> tuple[ClassificationStatus, str | None]:
+    """Decide whether a session had enough signal to classify safely.
+
+    A session with zero observed commands carries no command evidence and no
+    inter-command timing signal (there is no auth step to fall back on), so
+    it can never support a confident actor label regardless of connection
+    duration — that case is always insufficient_data, not a low-confidence
+    guess.
+    """
+    if features is None or features.command_count == 0:
+        return "insufficient_data", (
+            "no commands were observed during the session, so no command or "
+            "timing evidence is available"
+        )
+    if not matched_rules:
+        return "partial", (
+            "commands were observed but none matched a classification rule "
+            "confidently enough to assign an actor label"
+        )
+    return "complete", None
 
 
 def _combined_risk_score(matches: list[RuleMatch]) -> int:

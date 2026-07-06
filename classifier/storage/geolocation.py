@@ -15,8 +15,10 @@ def resolve_country(peer_ip: str | None) -> str | None:
             from geoip2fast import GeoIP2Fast
             _geoip = GeoIP2Fast()
         result = _geoip.lookup(peer_ip)
+        if getattr(result, "is_private", False):
+            return None
         name = getattr(result, "country_name", None)
-        if not name or name in ("Private Network", "--"):
+        if not name or name == "--" or name == "<not found in database>":
             return None
         return name
     except Exception:

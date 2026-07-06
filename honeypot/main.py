@@ -2,8 +2,12 @@ import asyncio
 import logging
 import signal
 
-# TCPServer owns listener startup, connection handling, and shutdown
+from honeypot.network.config import HTTP_PORT, FTP_PORT, TELNET_PORT, HOST, MAX_CONNECTIONS
+from honeypot.network.ftp_handler import FtpHandler
+from honeypot.network.http_handler import HttpHandler
+from honeypot.network.protocol_server import ProtocolServer
 from honeypot.network.server import TCPServer
+from honeypot.network.telnet_handler import TelnetHandler
 
 logging.basicConfig(
     level=logging.INFO,
@@ -13,32 +17,48 @@ logger = logging.getLogger(__name__)
 
 
 async def main():
-    # Start the TCP listener and keep the process alive until a shutdown signal
-    server = TCPServer()
     stop_event = asyncio.Event()
     loop = asyncio.get_running_loop()
-
 
     def shutdown_signal():
         logger.info("Received shutdown signal")
         stop_event.set()
 
-
-    # Handle normal process termination from Ctrl+C or service managers
     loop.add_signal_handler(signal.SIGINT, shutdown_signal)
-    if hasattr(signal, 'SIGTERM'):
+    if hasattr(signal, "SIGTERM"):
         loop.add_signal_handler(signal.SIGTERM, shutdown_signal)
 
+    # Primary SSH-shell honeypot listener
+    ssh_server = TCPServer()
 
-    server_task = asyncio.create_task(server.start())
+    # Additional protocol listeners (disabled when port == 0)
+    extra_servers: list[ProtocolServer] = []
+    if HTTP_PORT:
+        extra_servers.append(
+            ProtocolServer(HOST, HTTP_PORT, HttpHandler, MAX_CONNECTIONS)
+        )
+    if FTP_PORT:
+        extra_servers.append(
+            ProtocolServer(HOST, FTP_PORT, FtpHandler, MAX_CONNECTIONS)
+        )
+    if TELNET_PORT:
+        extra_servers.append(
+            ProtocolServer(HOST, TELNET_PORT, TelnetHandler, MAX_CONNECTIONS)
+        )
+
+    tasks = [asyncio.create_task(ssh_server.start())]
+    tasks += [asyncio.create_task(s.start()) for s in extra_servers]
+
     await stop_event.wait()
 
-
     logger.info("Shutting down gracefully...")
-    await server.shutdown()
+    await ssh_server.shutdown()
+    for s in extra_servers:
+        await s.shutdown()
 
-    server_task.cancel()
-    await asyncio.gather(server_task, return_exceptions=True)
+    for task in tasks:
+        task.cancel()
+    await asyncio.gather(*tasks, return_exceptions=True)
 
 
 if __name__ == "__main__":

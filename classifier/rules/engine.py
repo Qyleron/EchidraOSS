@@ -21,6 +21,7 @@ ACTOR_LABELS: tuple[str, ...] = tuple(get_args(ActorLabel))
 
 RuleOperator = Literal[
     "contains",
+    "contains_any",
     "equals",
     "gt",
     "gte",
@@ -45,6 +46,9 @@ class RuleCondition(BaseModel):
 
         if operator == "in" and not _is_non_string_iterable(value):
             raise ValueError("in operator value must be a non-string iterable")
+
+        if operator == "contains_any" and not _is_non_string_iterable(value):
+            raise ValueError("contains_any operator value must be a non-string iterable")
 
         return values
 
@@ -184,6 +188,10 @@ def _condition_matches(
         if not _is_non_string_iterable(actual):
             raise ValueError(f"Feature field is not iterable: {condition.field}")
         return expected in actual
+    if condition.operator == "contains_any":
+        if not _is_non_string_iterable(actual):
+            raise ValueError(f"Feature field is not iterable: {condition.field}")
+        return any(candidate in actual for candidate in expected)
     if condition.operator == "equals":
         return actual == expected
     if condition.operator == "gt":

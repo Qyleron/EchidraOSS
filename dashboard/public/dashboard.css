@@ -1153,6 +1153,27 @@ a {
   max-width: 360px;
 }
 
+.analytics-placeholder {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  padding: 70px 22px;
+  text-align: center;
+}
+
+.analytics-placeholder-value {
+  color: var(--subtle);
+  font-size: 56px;
+  font-weight: 760;
+  line-height: 1;
+}
+
+.analytics-placeholder-text {
+  margin: 0;
+  color: var(--muted);
+  font-size: 14px;
+}
+
 .persona-analytics-body {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1484,8 +1505,8 @@ a {
 
 /* ── Modal dropdown styling: curvier edges + greyish hover on options ── */
 #personaModal .form-select {
-  border-radius: 12px;
-  cursor: pointer;
+  border-radius: 12px !important;
+  cursor: pointer !important;
 }
 
 #personaModal .form-select option {
@@ -1498,9 +1519,9 @@ a {
 #personaModal .form-select option:checked,
 #personaModal .form-select option:focus,
 #personaModal .form-select option:active {
-  background-color: #6b6b6b !important;
+  background-color: #3f3f3f !important;
   color: #ffffff !important;
-  box-shadow: 0 0 10px 100px #6b6b6b inset !important;
+  box-shadow: 0 0 10px 100px #3f3f3f inset !important;
   cursor: pointer;
 }
 
@@ -1568,4 +1589,104 @@ a {
   background: #e6e6e6;
   color: #000000;
   border-color: #e6e6e6;
+}
+
+/* ── High-Specificity Dropdown Customizations ── */
+select, 
+.form-select, 
+.dropdown select,
+.persona-filter-container select {
+  border-radius: 6px !important; 
+  cursor: pointer !important;    
+  transition: background-color 0.2s ease, color 0.2s ease !important;
+}
+
+/* Force the hover state on both the element and any potential wrapper */
+select:hover,
+.form-select:hover,
+.dropdown select:hover,
+.persona-filter-container select:hover {
+  background-color: #3f3f3f !important;
+  color: #ffffff !important;
+}
+
+/* ── Custom dropdown widget (personas.html modal) ──
+   Native <select> popups are OS-rendered and ignore CSS entirely in
+   most browsers, so the modal's dropdowns are replaced at runtime with
+   this div-based widget (see initCustomSelects in personas.html). */
+.custom-select {
+  position: relative;
+}
+
+.custom-select-native {
+  display: none;
+}
+
+.custom-select-trigger {
+  width: 100%;
+  min-height: 36px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0 34px 0 10px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  position: relative;
+}
+
+.custom-select-trigger::after {
+  content: "";
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  width: 7px;
+  height: 7px;
+  border-right: 1.5px solid var(--muted);
+  border-bottom: 1.5px solid var(--muted);
+  transform: translateY(-70%) rotate(45deg);
+  pointer-events: none;
+}
+
+.custom-select-trigger:hover,
+.custom-select-trigger:focus,
+.custom-select.open .custom-select-trigger {
+  border-color: var(--border-strong);
+  cursor: pointer;
+}
+
+.custom-select-listbox {
+  display: none;
+  position: fixed;
+  z-index: 3000;
+  max-height: 240px;
+  overflow-y: auto;
+  background: var(--surface-strong);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  padding: 4px;
+  cursor: pointer;
+}
+
+.custom-select.open .custom-select-listbox {
+  display: block;
+}
+
+.custom-select-option {
+  padding: 8px 10px;
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.custom-select-option:hover,
+.custom-select-option.is-selected {
+  background-color: #3f3f3f;
+  color: #ffffff;
+  cursor: pointer;
 }
