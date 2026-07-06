@@ -6,6 +6,9 @@ import asyncio
 import logging
 from typing import Any
 
+from honeypot.logging.session_logger import SessionLogger
+from honeypot.network.config import SESSION_LOG_PATH
+
 logger = logging.getLogger(__name__)
 
 
@@ -17,11 +20,19 @@ class ProtocolServer:
     and expose an async handle() method — the same contract as ConnectionHandler.
     """
 
-    def __init__(self, host: str, port: int, handler_class: type, max_connections: int = 100):
+    def __init__(
+        self,
+        host: str,
+        port: int,
+        handler_class: type,
+        max_connections: int = 100,
+        session_logger: Any | None = None,
+    ):
         self.host = host
         self.port = port
         self.handler_class = handler_class
         self.max_connections = max_connections
+        self.session_logger = session_logger or SessionLogger(SESSION_LOG_PATH)
         self.server: Any = None
         self.tasks: set[asyncio.Task] = set()
 
@@ -57,7 +68,11 @@ class ProtocolServer:
             await writer.wait_closed()
             return
 
-        handler = self.handler_class(reader, writer)
+        handler = self.handler_class(
+            reader,
+            writer,
+            session_logger=self.session_logger,
+        )
         task = asyncio.create_task(handler.handle())
         self.tasks.add(task)
         task.add_done_callback(self.tasks.discard)

@@ -192,11 +192,13 @@ class HttpHandler:
         data = b""
         while len(data) < 16384:
             try:
-                chunk = await self.reader.readuntil(b"\r\n")
-            except asyncio.IncompleteReadError:
+                line = await self.reader.readline()
+            except Exception:
                 break
-            data += chunk
-            if data.endswith(b"\r\n\r\n"):
+            if not line:
+                break
+            data += line
+            if line in (b"\r\n", b"\n"):
                 break
         return data
 
@@ -211,13 +213,13 @@ class HttpHandler:
 
     def _build_response(self, method: str, path: str) -> bytes:
         persona = self.session.persona
+        status, body = self._pick_body(persona, path)
+        body_bytes = body.encode()
+
         if "nginx" in persona.running_processes:
             server_header = "nginx/1.18.0 (Ubuntu)"
         else:
             server_header = "Apache/2.4.54 (Debian)"
-
-        status, body = self._pick_body(persona, path)
-        body_bytes = body.encode()
         headers = (
             f"HTTP/1.1 {status}\r\n"
             f"Server: {server_header}\r\n"
@@ -245,7 +247,7 @@ class HttpHandler:
 
         # Root and index variants
         if p in ("/", "/index.html", "/index.php"):
-            if persona.persona_id == "ubuntu_web_server":
+            if "nginx" in persona.running_processes:
                 return "200 OK", _WP_HOME
             if persona.persona_id == "centos_database":
                 return "200 OK", _PHPMYADMIN
