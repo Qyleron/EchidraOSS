@@ -184,7 +184,8 @@ Expected (verified against the current rule set):
 }
 ```
 (full response also includes `feature_summary`, `evidence`,
-`safeguard_recommendations`, `persona_context`).
+`deception_action`, `alert_action`, `analyst_recommendation`, and
+`persona_context`).
 
 To persist it (requires `ECHIDRA_DATABASE_URL`), swap the path to
 `/classify/session/store` — response adds a `run_id`, and the row lands in
@@ -260,14 +261,7 @@ print(resolve_country('1.1.1.1'))   # expect: Australia
 "
 ```
 
-**Known gap found while writing this guide:** `resolve_country()` only
-special-cases the literal strings `"Private Network"` and `"--"`. The
-underlying `geoip2fast` lookup actually returns `"Private Network Class C"`
-for LAN IPs and `"<not found in database>"` for unassigned/reserved ranges
-(e.g. `192.168.x.x`, `203.0.113.x`) — neither matches the filter, so those
-placeholder strings leak into the `country` column instead of `NULL`. Test
-with a real public IP (`8.8.8.8`, `1.1.1.1`) — testing from `127.0.0.1` or a
-LAN IP will currently show this bug rather than a clean empty country.
+`resolve_country()` now returns `NULL` for private/reserved/unresolved lookups, so use public IPs for positive geolocation checks.
 
 To see it end-to-end through storage, POST to `/classify/session/store` with
 `"peer_ip": "8.8.8.8"` and then check the `country` column (section 6).
