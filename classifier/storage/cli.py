@@ -19,6 +19,7 @@ from classifier.storage.issue_sync import (
 from classifier.storage.repository import (
     DatabaseDriverMissingError,
     apply_schema,
+    seed_demo_issues,
 )
 
 
@@ -31,7 +32,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.command == "init-db":
-        return _init_db_command(args.schema_path)
+        return _init_db_command(args.schema_path, args.seed_demo_issues)
     if args.command == "sync-issues":
         return _sync_issues_command(args.playbook_path, args.mitre_catalog_path)
 
@@ -57,6 +58,11 @@ def _build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_SCHEMA_PATH,
         help="path to the schema.sql file",
     )
+    init_db.add_argument(
+        "--seed-demo-issues",
+        action="store_true",
+        help="insert demo intelligence issues after schema initialization",
+    )
 
     sync_issues = subparsers.add_parser(
         "sync-issues",
@@ -80,7 +86,7 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _init_db_command(schema_path: Path) -> int:
+def _init_db_command(schema_path: Path, seed_demo_issues_flag: bool) -> int:
     database_url = get_database_url()
     if database_url is None:
         print(
@@ -101,6 +107,8 @@ def _init_db_command(schema_path: Path) -> int:
 
     try:
         apply_schema(database_url, schema_path)
+        if seed_demo_issues_flag:
+            seed_demo_issues(database_url)
     except FileNotFoundError:
         print(f"error: schema file not found: {schema_path}", file=sys.stderr)
         return 2

@@ -258,13 +258,13 @@ class PersonaConfigInput(BaseModel):
     timezone: str = "UTC"
     internal_notes: str = ""
     ssh_enabled: bool = False
-    ssh_port: int | None = None
+    ssh_port: int | None = Field(default=None, ge=1, le=65535)
     http_enabled: bool = False
-    http_port: int | None = None
+    http_port: int | None = Field(default=None, ge=1, le=65535)
     ftp_enabled: bool = False
-    ftp_port: int | None = None
+    ftp_port: int | None = Field(default=None, ge=1, le=65535)
     telnet_enabled: bool = False
-    telnet_port: int | None = None
+    telnet_port: int | None = Field(default=None, ge=1, le=65535)
     fake_users: list[str] = Field(default_factory=list)
     running_processes: list[str] = Field(default_factory=list)
     decoy_files: list[DecoyFile] = Field(default_factory=list)
@@ -273,7 +273,6 @@ class PersonaConfigInput(BaseModel):
     contact_email: str | None = None
     slack_webhook: str | None = None
     interaction_depth: str = "minimal"
-
     @validator("alert_routing_level")
     def validate_routing(cls, value: str) -> str:
         if value not in PERSONA_ALERT_ROUTING_LEVELS:

@@ -6,6 +6,7 @@ from honeypot.core.engine import InteractionEngine
 from honeypot.core.session import SessionState
 from honeypot.logging.session_logger import SessionLogger
 from honeypot.network.config import READ_TIMEOUT, SESSION_LOG_PATH, get_active_persona
+from classifier.alerts import _maybe_send_alert
 from classifier.realtime import LiveSessionClassifier
 
 logger = logging.getLogger(__name__)
@@ -132,13 +133,13 @@ class ConnectionHandler:
         if summary.alert_action is None:
             return
         ranks = {"none": 0, "low": 1, "medium": 2, "high": 3, "critical": 4}
-        rank = ranks[summary.risk_level]
+        rank = ranks.get(summary.risk_level, 0)
         if rank <= self._highest_alerted_rank:
             return
         self._highest_alerted_rank = rank
 
         # SMTP and PostgreSQL calls are blocking; keep them off the connection loop.
-        from classifier.api.app import _maybe_send_alert
+
         await asyncio.to_thread(_maybe_send_alert, None, self.session.active_record(), summary)
 
     async def _send(self, text: str):
