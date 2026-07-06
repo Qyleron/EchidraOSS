@@ -26,6 +26,15 @@ def test_get_playbook_entry_falls_back_for_unknown_technique():
     assert entry.impact
 
 
+def test_get_playbook_entry_fallback_guidance_is_non_empty_for_unknown_technique():
+    entry = get_playbook_entry("T9999")
+
+    assert entry.is_fallback is True
+    assert entry.technique_id == "T9999"
+    assert entry.recommended_fix.strip()
+    assert entry.impact.strip()
+
+
 def test_every_technique_the_classifier_can_produce_has_a_curated_entry():
     """Every mitre_tags value in default_rules.yaml must resolve without falling back."""
     rules_text = DEFAULT_RULES_PATH.read_text(encoding="utf-8")
