@@ -33,19 +33,19 @@
     <main class="dashboard-main">
       <section class="metric-grid" aria-label="Security overview metrics">
         <article class="metric-card">
-          <strong class="metric-value metric-danger">127</strong>
+          <strong class="metric-value metric-danger" id="metricActiveThreats">—</strong>
           <span class="metric-label">Active Threats</span>
         </article>
         <article class="metric-card">
-          <strong class="metric-value metric-success">1,489</strong>
+          <strong class="metric-value metric-success" id="metricLowRisk">—</strong>
           <span class="metric-label">Low Risk Sessions</span>
         </article>
         <article class="metric-card">
-          <strong class="metric-value metric-warning">43</strong>
+          <strong class="metric-value metric-warning" id="metricWarnings">—</strong>
           <span class="metric-label">Warnings</span>
         </article>
         <article class="metric-card">
-          <strong class="metric-value">2.3M</strong>
+          <strong class="metric-value" id="metricTotalEvents">—</strong>
           <span class="metric-label">Total Events</span>
         </article>
       </section>
@@ -83,53 +83,82 @@
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
   <script>
-    const attackOrigins = [
-      { city: "Moscow", country: "Russia", lat: 55.75, lng: 37.62, type: "SSH Brute Force", ip: "185.234.219.x", risk: "high" },
-      { city: "Beijing", country: "China", lat: 39.9, lng: 116.4, type: "Suspicious Login", ip: "103.77.166.x", risk: "medium" },
-      { city: "Lagos", country: "Nigeria", lat: 6.45, lng: 3.4, type: "Credential Stuffing", ip: "197.210.84.x", risk: "medium" },
-      { city: "Sao Paulo", country: "Brazil", lat: -23.55, lng: -46.63, type: "DDoS Attempt", ip: "177.54.144.x", risk: "high" },
-      { city: "Tehran", country: "Iran", lat: 35.69, lng: 51.42, type: "SSH Brute Force", ip: "5.160.218.x", risk: "high" },
-      { city: "Bucharest", country: "Romania", lat: 44.43, lng: 26.1, type: "FTP Scan", ip: "79.112.33.x", risk: "medium" },
-      { city: "Kyiv", country: "Ukraine", lat: 50.45, lng: 30.52, type: "Telnet Probe", ip: "46.211.74.x", risk: "normal" },
-      { city: "Amsterdam", country: "Netherlands", lat: 52.37, lng: 4.9, type: "Port Scan", ip: "94.102.56.x", risk: "normal" },
-      { city: "Frankfurt", country: "Germany", lat: 50.11, lng: 8.68, type: "HTTP Probe", ip: "185.220.101.x", risk: "medium" },
-      { city: "Singapore", country: "Singapore", lat: 1.35, lng: 103.82, type: "SSH Brute Force", ip: "103.21.244.x", risk: "high" },
-      { city: "New York", country: "USA", lat: 40.71, lng: -74.01, type: "Port Scan", ip: "198.199.103.x", risk: "normal" },
-      { city: "London", country: "UK", lat: 51.51, lng: -0.13, type: "Credential Stuffing", ip: "51.15.112.x", risk: "medium" },
-      { city: "San Francisco", country: "USA", lat: 37.77, lng: -122.42, type: "HTTP Probe", ip: "104.131.68.x", risk: "normal" },
-      { city: "Paris", country: "France", lat: 48.85, lng: 2.35, type: "FTP Scan", ip: "51.38.185.x", risk: "medium" }
-    ];
-
-    const recentEvents = [
-      { title: "Brute force attack detected", ip: "192.168.1.100", location: "Russia", time: "2 mins ago", risk: "high" },
-      { title: "Suspicious login attempt", ip: "10.0.0.45", location: "China", time: "5 mins ago", risk: "medium" },
-      { title: "Normal user authentication", ip: "192.168.1.25", location: "USA", time: "8 mins ago", risk: "low" },
-      { title: "DDoS attempt blocked", ip: "172.16.0.99", location: "Brazil", time: "12 mins ago", risk: "high" },
-      { title: "HTTP probe fingerprinted", ip: "185.220.101.x", location: "Germany", time: "15 mins ago", risk: "medium" },
-      { title: "Known scanner observed", ip: "94.102.56.x", location: "Netherlands", time: "19 mins ago", risk: "low" }
-    ];
+    const ACTOR_LABELS = {
+      automated_scanner: "Automated scanner",
+      brute_force_bot: "Brute-force bot",
+      commodity_bot: "Commodity bot",
+      script_kiddie: "Script kiddie",
+      skilled_human_operator: "Skilled human operator"
+    };
 
     const riskColors = {
       high: "#ff5c70",
       medium: "#ffa726",
-      normal: "#51cf66",
-      low: "#51cf66"
+      normal: "#51cf66"
     };
 
-    function renderEvents() {
+    function actorDisplay(actorLabel) {
+      if (!actorLabel) return "Unclassified activity";
+      return ACTOR_LABELS[actorLabel] || actorLabel;
+    }
+
+    function eventTitle(run) {
+      return `${actorDisplay(run.actor_label)} — ${run.protocol.toUpperCase()} session`;
+    }
+
+    // classifier_runs.risk_level is one of none/low/medium/high/critical;
+    // the event badge only has high/medium/low styling.
+    function badgeTier(riskLevel) {
+      if (riskLevel === "critical" || riskLevel === "high") return "high";
+      if (riskLevel === "medium") return "medium";
+      return "low";
+    }
+
+    // The map legend only has high/medium/normal styling.
+    function originTier(riskLevel) {
+      if (riskLevel === "critical" || riskLevel === "high") return "high";
+      if (riskLevel === "medium") return "medium";
+      return "normal";
+    }
+
+    function timeAgo(unixSeconds) {
+      if (!unixSeconds) return "unknown time";
+      const seconds = Math.max(0, Math.floor(Date.now() / 1000 - unixSeconds));
+      if (seconds < 60) return `${seconds}s ago`;
+      const minutes = Math.floor(seconds / 60);
+      if (minutes < 60) return `${minutes} min${minutes === 1 ? "" : "s"} ago`;
+      const hours = Math.floor(minutes / 60);
+      if (hours < 24) return `${hours} hour${hours === 1 ? "" : "s"} ago`;
+      const days = Math.floor(hours / 24);
+      return `${days} day${days === 1 ? "" : "s"} ago`;
+    }
+
+    async function fetchJSON(url) {
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error(`Request failed for ${url} (${response.status})`);
+      }
+      return response.json();
+    }
+
+    function renderEvents(runs) {
       const eventList = document.getElementById("eventList");
-      eventList.innerHTML = recentEvents.map((event) => `
+      if (runs.length === 0) {
+        eventList.innerHTML = `<div class="empty-state">No classifier runs recorded yet.</div>`;
+        return;
+      }
+      eventList.innerHTML = runs.map((run) => `
         <article class="event-row">
           <div class="event-copy">
-            <strong>${event.title}</strong>
-            <span>IP: ${event.ip} · Location: ${event.location} · ${event.time}</span>
+            <strong>${eventTitle(run)}</strong>
+            <span>IP: ${run.peer_ip || "unknown"} · Location: ${run.country || "Unknown"} · ${timeAgo(run.ended_at)}</span>
           </div>
-          <span class="risk-badge ${event.risk}">${event.risk}</span>
+          <span class="risk-badge ${badgeTier(run.risk_level)}">${run.risk_level}</span>
         </article>
       `).join("");
     }
 
-    function renderMap() {
+    function renderMap(runs) {
       if (!window.L) {
         document.getElementById("attackOriginMap").innerHTML = '<div class="map-fallback">Map library unavailable.</div>';
         return;
@@ -138,38 +167,64 @@
       const map = L.map("attackOriginMap", {
         attributionControl: false,
         zoomControl: true,
-        worldCopyJump: true      
+        worldCopyJump: true
       }).setView([22, 8], 2);
-
 
       L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
         className: "dark-tiles",
         maxZoom: 18
       }).addTo(map);
 
-      for (const origin of attackOrigins) {
-        const color = riskColors[origin.risk];
-        L.circle([origin.lat, origin.lng], {
-          radius: origin.risk === "high" ? 620000 : origin.risk === "medium" ? 430000 : 280000,
+      const geolocated = runs.filter((run) => run.latitude != null && run.longitude != null);
+      for (const run of geolocated) {
+        const tier = originTier(run.risk_level);
+        const color = riskColors[tier];
+        L.circle([run.latitude, run.longitude], {
+          radius: tier === "high" ? 620000 : tier === "medium" ? 430000 : 280000,
           color,
           fillColor: color,
-          fillOpacity: origin.risk === "high" ? 0.18 : 0.12,
+          fillOpacity: tier === "high" ? 0.18 : 0.12,
           opacity: 0.5,
           weight: 1,
           interactive: false
         }).addTo(map);
 
-        const marker = L.circleMarker([origin.lat, origin.lng], {
-          radius: origin.risk === "high" ? 7 : 5,
+        L.circleMarker([run.latitude, run.longitude], {
+          radius: tier === "high" ? 7 : 5,
           color,
           fillColor: color,
           fillOpacity: 0.9,
           weight: 2
         })
           .bindPopup(
-            `<b>${origin.city}, ${origin.country}</b><br>Event: ${origin.type}<br>Source IP: ${origin.ip}<br>Risk: ${origin.risk}`,
+            `<b>${run.country || "Unknown"}</b><br>Actor: ${actorDisplay(run.actor_label)}<br>Source IP: ${run.peer_ip || "unknown"}<br>Risk: ${run.risk_level}`,
           )
           .addTo(map);
+      }
+    }
+
+    async function loadOverviewMetrics() {
+      try {
+        const summary = await fetchJSON("/reports/summary");
+        document.getElementById("metricActiveThreats").textContent = summary.elevated_runs.toLocaleString();
+        document.getElementById("metricLowRisk").textContent = (summary.risk_counts.low || 0).toLocaleString();
+        document.getElementById("metricWarnings").textContent = (summary.risk_counts.medium || 0).toLocaleString();
+        document.getElementById("metricTotalEvents").textContent = summary.total_runs.toLocaleString();
+      } catch (error) {
+        console.error(error);
+      }
+    }
+
+    async function loadRecentActivity() {
+      try {
+        const runs = await fetchJSON("/classifier/runs?limit=10&order=desc");
+        renderEvents(runs);
+        renderMap(runs);
+      } catch (error) {
+        console.error(error);
+        document.getElementById("eventList").innerHTML =
+          `<div class="empty-state">Could not load recent activity. Is the database configured?</div>`;
+        renderMap([]);
       }
     }
 
@@ -184,8 +239,8 @@
     }
 
     document.getElementById("logoutButton").addEventListener("click", logoutDashboard);
-    renderEvents();
-    renderMap();
+    loadOverviewMetrics();
+    loadRecentActivity();
   </script>
 </body>
 </html>
