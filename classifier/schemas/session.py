@@ -20,7 +20,7 @@ class SessionRecord(BaseModel):
 
     schema_version: Literal[1]
     session_id: UUID
-    protocol: Literal["tcp_shell"]
+    protocol: Literal["tcp_shell", "http", "ftp", "telnet"]
     peer_ip: IPvAnyAddress | None
     peer_port: int | None = Field(default=None, ge=1, le=65535)
     latitude: float | None = Field(default=None, ge=-90, le=90)

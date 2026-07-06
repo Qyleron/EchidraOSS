@@ -57,7 +57,6 @@ DASHBOARD_PAGE_FILES = {
     "intelligence": DASHBOARD_PUBLIC_PATH / "intelligence.html",
     "personas": DASHBOARD_PUBLIC_PATH / "personas.html",
     "alerts": DASHBOARD_PUBLIC_PATH / "alerts.html",
-    "reports": DASHBOARD_PUBLIC_PATH / "reports.html",
 }
 DASHBOARD_SESSION_SECRET_ENV = "ECHIDRA_SESSION_SECRET"
 DASHBOARD_COOKIE_SECURE_ENV = "ECHIDRA_COOKIE_SECURE"

@@ -1,420 +1,104 @@
-# Echidra - Multi-Protocol Honeypot
+# Echidra — Multi-Protocol Honeypot
 
 ![image](assets/Qyleron_Banner.png)
 
-Echidra is a deceptive honeypot project built to simulate attacker-facing systems, capture behavior, and support explainable threat analysis.
-
-The current version is a Python-based proof of concept: a fake Linux terminal over TCP with personas, fake files, fake command responses, per-session state, and tests. The next major milestone is a Behavioral Classifier that labels attacker sessions using timing, command behavior, protocol activity, and rule-based evidence.
+Echidra is a deceptive honeypot that simulates attacker-facing systems, captures
+attacker behavior across four protocols, classifies it, and surfaces the
+result in a web dashboard — without ever executing real commands or exposing
+real data.
 
 ---
 
 ## What Is Echidra?
 
-Echidra pretends to be a Linux server.
+Echidra pretends to be a Linux server. Attackers connect over SSH-style TCP,
+HTTP, FTP, or Telnet and see a believable, persona-driven system: real-looking
+banners, users, files, running processes, and (for the shell) an interactive
+fake command set — `ls`, `cat`, `whoami`, `ps`, `netstat`, and more. Nothing
+they type touches the real host or filesystem.
 
-When someone connects, they see a believable shell prompt. They can type commands like `whoami`, `pwd`, `ls`, `cat`, `ps`, or `netstat`, but Echidra never executes real system commands and never exposes real files.
-
-Instead, Echidra returns controlled fake responses from an in-memory persona and records what the visitor does during the session.
-
-Think of it as a controlled fake terminal for safely observing attacker behavior.
-
----
-
-## Current Status
-
-Echidra currently includes:
-
-- Async TCP honeypot server using Python `asyncio`
-- Per-client connection handling
-- Persona-based fake Linux identities
-- Fake banners, hostnames, users, files, processes, and ports
-- Fake shell command handling
-- Per-session command history and state
-- Append-only JSONL logging for completed attacker sessions
-- Serialized single-line writes for session log records
-- Path normalization for Linux-like file access
-- Editable YAML classification rules with deterministic matching
-- Post-session classifier pipeline from session record to summary
-- Raw session dict and JSONL classification helpers for ingestion
-- Batch JSONL classification helpers for existing session logs
-- CLI command for batch JSONL session classification
-- FastAPI post-session classifier endpoint
-- PostgreSQL schema and repository for classifier runs and manual labels
-- API retrieval endpoints for stored classifier runs and manual labels
-- API list/filter endpoints for stored classifier runs and manual labels
-- Responsive D3.js dashboard shell for persisted classifier runs
-- Database-backed signup/login and protected dashboard access
-- Authenticated aggregate reporting and database-wide dashboard metrics
-- Risk scoring, evidence aggregation, and MITRE tag mapping for matched rules
-- Behavior stage and intent mapping for classifier summaries
-- Evidence-backed Safeguard Advisor recommendations for external security tools
-- Timeout, disconnect, and graceful shutdown behavior
-- Unit, integration, stability, and basic concurrency tests
-
-Next major upgrade:
-
-- Add more feature extraction as new protocols arrive
+Every completed session is logged, classified (actor type, risk, MITRE ATT&CK
+technique, intent), geolocated, and stored in PostgreSQL for review in the
+dashboard.
 
 ---
 
-## Architecture
+## Features
 
-![image](https://github.com/user-attachments/assets/b57a0de5-6696-435b-845f-87c1f82f0bfc)
+**Honeypot listeners**
+- SSH-style interactive fake shell (TCP, asyncio) — persona-backed banners,
+  users, fake filesystem, decoy files, and process list
+- HTTP — fake Apache/nginx/WordPress/phpMyAdmin pages, captures paths, headers,
+  and POST bodies (credential-harvesting probes)
+- FTP — vsFTPd-style banner, captures `USER`/`PASS` attempts
+- Telnet — Mirai-style login prompt, captures credential attempts
+- Every listener can be enabled/disabled and given its own port per persona
 
-Current honeypot flow:
+**Classification**
+- Deterministic, editable YAML rules (`classifier/rules/default_rules.yaml`)
+  turn session features into an actor label (e.g. `automated_scanner`,
+  `brute_force_bot`, `skilled_human_operator`), confidence, risk score/level,
+  behavior stage, intent, and MITRE ATT&CK tags
+- Timing-based signals (inter-command intervals, commands/minute) distinguish
+  scripted bots from slower, interactive human operators
+- A knowledge-base lookup (`classifier/rules/issue_playbook.yaml`) turns each
+  `(actor, technique)` pair into a recommended fix shown on the Intelligence
+  page — unmapped pairs still surface with a generic fix, so new behavior is
+  never silently dropped
+- Offline IP → country resolution (`geoip2fast`) for the map view
 
-```text
-attacker
-  -> TCP server
-  -> ConnectionHandler
-  -> Persona
-  -> SessionState
-  -> InteractionEngine
-  -> fake Linux response
+**Storage & API**
+- PostgreSQL schema for sessions, session events, classifier runs/signals,
+  manual labels, issues, persona configs, and alert config/events
+- FastAPI backend serves the classifier endpoints and the dashboard itself
+
+**Dashboard** (`/dashboard`, behind signup/login)
+- **Sessions** — captured session list and detail view
+- **Analytics** — aggregate charts across all captured traffic
+- **Intelligence** — recurring-issue rollup with recommended fixes, MITRE tags,
+  and open/closed status
+- **Personas** — per-persona identity, services/ports, fake users, decoy
+  files, alert routing, interaction depth, and per-persona analytics
+- **Alerts** — global SMTP config, send-test-email, and alert event history
+
+---
+
+## Quick Start
+
+```bash
+cp .env.example .env                    # optional local config
+python -m classifier.storage.cli init-db   # create PostgreSQL tables (requires ECHIDRA_DATABASE_URL)
+python -m honeypot.main                    # start the honeypot listeners
+uvicorn classifier.api:app --reload        # start the API + dashboard, in a separate shell
 ```
 
-Planned intelligence flow:
+Default listeners:
 
-```text
-raw honeypot events
-  -> canonical session schema
-  -> feature extraction
-  -> YAML rule evaluation
-  -> actor vote aggregation
-  -> behavior stage and intent mapping
-  -> MITRE mapping
-  -> risk scoring
-  -> evidence generation
-  -> advisory safeguard recommendations
-  -> post-session classification summary
-  -> API response
-  -> database storage
-```
-
----
-
-## Core Features
-
-### Implemented
-
-- Fake Linux shell over TCP
-- Multiple personas such as generic Linux and Ubuntu-style hosts
-- Fake filesystem backed by controlled in-memory data
-- Safe command simulation without executing real shell commands
-- Session-specific state for each connected visitor
-- Structured session logs with IDs, timing, end reasons, and command history
-- YAML rule loading and matching over extracted session features
-- Post-session classification pipeline using the default YAML ruleset
-- Decoded session-record and JSONL-line helpers for future API/log ingestion
-- Batch JSONL log classification helpers for offline analysis
-- CLI support for printing classifier summaries from JSONL logs
-- FastAPI endpoint for post-session classification
-- PostgreSQL storage contract for classifier runs and manual labels
-- Aggregated classifier summaries with risk levels, evidence, MITRE tags,
-  behavior stages, intents, feature summaries, and Safeguard Advisor
-  recommendations
-- Basic support for concurrent clients
-- Test coverage for core behavior and TCP interaction
-
-### Planned
-
-- SSH, Telnet, FTP, and HTTP honeypot services
-- Dashboard and reporting views
-- Local alerts through SMTP or webhooks
-- Docker/systemd deployment support
-
----
-
-## Behavioral Classifier Plan
-
-The Echidra Behavioral Classifier will be an explainable, rule-driven intelligence layer for classifying attacker sessions.
-
-The first version will focus on bot-versus-human classification using:
-
-- Inter-keystroke timing
-- Authentication behavior
-- Command patterns
-- Protocol activity
-- File and network events
-- Risk indicators
-
-Runtime modes:
-
-| Mode | Purpose | Trigger |
+| Protocol | Port | Env override |
 |---|---|---|
-| Real-time classifier | Immediate alerts and adaptive deception decisions | Every 30 seconds during active sessions |
-| Post-session classifier | Full intelligence, evidence, reporting, and dataset labeling | After session close |
+| SSH-style shell | 2222 | `ECHIDRA_PORT` |
+| HTTP | 8080 | `ECHIDRA_HTTP_PORT` |
+| FTP | 2121 | `ECHIDRA_FTP_PORT` |
+| Telnet | 2323 | `ECHIDRA_TELNET_PORT` |
 
-Planned actor labels:
+Set any protocol port to `0` to disable that listener. Pick a persona with
+`ECHIDRA_PERSONA=ubuntu_web_server python -m honeypot.main`.
 
-- `automated_scanner`
-- `brute_force_bot`
-- `commodity_bot`
-- `script_kiddie`
-- `skilled_human_operator`
-
-Classifier output will include:
-
-- Classifier and rules version
-- Session ID and protocol
-- Actor type and confidence
-- Actor vote tally
-- Behavior stage and intent
-- Risk score and risk level
-- MITRE tags
-- Plain-English evidence
-- Persona context and surfaced decoy files
-- Recommended action
-- Feature summary
-- Matched rules
-
-### Safeguard Advisor Boundary
-
-Echidra will recommend preventive and safeguarding actions with supporting
-evidence. It will not directly block IP addresses, modify firewalls, disable
-accounts, or change production systems.
-
-External tools such as firewalls, WAFs, SIEM/SOAR platforms, IAM systems, and
-ticketing tools remain responsible for executing approved actions.
+The dashboard is at `http://localhost:8000/dashboard` (sign up at `/auth` on
+first run). See [docs/PROJECT_PLAN.md](docs/PROJECT_PLAN.md) for build status
+and next steps, and [docs/TESTING_GUIDE.md](docs/TESTING_GUIDE.md) for
+per-service and per-page manual test commands.
 
 ---
 
-## Structured Session Logs
+## Safety Model
 
-Echidra appends one JSON object per completed connection to:
-
-```text
-logs/sessions.jsonl
-```
-
-Set `ECHIDRA_SESSION_LOG` to use a different path. JSON Lines keeps each
-session independently readable and makes the file easy to stream into the
-planned classifier or an external ingestion tool.
-
-Each record includes:
-
-- `schema_version`, `session_id`, and `protocol`
-- `peer_ip`, `peer_port`, and `persona_id`
-- `started_at`, `ended_at`, and `duration_seconds`
-- `end_reason`: `logout`, `timeout`, `disconnect`, `shutdown`, or `error`
-- `command_count` and timestamped `commands`
-- `decoy_files_surfaced`: unique fake files exposed through successful reads or listings
-
-Before persistence, each completed record is validated against the canonical
-Pydantic contract in `classifier/schemas/session.py`. The v1 contract rejects
-unknown fields, invalid lifecycle reasons, mismatched command counts, and
-timestamps that fall outside the session window. Surfaced decoys must be
-unique safe absolute paths.
-
----
-
-## Session Features
-
-The deterministic extractor in `classifier/features/session.py` converts each
-validated TCP shell session into measurements for later rules and scoring:
-
-- Session duration, command count, and commands per minute
-- Inter-command intervals and their average
-- Unique and repeated command counts
-- Discovery command count
-- File-read and sensitive-path-read counts
-- Surfaced decoy paths and their count for persona-aware reporting
-- Exit-command presence and normalized command names
-
-Rule evaluation and scoring assign initial actor labels, risk levels, evidence,
-MITRE tags, actor vote tallies, behavior stage, intent, version metadata, and
-persona context from these features. The scoring summary includes a compact
-feature summary for API and storage consumers. It also emits advisory,
-evidence-backed Safeguard Advisor recommendations for external tools such as
-SIEM/SOAR platforms, firewalls, WAFs, IAM systems, and ticketing systems.
-The `classifier.pipeline.classify_session` helper runs the full post-session
-path from a validated session record through feature extraction, rule
-evaluation, and scoring. `classify_session_record` and `classify_session_jsonl`
-validate raw ingestion input before running that same path. Batch helpers can
-classify many JSONL lines or a whole session log file. The same batch path is
-available from the command line:
-
-```bash
-python -m classifier.cli classify-jsonl logs/sessions.jsonl
-```
-
-Write summaries to a file:
-
-```bash
-python -m classifier.cli classify-jsonl logs/sessions.jsonl --output reports/classifier-runs.jsonl
-```
-
-If a historical log contains malformed JSONL, the CLI reports the bad line
-number and exits without a traceback.
-
-The post-session API exposes the same classifier contract over HTTP:
-
-```bash
-uvicorn classifier.api:app --reload
-```
-
-```text
-POST /classify/session
-POST /classify/session/store
-GET /classifier/runs/{run_id}
-GET /classifier/runs
-GET /manual-labels/{label_id}
-GET /manual-labels
-GET /reports/summary
-GET /issues
-PATCH /issues/{issue_id}/status
-GET /auth
-POST /auth/signup
-POST /auth/login
-POST /auth/logout
-GET /dashboard
-```
-
-Both endpoints accept the canonical completed session record. The first returns
-only the classifier summary; the second requires `ECHIDRA_DATABASE_URL`, stores
-the classifier run in PostgreSQL, and returns the run ID plus summary. The GET
-endpoints also require `ECHIDRA_DATABASE_URL` and return stored classifier run
-or manual label records by ID or by exact-match list filters.
-
-The dashboard route serves a responsive browser UI for the stored classifier
-run list, filters, risk distribution chart, and selected run detail view.
-Dashboard users sign up or log in at `/auth`; salted PBKDF2 password hashes are
-stored in PostgreSQL. A successful signup or login creates an eight-hour signed
-session that protects `/dashboard` and the storage read endpoints. Set
-`ECHIDRA_SESSION_SECRET` in production, and set `ECHIDRA_COOKIE_SECURE=true`
-when serving the dashboard over HTTPS.
-
-For local configuration, copy the template and edit it for your machine:
-
-```bash
-cp .env.example .env
-```
-
-The real `.env` file is ignored by git. Echidra loads it automatically for
-local runs, so users can safely keep database URLs, ports, persona selection,
-and log paths out of commits.
-
-For PostgreSQL storage, set `ECHIDRA_DATABASE_URL` only in your local `.env`:
-
-```dotenv
-ECHIDRA_DATABASE_URL=postgresql://echidra:p%40ss%2Fword@localhost:5432/echidra
-```
-
-In a PostgreSQL URL, special characters in the username or password must be
-percent-encoded. For example, `p@ss/word` becomes `p%40ss%2Fword`. Do not paste
-your real `.env` into issue trackers, chats, or remote coding sessions.
-`.env.example` is the public template for OSS users; it documents the variable
-names and safe sample values, while each user creates their own private `.env`
-on their device.
-
-Example request:
-
-```json
-{
-  "schema_version": 1,
-  "session_id": "8f28043f-6860-4857-8e3f-11a7cb16e6fd",
-  "protocol": "tcp_shell",
-  "peer_ip": "203.0.113.45",
-  "peer_port": 49215,
-  "persona_id": "generic_linux",
-  "started_at": 100.0,
-  "ended_at": 113.0,
-  "duration_seconds": 13.0,
-  "end_reason": "disconnect",
-  "command_count": 4,
-  "commands": [
-    { "cmd": "whoami", "timestamp": 101.0 },
-    { "cmd": "hostname", "timestamp": 103.0 },
-    { "cmd": "ls", "timestamp": 106.0 },
-    { "cmd": "cat /etc/passwd", "timestamp": 109.0 }
-  ],
-  "decoy_files_surfaced": ["/etc/passwd"]
-}
-```
-
-Example response:
-
-```json
-{
-  "classifier_version": "1.0.0",
-  "rules_version": "1.0.0",
-  "actor_label": "commodity_bot",
-  "confidence": 0.66,
-  "risk_score": 45,
-  "risk_level": "medium",
-  "behavior_stage": "credential_access",
-  "intent": "credential_theft",
-  "matched_rule_ids": ["sensitive_file_probe", "interactive_low_and_slow"]
-}
-```
-
-Create PostgreSQL tables before using the store endpoint:
-
-```bash
-python -m classifier.storage.cli init-db
-```
-
-The storage schema keeps relationships explicit:
-
-- `sessions` stores one compact session row.
-- `session_events` stores ordered command and decoy exposure events.
-- `classifier_runs` references `sessions(id)` and stores one compact classifier
-  result.
-- `classifier_signals` stores variable-length classifier details such as actor
-  votes, matched rules, MITRE tags, evidence, features, and recommendations.
-- `manual_labels` references both `sessions(id)` and, when available,
-  `classifier_runs(id)`.
-- `issues` stores one row per recurring weakness shown on the Intelligence
-  dashboard page, with `issue_mitre_techniques` holding its MITRE ATT&CK tags.
-
-For early local development, the schema intentionally drops and recreates these
-tables. If you are okay losing local classifier data, rerun:
-
-```bash
-python -m classifier.storage.cli init-db
-```
-
-`issues` is populated separately, by rolling up everything stored in
-`classifier_runs`/`classifier_signals`, grouped by the real `(actor_label,
-MITRE technique)` pairs your classifier has actually produced — not by which
-rule fired. Each pair maps to a stable issue, so re-running this is
-idempotent: counts refresh from real captured sessions but an analyst's
-open/closed status on an existing issue is never reset. Run it after
-classifying and storing new sessions (`POST /classify/session/store`) to keep
-the Intelligence page current:
-
-```bash
-python -m classifier.storage.cli sync-issues
-```
-
-The Intelligence-page copy for each `(actor_label, MITRE technique)` pair
-(title, recommended fix, and impact) is a knowledge base in
-[classifier/rules/issue_playbook.yaml](classifier/rules/issue_playbook.yaml)'s
-`fixes` section. A pair with no entry still produces an issue — title and
-fix fall back to a generic, still-data-driven description — so new attacker
-behavior always surfaces even before you've written copy for it. Because the
-lookup key is `(actor_label, technique)` rather than a rule id, a fix you
-write once is automatically reused by any future rule that produces the same
-pair.
-
-MITRE technique display names resolve in three steps: an override in
-`issue_playbook.yaml`'s `mitre_technique_names`, then the full ATT&CK catalog
-in `classifier/rules/mitre_technique_names.json`, then the bare id as a last
-resort. The catalog file covers all current and future technique ids your
-rules might tag (not just the ones rules happen to use today) and is
-generated from the official MITRE dataset:
-
-```bash
-python scripts/sync_mitre_technique_names.py
-```
-
-This only adds correct *display names* for ids you tag — it does not expand
-what Echidra can detect. Detecting a new technique still requires writing a
-rule for it in `default_rules.yaml`; the catalog just means whatever id that
-rule tags will always show its real ATT&CK name instead of a raw code.
-
-See [docs/PROJECT_PLAN.md](docs/PROJECT_PLAN.md) for the current build plan,
-status, next steps, and simplest end-to-end flow.
+Echidra never runs attacker input on the host. Shell commands, HTTP requests,
+FTP/Telnet credentials are parsed and answered with fake, persona-scoped data
+only — files, directory listings, and process lists are reconstructed from an
+in-memory persona, never the real filesystem. Echidra recommends safeguarding
+actions (rate-limiting, alerting, credential rotation) but never itself blocks
+IPs, changes firewalls, or touches production systems.
 
 ---
 
@@ -423,110 +107,48 @@ status, next steps, and simplest end-to-end flow.
 | Component | Stack |
 |---|---|
 | Honeypot runtime | Python 3.11, `asyncio` |
-| Fake shell engine | Python |
 | Classifier API | FastAPI |
-| Rule engine | YAML rules |
+| Rule engine | YAML |
 | Schemas | Pydantic |
 | Storage | PostgreSQL |
-| Dashboard | HTML, CSS, JavaScript, D3.js, planned |
-| Deployment | Docker Compose or systemd, planned |
+| Geolocation | `geoip2fast` (offline) |
+| Dashboard | HTML, CSS, JavaScript |
 
 ---
 
 ## Folder Structure
 
-Current/planned structure:
-
 ```text
 echidra_oss/
 ├── honeypot/
-│   ├── main.py
+│   ├── main.py                  # starts all four listeners
 │   ├── network/
-│   │   ├── server.py
+│   │   ├── server.py            # SSH-style shell listener
+│   │   ├── protocol_server.py   # generic listener used by http/ftp/telnet
 │   │   ├── connection.py
+│   │   ├── http_handler.py
+│   │   ├── ftp_handler.py
+│   │   ├── telnet_handler.py
 │   │   └── config.py
-│   ├── logging/
-│   │   └── session_logger.py
+│   ├── logging/session_logger.py
 │   └── core/
 │       ├── persona.py
 │       ├── session.py
-│       └── engine.py
-├── classifier/              # planned
-│   ├── api/
-│   ├── schemas/
-│   │   └── session.py
-│   ├── features/
-│   │   └── session.py
-│   ├── rules/
-│   ├── scoring/
-│   └── storage/
+│       └── engine.py            # fake shell command dispatcher
+├── classifier/
+│   ├── api/app.py               # FastAPI app: classifier + dashboard routes
+│   ├── schemas/session.py
+│   ├── features/session.py
+│   ├── rules/                   # default_rules.yaml, issue_playbook.yaml
+│   ├── scoring/session.py
+│   └── storage/                 # repository, schema.sql, geolocation.py
+├── dashboard/public/             # sessions/analytics/intelligence/personas/alerts.html
 ├── tests/
+├── docs/
 ├── assets/
 ├── README.md
 └── LICENSE.md
 ```
-
----
-
-## Quick Start
-
-Optional local config:
-
-```bash
-cp .env.example .env
-```
-
-Run the honeypot:
-
-```bash
-python -m honeypot.main
-```
-
-Connect locally:
-
-```bash
-nc 127.0.0.1 2222
-```
-
-Use a specific persona:
-
-```bash
-ECHIDRA_PERSONA=ubuntu_web_server python -m honeypot.main
-```
-
-`.env.example` lists `ECHIDRA_PERSONA` only as a local preset selector. Keep
-full persona definitions in source-controlled code today, or move them to a
-dedicated persona YAML/JSON directory later if they become user-editable.
-
-The default listener is:
-
-```text
-host: 0.0.0.0
-port: 2222
-```
-
----
-
-## Safety Model
-
-Echidra does not run attacker commands on the host machine.
-
-Commands are parsed and answered by the interaction engine. Files are fake entries from the selected persona. Directory listings are reconstructed from fake paths. This keeps the honeypot controlled while still making the attacker interaction feel realistic.
-
----
-
-## Roadmap
-
-1. Add persistent structured session logging. **Implemented**
-2. Define the canonical session schema. **Implemented**
-3. Build feature extraction for timing, authentication, commands, protocols, files, and network events. **TCP shell foundation implemented**
-4. Implement editable YAML classification rules. **Implemented**
-5. Add risk scoring, evidence generation, and MITRE mapping. **Implemented**
-6. Add Safeguard Advisor recommendations for external security tools.
-7. Expose real-time and post-session classification through FastAPI. **Post-session API implemented**
-8. Store classifier runs and manual labels in PostgreSQL. **Schema, write path, ID retrieval, and list/filter APIs implemented**
-9. Collect and label real sessions for evaluation.
-10. Build dashboard/reporting views.
 
 ---
 

@@ -366,7 +366,7 @@ def test_classify_session_endpoint_maps_classify_session_value_error_to_http_exc
     route = route_for("/classify/session", "POST")
     session = SessionRecord.parse_obj(make_record())
 
-    def failing_classify_session(_session):
+    def failing_classify_session(_session, **_kwargs):
         raise ValueError("unsupported feature evaluation")
 
     monkeypatch.setattr(app_module, "classify_session", failing_classify_session)
@@ -382,7 +382,7 @@ def test_classify_session_endpoint_hides_unhandled_exception_details(monkeypatch
     route = route_for("/classify/session", "POST")
     session = SessionRecord.parse_obj(make_record())
 
-    def crashing_classify_session(_session):
+    def crashing_classify_session(_session, **_kwargs):
         raise RuntimeError("database password was leaked into this error")
 
     monkeypatch.setattr(app_module, "classify_session", crashing_classify_session)
@@ -400,6 +400,9 @@ def test_classify_and_store_endpoint_returns_run_id(monkeypatch):
     saved_runs = []
 
     class FakeRepository:
+        def count_sessions_from_ip(self, peer_ip):
+            return 0
+
         def save_classifier_run(self, stored_session, summary):
             record = ClassifierRunRecord.from_session_summary(
                 session=stored_session,
@@ -445,6 +448,9 @@ def test_classify_and_store_endpoint_hides_persistence_failures(monkeypatch):
     class CrashingRepository:
         def __init__(self):
             pass
+
+        def count_sessions_from_ip(self, peer_ip):
+            return 0
 
         def save_classifier_run(self, stored_session, summary):
             raise RuntimeError("failed to persist classifier run")

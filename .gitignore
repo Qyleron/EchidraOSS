@@ -5,13 +5,13 @@ __pycache__/
 .pytest_cache/
 .agents/
 .codex/
+.claude/
 logs/
 .env
 .env.*
 !.env.example
 TESTS.md
 summation.txt
-Echidra_build-doc.pdf
-build_missing.txt
+Echidra-build-doc.pdf
 echidra_presentation.html
 docs/PROJECT_PLAN.md

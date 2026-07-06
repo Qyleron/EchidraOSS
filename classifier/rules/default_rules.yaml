@@ -55,6 +55,63 @@ rules:
         operator: gte
         value: 5
 
+  - id: script_kiddie_tool_names
+    name: Known tool name typed in the shell
+    actor_label: script_kiddie
+    confidence: 0.7
+    risk_score: 40
+    mitre_tags:
+      - T1595
+      - T1190
+    evidence:
+      - A known exploit or scanning tool name was typed directly in the session, consistent with running pre-packaged attack tooling rather than manual exploration.
+    conditions:
+      - field: protocol
+        operator: equals
+        value: tcp_shell
+      - field: command_names
+        operator: contains_any
+        value:
+          - sqlmap
+          - nikto
+          - hydra
+          - nmap
+          - masscan
+          - metasploit
+          - msfconsole
+          - gobuster
+          - dirb
+          - dirsearch
+          - wfuzz
+          - burpsuite
+          - john
+          - hashcat
+
+  - id: scripted_probe_with_clean_exit
+    name: Scripted probe with clean exit
+    actor_label: script_kiddie
+    confidence: 0.6
+    risk_score: 30
+    mitre_tags:
+      - T1082
+      - T1087
+    evidence:
+      - Ran a short sequence of common discovery commands, then exited cleanly.
+      - Repeated commands suggest a copy-pasted script rather than independent exploration.
+    conditions:
+      - field: discovery_command_count
+        operator: gte
+        value: 2
+      - field: repeated_command_count
+        operator: gte
+        value: 1
+      - field: exit_command_present
+        operator: equals
+        value: true
+      - field: command_count
+        operator: lte
+        value: 8
+
   - id: interactive_low_and_slow
     name: Interactive low and slow shell use
     actor_label: skilled_human_operator

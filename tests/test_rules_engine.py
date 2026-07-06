@@ -128,6 +128,80 @@ def test_contains_operator_rejects_non_iterable_feature_values():
         evaluate_rules(make_features(), [rule])
 
 
+def test_contains_any_operator_matches_when_any_value_present():
+    rule = make_rule(
+        conditions=[
+            RuleCondition(
+                field="command_names",
+                operator="contains_any",
+                value=["sqlmap", "nikto", "hydra"],
+            ),
+        ],
+    )
+
+    matching = make_features(command_names=["whoami", "sqlmap", "exit"])
+    non_matching = make_features(command_names=["whoami", "ls", "exit"])
+
+    assert evaluate_rules(matching, [rule]).matched_rules != []
+    assert evaluate_rules(non_matching, [rule]).matched_rules == []
+
+
+def test_contains_any_operator_requires_iterable_expected_value():
+    with pytest.raises(ValidationError, match="non-string iterable"):
+        make_rule(
+            conditions=[
+                {
+                    "field": "command_names",
+                    "operator": "contains_any",
+                    "value": "sqlmap",
+                },
+            ],
+        )
+
+
+def test_contains_any_operator_rejects_non_iterable_feature_values():
+    rule = make_rule(
+        conditions=[
+            {
+                "field": "command_count",
+                "operator": "contains_any",
+                "value": ["sqlmap"],
+            },
+        ],
+    )
+
+    with pytest.raises(ValueError, match="Feature field is not iterable"):
+        evaluate_rules(make_features(), [rule])
+
+
+def test_default_rules_match_script_kiddie_tool_names_on_tcp_shell():
+    rules = load_rules("classifier/rules/default_rules.yaml")
+    features = make_features(
+        protocol="tcp_shell",
+        command_names=["whoami", "sqlmap", "exit"],
+        exit_command_present=True,
+    )
+
+    result = evaluate_rules(features, rules)
+
+    matched_ids = {match.rule_id for match in result.matched_rules}
+    assert "script_kiddie_tool_names" in matched_ids
+    tool_match = next(m for m in result.matched_rules if m.rule_id == "script_kiddie_tool_names")
+    assert tool_match.actor_label == "script_kiddie"
+
+
+def test_default_rules_script_kiddie_tool_names_ignores_other_protocols():
+    rules = load_rules("classifier/rules/default_rules.yaml")
+    features = make_features(
+        protocol="http",
+        command_names=["sqlmap"],
+    )
+
+    result = evaluate_rules(features, rules)
+
+    assert "script_kiddie_tool_names" not in {m.rule_id for m in result.matched_rules}
+
+
 def test_default_yaml_rules_load_and_match_expected_features():
     rules = load_rules("classifier/rules/default_rules.yaml")
 
