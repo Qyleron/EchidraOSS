@@ -39,7 +39,9 @@ def test_empty_rule_evaluation_returns_no_risk_summary():
     assert summary.risk_level == "none"
     assert summary.behavior_stage == "none"
     assert summary.intent == "unknown"
-    assert summary.safeguard_recommendations == []
+    assert summary.deception_action is None
+    assert summary.alert_action is None
+    assert summary.analyst_recommendation is None
     assert summary.feature_summary is None
     assert summary.classifier_version == "1.0.0"
     assert summary.rules_version == "unversioned"
@@ -48,6 +50,25 @@ def test_empty_rule_evaluation_returns_no_risk_summary():
     assert summary.mitre_tags == []
     assert summary.evidence == []
     assert summary.matched_rule_ids == []
+
+
+def test_rule_matches_can_classify_zero_command_sessions():
+    evaluation = RuleEvaluation(matched_rules=[
+        make_match(
+            "repeat_connections_same_ip",
+            "automated_scanner",
+            0.82,
+            20,
+        ),
+    ])
+    features = make_features(command_count=0)
+
+    summary = summarize_rule_evaluation(evaluation, features)
+
+    assert summary.classification_status == "complete"
+    assert summary.insufficient_data_reason is None
+    assert summary.actor_label == "automated_scanner"
+    assert summary.matched_rule_ids == ["repeat_connections_same_ip"]
 
 
 def test_summary_aggregates_risk_evidence_and_mitre_tags():
@@ -92,17 +113,11 @@ def test_summary_aggregates_risk_evidence_and_mitre_tags():
     assert summary.risk_level == "medium"
     assert summary.behavior_stage == "credential_access"
     assert summary.intent == "credential_theft"
-    assert [
-        recommendation.action
-        for recommendation in summary.safeguard_recommendations
-    ] == [
-        "rotate_exposed_credentials",
-    ]
-    assert summary.safeguard_recommendations[0].priority == "high"
-    assert (
-        summary.safeguard_recommendations[0].tool_category
-        == "IAM or secrets manager"
-    )
+    assert summary.deception_action.action == "adaptive_response_delay"
+    assert summary.alert_action.action == "notify_analyst"
+    assert summary.alert_action.priority == "medium"
+    assert summary.analyst_recommendation.action == "rotate_exposed_credentials"
+    assert summary.analyst_recommendation.priority == "high"
     assert summary.persona_context.persona_id == "ubuntu_web_server"
     assert summary.persona_context.decoy_files_surfaced == [
         "/var/www/html/wp-config.php",
@@ -170,12 +185,7 @@ def test_summary_maps_interactive_execution_stage_and_intent():
 
     assert summary.behavior_stage == "execution"
     assert summary.intent == "interactive_operation"
-    assert [
-        recommendation.action
-        for recommendation in summary.safeguard_recommendations
-    ] == [
-        "preserve_session_transcript",
-    ]
+    assert summary.analyst_recommendation.action == "preserve_session_transcript"
 
 
 def test_summary_recommends_escalation_for_high_risk_activity():
@@ -192,14 +202,9 @@ def test_summary_recommends_escalation_for_high_risk_activity():
 
     summary = summarize_rule_evaluation(evaluation)
 
-    assert [
-        recommendation.action
-        for recommendation in summary.safeguard_recommendations
-    ] == [
-        "escalate_incident_review",
-    ]
-    assert summary.safeguard_recommendations[0].priority == "critical"
-    assert summary.safeguard_recommendations[0].supporting_evidence == [
+    assert summary.analyst_recommendation.action == "escalate_incident_review"
+    assert summary.analyst_recommendation.priority == "critical"
+    assert summary.analyst_recommendation.supporting_evidence == [
         "Bulk sensitive data access.",
     ]
 
@@ -222,13 +227,8 @@ def test_summary_recommends_decoy_review_for_collection_with_decoys():
 
     summary = summarize_rule_evaluation(evaluation, features)
 
-    assert [
-        recommendation.action
-        for recommendation in summary.safeguard_recommendations
-    ] == [
-        "review_decoy_exposure",
-    ]
-    assert summary.safeguard_recommendations[0].supporting_evidence == [
+    assert summary.analyst_recommendation.action == "review_decoy_exposure"
+    assert summary.analyst_recommendation.supporting_evidence == [
         "/var/www/html/wp-config.php",
     ]
 

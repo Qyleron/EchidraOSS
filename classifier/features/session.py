@@ -52,6 +52,7 @@ class SessionFeatures(BaseModel):
     inter_command_intervals_seconds: list[float]
     average_inter_command_interval_seconds: float | None
     command_names: list[str]
+    auth_attempt_count: int = Field(default=0, ge=0)
     # Cross-session feature — only populated by the store-time path when the DB
     # is available; None in the stateless /classify/session endpoint by design.
     connection_count_from_same_ip: int | None = None
@@ -71,10 +72,17 @@ def extract_session_features(
     file_read_count = 0
     sensitive_file_read_count = 0
     exit_command_present = False
+    auth_attempt_count = 0
 
     for event in session.commands:
         command_name, args = _parse_command(event.cmd)
         command_names.append(command_name)
+
+        normalized = event.cmd.strip().lower()
+        if command_name in {"user", "pass"} or normalized.startswith(
+            ("login:", "password:", "authorization:")
+        ):
+            auth_attempt_count += 1
 
         if command_name in DISCOVERY_COMMANDS:
             discovery_command_count += 1
@@ -116,6 +124,7 @@ def extract_session_features(
         inter_command_intervals_seconds=intervals,
         average_inter_command_interval_seconds=average_interval,
         command_names=command_names,
+        auth_attempt_count=auth_attempt_count,
         connection_count_from_same_ip=connection_count_from_same_ip,
     )
 

@@ -29,6 +29,7 @@ def classify_session(
     rules: RuleSet | list[ClassificationRule] | None = None,
     *,
     connection_count_from_same_ip: int | None = None,
+    active: bool = False,
 ) -> ClassificationSummary:
     """Classify one validated post-session record into an analyst summary.
 
@@ -45,7 +46,19 @@ def classify_session(
         connection_count_from_same_ip=connection_count_from_same_ip,
     )
     evaluation = evaluate_rules(features, active_rules)
-    return summarize_rule_evaluation(evaluation, features)
+    summary = summarize_rule_evaluation(evaluation, features)
+    if active:
+        reason = (
+            "live classification from an active session; the result may change "
+            "when more activity is observed"
+        )
+        return summary.copy(
+            update={
+                "classification_status": "partial",
+                "insufficient_data_reason": reason,
+            }
+        )
+    return summary
 
 
 def classify_session_record(

@@ -187,7 +187,8 @@ def test_classifier_signal_insert_params_normalize_analysis_fields():
     assert ("matched_rule", "rule_id", "sensitive_file_probe") in signal_pairs
     assert ("mitre_tag", "attack_id", "T1005") in signal_pairs
     assert ("feature", "command_count", "4") in signal_pairs
-    assert ("recommendation", "rotate_exposed_credentials", "high") in signal_pairs
+    assert ("analyst_recommendation", "rotate_exposed_credentials", "high") in signal_pairs
+    assert ("alert_action", "notify_analyst", "medium") in signal_pairs
     assert signals[0]["signal_index"] == 0
     assert signals[-1]["signal_index"] == len(signals) - 1
 
