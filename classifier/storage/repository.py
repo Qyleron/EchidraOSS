@@ -2,9 +2,17 @@
 
 from __future__ import annotations
 
+import base64
+import os
 from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
+
+from cryptography.fernet import Fernet
+try:
+    from classifier.rules.issue_playbook import load_mitre_technique_catalog
+except Exception:
+    load_mitre_technique_catalog = None
 
 from classifier.schemas.session import SessionRecord
 from classifier.scoring.session import ClassificationSummary
@@ -445,8 +453,17 @@ INSERT INTO persona_configs (
     %(created_at)s, %(updated_at)s
 )
 """
+SELECT_PERSONA_CONFIG_COLS = """
+    id, name, os_banner, ssh_banner, hostname, timezone, internal_notes,
+    ssh_enabled, ssh_port, http_enabled, http_port, ftp_enabled, ftp_port,
+    telnet_enabled, telnet_port,
+    fake_users, running_processes, decoy_files,
+    alert_routing_level, alert_min_risk_level, contact_email, slack_webhook, interaction_depth,
+    created_at, updated_at
+"""
 
-UPDATE_PERSONA_CONFIG_SQL = """
+UPDATE_PERSONA_CONFIG_SQL = (
+    """
 UPDATE persona_configs SET
     name = %(name)s,
     os_banner = %(os_banner)s,
@@ -473,15 +490,8 @@ UPDATE persona_configs SET
     updated_at = %(updated_at)s
 WHERE id = %(id)s
 """
-
-SELECT_PERSONA_CONFIG_COLS = """
-    id, name, os_banner, ssh_banner, hostname, timezone, internal_notes,
-    ssh_enabled, ssh_port, http_enabled, http_port, ftp_enabled, ftp_port,
-    telnet_enabled, telnet_port,
-    fake_users, running_processes, decoy_files,
-    alert_routing_level, alert_min_risk_level, contact_email, slack_webhook, interaction_depth,
-    created_at, updated_at
-"""
+    + SELECT_PERSONA_CONFIG_COLS
+)
 
 SELECT_PERSONA_CONFIG_BASE_SQL = (
     "SELECT " + SELECT_PERSONA_CONFIG_COLS + " FROM persona_configs "
@@ -491,7 +501,7 @@ SELECT_PERSONA_CONFIG_BY_ID_SQL = (
     SELECT_PERSONA_CONFIG_BASE_SQL + "WHERE id = %(id)s"
 )
 
-DELETE_PERSONA_CONFIG_SQL = "DELETE FROM persona_configs WHERE id = %(id)s"
+DELETE_PERSONA_CONFIG_SQL = "DELETE FROM persona_configs WHERE id = %(id)s RETURNING id"
 
 SELECT_PERSONA_SESSION_COUNT_SQL = """
 SELECT COUNT(*) AS total
@@ -624,6 +634,33 @@ class DatabaseNotConfiguredError(RuntimeError):
 
 class DatabaseDriverMissingError(RuntimeError):
     """Raised when psycopg is unavailable for PostgreSQL storage."""
+
+
+def _alert_password_key() -> bytes:
+    """Return a stable encryption key from environment or a local fallback."""
+    key = os.environ.get("ECHIDRA_ALERT_SECRET")
+    if not key:
+        key = os.environ.get("ECHIDRA_SECRET_KEY", "echidra-alert-secret-key")
+    if not key:
+        key = "echidra-alert-secret-key"
+    return base64.urlsafe_b64encode(key.encode("utf-8").ljust(32, b"0")[:32])
+
+
+def _encrypt_alert_password(value: str | None) -> str | None:
+    if value is None:
+        return None
+    if not value:
+        return ""
+    return Fernet(_alert_password_key()).encrypt(value.encode("utf-8")).decode("utf-8")
+
+
+def _decrypt_alert_password(value: str | None) -> str | None:
+    if value is None or value == "":
+        return value
+    try:
+        return Fernet(_alert_password_key()).decrypt(value.encode("utf-8")).decode("utf-8")
+    except Exception:
+        return None
 
 
 class PostgresClassifierRepository:
@@ -795,30 +832,63 @@ class PostgresClassifierRepository:
 
     def get_dashboard_report_summary(self) -> DashboardReportSummary:
         """Fetch database-wide aggregate values for dashboard reporting."""
-        overview = _fetch_one(
-            self.database_url,
-            SELECT_DASHBOARD_REPORT_OVERVIEW_SQL,
-            {},
-        )
-        if overview is None:
-            overview = {
-                "total_runs": 0,
-                "elevated_runs": 0,
-                "distinct_personas": 0,
-                "manual_labels": 0,
-                "average_risk_score": 0,
-            }
+        try:
+            psycopg = _load_psycopg()
+            with psycopg.connect(self.database_url) as conn:
+                with conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
+                    overview = _fetch_one_with_conn(
+                        self.database_url,
+                        SELECT_DASHBOARD_REPORT_OVERVIEW_SQL,
+                        {},
+                        connection=conn,
+                        cursor=cur,
+                    )
+                    if overview is None:
+                        overview = {
+                            "total_runs": 0,
+                            "elevated_runs": 0,
+                            "distinct_personas": 0,
+                            "manual_labels": 0,
+                            "average_risk_score": 0,
+                        }
+
+                    risk_counts = _count_map(
+                        _fetch_all_with_conn(
+                            self.database_url, SELECT_DASHBOARD_REPORT_RISK_COUNTS_SQL, {}, connection=conn, cursor=cur
+                        )
+                    )
+                    actor_counts = _count_map(
+                        _fetch_all_with_conn(
+                            self.database_url, SELECT_DASHBOARD_REPORT_ACTOR_COUNTS_SQL, {}, connection=conn, cursor=cur
+                        )
+                    )
+                    intent_counts = _count_map(
+                        _fetch_all_with_conn(
+                            self.database_url, SELECT_DASHBOARD_REPORT_INTENT_COUNTS_SQL, {}, connection=conn, cursor=cur
+                        )
+                    )
+        except DatabaseDriverMissingError:
+            # psycopg not available in this environment (tests monkeypatch
+            # the fetch helpers). Fall back to the original per-call helpers
+            # which tests may have replaced.
+            overview = _fetch_one(self.database_url, SELECT_DASHBOARD_REPORT_OVERVIEW_SQL, {})
+            if overview is None:
+                overview = {
+                    "total_runs": 0,
+                    "elevated_runs": 0,
+                    "distinct_personas": 0,
+                    "manual_labels": 0,
+                    "average_risk_score": 0,
+                }
+            risk_counts = _count_map(_fetch_all(self.database_url, SELECT_DASHBOARD_REPORT_RISK_COUNTS_SQL, {}))
+            actor_counts = _count_map(_fetch_all(self.database_url, SELECT_DASHBOARD_REPORT_ACTOR_COUNTS_SQL, {}))
+            intent_counts = _count_map(_fetch_all(self.database_url, SELECT_DASHBOARD_REPORT_INTENT_COUNTS_SQL, {}))
+
         return DashboardReportSummary(
             **overview,
-            risk_counts=_count_map(
-                _fetch_all(self.database_url, SELECT_DASHBOARD_REPORT_RISK_COUNTS_SQL, {})
-            ),
-            actor_counts=_count_map(
-                _fetch_all(self.database_url, SELECT_DASHBOARD_REPORT_ACTOR_COUNTS_SQL, {})
-            ),
-            intent_counts=_count_map(
-                _fetch_all(self.database_url, SELECT_DASHBOARD_REPORT_INTENT_COUNTS_SQL, {})
-            ),
+            risk_counts=risk_counts,
+            actor_counts=actor_counts,
+            intent_counts=intent_counts,
         )
 
     def list_issues(
@@ -907,56 +977,92 @@ class PostgresClassifierRepository:
     ) -> PersonaConfigRecord | None:
         """Update one persona config and return the stored record, or None if not found."""
         from datetime import datetime, timezone
-        existing = self.get_persona_config(persona_id)
-        if existing is None:
-            return None
         now = datetime.now(timezone.utc)
-        record = PersonaConfigRecord(
-            id=persona_id,
-            created_at=existing.created_at,
-            updated_at=now,
-            **config.dict(),
-        )
-        _execute_insert(
-            self.database_url,
-            UPDATE_PERSONA_CONFIG_SQL,
-            _persona_config_params(record),
-        )
-        return record
+        params: dict[str, Any] = config.dict()
+        params.update({"id": persona_id, "updated_at": now})
+
+        # Use UPDATE ... RETURNING to atomically verify the row was updated and
+        # to retrieve the stored values (avoids TOCTOU races between a prior
+        # existence check and the write).
+        row = _fetch_one(self.database_url, UPDATE_PERSONA_CONFIG_SQL, params)
+        if row is None:
+            return None
+
+        return _persona_config_from_row(row)
 
     def delete_persona_config(self, persona_id: str) -> bool:
         """Delete one persona config by ID. Returns True if it existed."""
-        if self.get_persona_config(persona_id) is None:
-            return False
-        _execute_insert(
-            self.database_url,
-            DELETE_PERSONA_CONFIG_SQL,
-            {"id": persona_id},
-        )
-        return True
+        # Use DELETE ... RETURNING to ensure we only report success when a row
+        # was actually removed (prevents TOCTOU where a prior existence check
+        # might become stale).
+        row = _fetch_one(self.database_url, DELETE_PERSONA_CONFIG_SQL, {"id": persona_id})
+        return row is not None
 
     def get_persona_analytics(self, persona_id: str) -> PersonaAnalytics:
         """Aggregate session + classifier data for one persona ID."""
         params = {"persona_id": persona_id}
-        total_row = _fetch_one(self.database_url, SELECT_PERSONA_SESSION_COUNT_SQL, params)
-        sessions_captured = int(total_row["total"]) if total_row else 0
+        try:
+            psycopg = _load_psycopg()
+            with psycopg.connect(self.database_url) as conn:
+                with conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
+                    total_row = _fetch_one_with_conn(
+                        self.database_url, SELECT_PERSONA_SESSION_COUNT_SQL, params, connection=conn, cursor=cur
+                    )
+                    sessions_captured = int(total_row["total"]) if total_row else 0
 
-        trend_rows = _fetch_all(self.database_url, SELECT_PERSONA_SESSIONS_TREND_SQL, params)
-        intent_rows = _fetch_all(self.database_url, SELECT_PERSONA_INTENT_COUNTS_SQL, params)
-        risk_rows = _fetch_all(self.database_url, SELECT_PERSONA_RISK_COUNTS_SQL, params)
-        technique_rows = _fetch_all(self.database_url, SELECT_PERSONA_TOP_TECHNIQUES_SQL, params)
-        hour_rows = _fetch_all(self.database_url, SELECT_PERSONA_PEAK_HOURS_SQL, params)
-        country_rows = _fetch_all(self.database_url, SELECT_PERSONA_TOP_COUNTRIES_SQL, params)
+                    trend_rows = _fetch_all_with_conn(
+                        self.database_url, SELECT_PERSONA_SESSIONS_TREND_SQL, params, connection=conn, cursor=cur
+                    )
+                    intent_rows = _fetch_all_with_conn(
+                        self.database_url, SELECT_PERSONA_INTENT_COUNTS_SQL, params, connection=conn, cursor=cur
+                    )
+                    risk_rows = _fetch_all_with_conn(
+                        self.database_url, SELECT_PERSONA_RISK_COUNTS_SQL, params, connection=conn, cursor=cur
+                    )
+                    technique_rows = _fetch_all_with_conn(
+                        self.database_url, SELECT_PERSONA_TOP_TECHNIQUES_SQL, params, connection=conn, cursor=cur
+                    )
+                    hour_rows = _fetch_all_with_conn(
+                        self.database_url, SELECT_PERSONA_PEAK_HOURS_SQL, params, connection=conn, cursor=cur
+                    )
+                    country_rows = _fetch_all_with_conn(
+                        self.database_url, SELECT_PERSONA_TOP_COUNTRIES_SQL, params, connection=conn, cursor=cur
+                    )
+        except DatabaseDriverMissingError:
+            total_row = _fetch_one(self.database_url, SELECT_PERSONA_SESSION_COUNT_SQL, params)
+            sessions_captured = int(total_row["total"]) if total_row else 0
+
+            trend_rows = _fetch_all(self.database_url, SELECT_PERSONA_SESSIONS_TREND_SQL, params)
+            intent_rows = _fetch_all(self.database_url, SELECT_PERSONA_INTENT_COUNTS_SQL, params)
+            risk_rows = _fetch_all(self.database_url, SELECT_PERSONA_RISK_COUNTS_SQL, params)
+            technique_rows = _fetch_all(self.database_url, SELECT_PERSONA_TOP_TECHNIQUES_SQL, params)
+            hour_rows = _fetch_all(self.database_url, SELECT_PERSONA_PEAK_HOURS_SQL, params)
+            country_rows = _fetch_all(self.database_url, SELECT_PERSONA_TOP_COUNTRIES_SQL, params)
+
+        # Resolve MITRE technique names using the generated catalog when
+        # available; fall back to the technique id when no name is known.
+        mitre_catalog: dict[str, str] = {}
+        if load_mitre_technique_catalog is not None:
+            try:
+                mitre_catalog = load_mitre_technique_catalog()
+            except Exception:
+                mitre_catalog = {}
+
+        top_techniques = [
+            {
+                "id": row["technique_id"],
+                "name": mitre_catalog.get(row["technique_id"], row["technique_id"]),
+                "count": int(row["count"]),
+            }
+            for row in technique_rows
+        ]
 
         return PersonaAnalytics(
             sessions_captured=sessions_captured,
             sessions_trend=[{"date": row["date"], "count": int(row["count"])} for row in trend_rows],
             intent_counts={str(row["key"]): int(row["count"]) for row in intent_rows},
             risk_counts={str(row["key"]): int(row["count"]) for row in risk_rows},
-            top_techniques=[
-                {"id": row["technique_id"], "name": None, "count": int(row["count"])}
-                for row in technique_rows
-            ],
+            top_techniques=top_techniques,
             peak_hours=[{"hour": int(row["hour"]), "count": int(row["count"])} for row in hour_rows],
             top_countries=[{"country": str(row["key"]), "count": int(row["count"])} for row in country_rows],
         )
@@ -1037,6 +1143,7 @@ class PostgresClassifierRepository:
     def upsert_alert_config(self, config: "AlertConfigInput") -> "AlertConfigRecord":
         """Persist the global alert config (password only updated if non-None)."""
         from classifier.storage.models import AlertConfigInput, AlertConfigRecord
+        encrypted_password = _encrypt_alert_password(config.smtp_password)
         _execute_insert(
             self.database_url,
             UPSERT_ALERT_CONFIG_SQL,
@@ -1045,7 +1152,7 @@ class PostgresClassifierRepository:
                 "smtp_host": config.smtp_host,
                 "smtp_port": config.smtp_port,
                 "smtp_username": config.smtp_username,
-                "smtp_password": config.smtp_password,
+                "smtp_password": encrypted_password,
                 "smtp_from_email": config.smtp_from_email,
                 "smtp_use_tls": config.smtp_use_tls,
                 "global_min_risk_level": config.global_min_risk_level,
@@ -1531,6 +1638,231 @@ def apply_schema(database_url: str, schema_path: str | Path) -> None:
                 cursor.execute(schema_sql)
 
 
+def seed_demo_issues(database_url: str) -> None:
+    """Insert synthetic demo issues and MITRE mappings into a database."""
+    _execute_statements(
+        database_url,
+        [
+            (
+                """
+                INSERT INTO issues (
+                    id, title, severity, evidence, recommended_fix, impact,
+                    session_count, persona_count, status, created_at
+                ) VALUES (
+                    %(id)s,
+                    %(title)s,
+                    %(severity)s,
+                    %(evidence)s,
+                    %(recommended_fix)s,
+                    %(impact)s,
+                    %(session_count)s,
+                    %(persona_count)s,
+                    %(status)s,
+                    NOW()
+                ) ON CONFLICT (id) DO NOTHING
+                """,
+                {
+                    "id": "11111111-1111-4111-8111-111111111111",
+                    "title": "SSH password authentication is being targeted.",
+                    "severity": "high",
+                    "evidence": "37 brute-force sessions across 4 personas.",
+                    "recommended_fix": "Disable password login, enforce SSH keys, add rate limiting, block repeated scanner ASNs.",
+                    "impact": "Reduces credential-access exposure.",
+                    "session_count": 37,
+                    "persona_count": 4,
+                    "status": "open",
+                },
+            ),
+            (
+                """
+                INSERT INTO issues (
+                    id, title, severity, evidence, recommended_fix, impact,
+                    session_count, persona_count, status, created_at
+                ) VALUES (
+                    %(id)s,
+                    %(title)s,
+                    %(severity)s,
+                    %(evidence)s,
+                    %(recommended_fix)s,
+                    %(impact)s,
+                    %(session_count)s,
+                    %(persona_count)s,
+                    %(status)s,
+                    NOW()
+                ) ON CONFLICT (id) DO NOTHING
+                """,
+                {
+                    "id": "22222222-2222-4222-8222-222222222222",
+                    "title": "Attackers fingerprint the system before staging payloads.",
+                    "severity": "medium",
+                    "evidence": "24 sessions ran whoami, uname -a, and cat /etc/passwd within the first 10 seconds across 3 personas.",
+                    "recommended_fix": "Trim shell banner detail, randomize first-command response timing, and alert on rapid fingerprinting sequences.",
+                    "impact": "Shortens attacker dwell time before detection.",
+                    "session_count": 24,
+                    "persona_count": 3,
+                    "status": "open",
+                },
+            ),
+            (
+                """
+                INSERT INTO issues (
+                    id, title, severity, evidence, recommended_fix, impact,
+                    session_count, persona_count, status, created_at
+                ) VALUES (
+                    %(id)s,
+                    %(title)s,
+                    %(severity)s,
+                    %(evidence)s,
+                    %(recommended_fix)s,
+                    %(impact)s,
+                    %(session_count)s,
+                    %(persona_count)s,
+                    %(status)s,
+                    NOW()
+                ) ON CONFLICT (id) DO NOTHING
+                """,
+                {
+                    "id": "33333333-3333-4333-8333-333333333333",
+                    "title": "Attackers plant SSH keys for persistence after login.",
+                    "severity": "high",
+                    "evidence": "18 sessions appended to ~/.ssh/authorized_keys across 2 personas.",
+                    "recommended_fix": "Make ~/.ssh writes visibly detectable, seed decoy keys, and alert immediately on authorized_keys modification.",
+                    "impact": "Closes the most common persistence path observed.",
+                    "session_count": 18,
+                    "persona_count": 2,
+                    "status": "open",
+                },
+            ),
+            (
+                """
+                INSERT INTO issues (
+                    id, title, severity, evidence, recommended_fix, impact,
+                    session_count, persona_count, status, created_at
+                ) VALUES (
+                    %(id)s,
+                    %(title)s,
+                    %(severity)s,
+                    %(evidence)s,
+                    %(recommended_fix)s,
+                    %(impact)s,
+                    %(session_count)s,
+                    %(persona_count)s,
+                    %(status)s,
+                    NOW()
+                ) ON CONFLICT (id) DO NOTHING
+                """,
+                {
+                    "id": "44444444-4444-4444-8444-444444444444",
+                    "title": "The same scanner ASNs revisit after short cooldowns to re-validate access.",
+                    "severity": "medium",
+                    "evidence": "12 sessions from 3 ASNs returned within 24 hours of a prior scan.",
+                    "recommended_fix": "Throttle by ASN with an escalating cooldown and block ranges that repeatedly re-validate without new behavior.",
+                    "impact": "Frees analyst attention for genuine attacker sessions.",
+                    "session_count": 12,
+                    "persona_count": 3,
+                    "status": "closed",
+                },
+            ),
+            (
+                """
+                INSERT INTO issue_mitre_techniques (issue_id, technique_index, technique_id, technique_name) VALUES (
+                    %(issue_id)s,
+                    %(technique_index)s,
+                    %(technique_id)s,
+                    %(technique_name)s
+                ) ON CONFLICT (issue_id, technique_index) DO NOTHING
+                """,
+                {
+                    "issue_id": "11111111-1111-4111-8111-111111111111",
+                    "technique_index": 0,
+                    "technique_id": "T1110",
+                    "technique_name": "Brute Force",
+                },
+            ),
+            (
+                """
+                INSERT INTO issue_mitre_techniques (issue_id, technique_index, technique_id, technique_name) VALUES (
+                    %(issue_id)s,
+                    %(technique_index)s,
+                    %(technique_id)s,
+                    %(technique_name)s
+                ) ON CONFLICT (issue_id, technique_index) DO NOTHING
+                """,
+                {
+                    "issue_id": "11111111-1111-4111-8111-111111111111",
+                    "technique_index": 1,
+                    "technique_id": "T1078",
+                    "technique_name": "Valid Accounts",
+                },
+            ),
+            (
+                """
+                INSERT INTO issue_mitre_techniques (issue_id, technique_index, technique_id, technique_name) VALUES (
+                    %(issue_id)s,
+                    %(technique_index)s,
+                    %(technique_id)s,
+                    %(technique_name)s
+                ) ON CONFLICT (issue_id, technique_index) DO NOTHING
+                """,
+                {
+                    "issue_id": "22222222-2222-4222-8222-222222222222",
+                    "technique_index": 0,
+                    "technique_id": "T1082",
+                    "technique_name": "System Information Discovery",
+                },
+            ),
+            (
+                """
+                INSERT INTO issue_mitre_techniques (issue_id, technique_index, technique_id, technique_name) VALUES (
+                    %(issue_id)s,
+                    %(technique_index)s,
+                    %(technique_id)s,
+                    %(technique_name)s
+                ) ON CONFLICT (issue_id, technique_index) DO NOTHING
+                """,
+                {
+                    "issue_id": "22222222-2222-4222-8222-222222222222",
+                    "technique_index": 1,
+                    "technique_id": "T1087",
+                    "technique_name": "Account Discovery",
+                },
+            ),
+            (
+                """
+                INSERT INTO issue_mitre_techniques (issue_id, technique_index, technique_id, technique_name) VALUES (
+                    %(issue_id)s,
+                    %(technique_index)s,
+                    %(technique_id)s,
+                    %(technique_name)s
+                ) ON CONFLICT (issue_id, technique_index) DO NOTHING
+                """,
+                {
+                    "issue_id": "33333333-3333-4333-8333-333333333333",
+                    "technique_index": 0,
+                    "technique_id": "T1098.004",
+                    "technique_name": "SSH Authorized Keys",
+                },
+            ),
+            (
+                """
+                INSERT INTO issue_mitre_techniques (issue_id, technique_index, technique_id, technique_name) VALUES (
+                    %(issue_id)s,
+                    %(technique_index)s,
+                    %(technique_id)s,
+                    %(technique_name)s
+                ) ON CONFLICT (issue_id, technique_index) DO NOTHING
+                """,
+                {
+                    "issue_id": "44444444-4444-4444-8444-444444444444",
+                    "technique_index": 0,
+                    "technique_id": "T1595",
+                    "technique_name": "Active Scanning",
+                },
+            ),
+        ],
+    )
+
+
 def _execute_statements(
     database_url: str,
     statements: list[tuple[str, dict[str, Any]]],
@@ -1548,7 +1880,18 @@ def _fetch_one(
     sql: str,
     params: dict[str, Any],
 ) -> dict[str, Any] | None:
-    rows = _fetch_all(database_url, sql, params)
+    return _fetch_one_with_conn(database_url, sql, params)
+
+
+def _fetch_one_with_conn(
+    database_url: str,
+    sql: str,
+    params: dict[str, Any],
+    *,
+    connection=None,
+    cursor=None,
+) -> dict[str, Any] | None:
+    rows = _fetch_all_with_conn(database_url, sql, params, connection=connection, cursor=cursor)
     return rows[0] if rows else None
 
 
@@ -1557,11 +1900,36 @@ def _fetch_all(
     sql: str,
     params: dict[str, Any],
 ) -> list[dict[str, Any]]:
+    return _fetch_all_with_conn(database_url, sql, params)
+
+
+def _fetch_all_with_conn(
+    database_url: str,
+    sql: str,
+    params: dict[str, Any],
+    *,
+    connection=None,
+    cursor=None,
+) -> list[dict[str, Any]]:
     psycopg = _load_psycopg()
-    with psycopg.connect(database_url) as connection:
-        with connection.cursor(row_factory=psycopg.rows.dict_row) as cursor:
-            cursor.execute(sql, params)
-            return list(cursor.fetchall())
+    # If a cursor is provided, assume caller controls lifecycle and row factory.
+    if cursor is not None:
+        cursor.execute(sql, params)
+        return list(cursor.fetchall())
+
+    # If a connection is provided, create a short-lived cursor using the
+    # connection's row factory so multiple queries can reuse the same
+    # TCP connection without reconnecting each time.
+    if connection is not None:
+        with connection.cursor(row_factory=psycopg.rows.dict_row) as cur:
+            cur.execute(sql, params)
+            return list(cur.fetchall())
+
+    # Fallback: open a fresh connection per call (existing behavior).
+    with psycopg.connect(database_url) as conn:
+        with conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
+            cur.execute(sql, params)
+            return list(cur.fetchall())
 
 
 def _load_psycopg():

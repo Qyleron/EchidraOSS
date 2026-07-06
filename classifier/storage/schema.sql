@@ -163,57 +163,6 @@ CREATE TABLE IF NOT EXISTS persona_configs (
 ALTER TABLE persona_configs ADD COLUMN IF NOT EXISTS
     alert_min_risk_level TEXT CHECK (alert_min_risk_level IN ('critical', 'high', 'medium', 'low'));
 
-INSERT INTO issues (
-    id, title, severity, evidence, recommended_fix, impact,
-    session_count, persona_count, status, created_at
-) VALUES
-    (
-        '11111111-1111-4111-8111-111111111111',
-        'SSH password authentication is being targeted.',
-        'high',
-        '37 brute-force sessions across 4 personas.',
-        'Disable password login, enforce SSH keys, add rate limiting, block repeated scanner ASNs.',
-        'Reduces credential-access exposure.',
-        37, 4, 'open', now()
-    ),
-    (
-        '22222222-2222-4222-8222-222222222222',
-        'Attackers fingerprint the system before staging payloads.',
-        'medium',
-        '24 sessions ran whoami, uname -a, and cat /etc/passwd within the first 10 seconds across 3 personas.',
-        'Trim shell banner detail, randomize first-command response timing, and alert on rapid fingerprinting sequences.',
-        'Shortens attacker dwell time before detection.',
-        24, 3, 'open', now()
-    ),
-    (
-        '33333333-3333-4333-8333-333333333333',
-        'Attackers plant SSH keys for persistence after login.',
-        'high',
-        '18 sessions appended to ~/.ssh/authorized_keys across 2 personas.',
-        'Make ~/.ssh writes visibly detectable, seed decoy keys, and alert immediately on authorized_keys modification.',
-        'Closes the most common persistence path observed.',
-        18, 2, 'open', now()
-    ),
-    (
-        '44444444-4444-4444-8444-444444444444',
-        'The same scanner ASNs revisit after short cooldowns to re-validate access.',
-        'medium',
-        '12 sessions from 3 ASNs returned within 24 hours of a prior scan.',
-        'Throttle by ASN with an escalating cooldown and block ranges that repeatedly re-validate without new behavior.',
-        'Frees analyst attention for genuine attacker sessions.',
-        12, 3, 'closed', now()
-    )
-ON CONFLICT (id) DO NOTHING;
-
-INSERT INTO issue_mitre_techniques (issue_id, technique_index, technique_id, technique_name) VALUES
-    ('11111111-1111-4111-8111-111111111111', 0, 'T1110', 'Brute Force'),
-    ('11111111-1111-4111-8111-111111111111', 1, 'T1078', 'Valid Accounts'),
-    ('22222222-2222-4222-8222-222222222222', 0, 'T1082', 'System Information Discovery'),
-    ('22222222-2222-4222-8222-222222222222', 1, 'T1087', 'Account Discovery'),
-    ('33333333-3333-4333-8333-333333333333', 0, 'T1098.004', 'SSH Authorized Keys'),
-    ('44444444-4444-4444-8444-444444444444', 0, 'T1595', 'Active Scanning')
-ON CONFLICT (issue_id, technique_index) DO NOTHING;
-
 -- Singleton row holding global SMTP alert settings.
 CREATE TABLE IF NOT EXISTS alert_config (
     id INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),

@@ -23,6 +23,7 @@ from pydantic import BaseModel, validator
 from classifier.pipeline import classify_session
 from classifier.schemas.session import SessionRecord
 from classifier.scoring.session import ClassificationSummary
+from classifier.alerts import _maybe_send_alert
 from classifier.storage import (
     AlertConfigInput,
     AlertConfigRecord,
@@ -781,88 +782,6 @@ def _risk_meets_threshold(risk_level: str, min_risk_level: str) -> bool:
         return _RISK_LEVEL_ORDER.index(risk_level) <= _RISK_LEVEL_ORDER.index(min_risk_level)
     except ValueError:
         return False
-
-
-def _maybe_send_alert(
-    run: ClassifierRunRecord | None,
-    session: SessionRecord | dict,
-    summary: ClassificationSummary,
-) -> None:
-    """Fire an email alert if the run meets the configured threshold.
-
-    Never raises — alert errors are logged and recorded but the classifier run
-    was already persisted and the HTTP response was already sent.
-    """
-    if summary.alert_action is None:
-        return
-    if isinstance(session, dict):
-        session = SessionRecord.parse_obj(session)
-    try:
-        repository = PostgresClassifierRepository()
-        config = repository.get_alert_config()
-        if config is None or not config.enabled:
-            return
-
-        # Check global threshold first
-        if not _risk_meets_threshold(summary.risk_level, config.global_min_risk_level):
-            return
-
-        # Check persona routing preference
-        persona_config = repository.get_persona_config(session.persona_id)
-        if persona_config is None or persona_config.alert_routing_level not in ("email", "both"):
-            return
-        if not persona_config.contact_email:
-            return
-
-        # Per-persona threshold override
-        effective_threshold = persona_config.alert_min_risk_level or config.global_min_risk_level
-        if not _risk_meets_threshold(summary.risk_level, effective_threshold):
-            return
-
-        err = _dispatch_alert_email(config, persona_config.contact_email, run, session, summary)
-        repository.insert_alert_event(
-            AlertEventRecord(
-                run_id=run.id if run is not None else None,
-                session_id=session.session_id,
-                persona_id=session.persona_id,
-                risk_level=summary.risk_level,
-                actor_label=summary.actor_label,
-                contact_email=persona_config.contact_email,
-                success=err is None,
-                error_message=err,
-            )
-        )
-    except Exception:
-        logger.exception("Alert dispatch failed — classifier run was saved normally")
-
-
-def _dispatch_alert_email(
-    config: AlertConfigRecord,
-    recipient: str,
-    run: ClassifierRunRecord | None,
-    session: SessionRecord,
-    summary: ClassificationSummary,
-) -> str | None:
-    """Send the alert email. Returns an error string on failure, None on success."""
-    subject = f"[Echidra Alert] {summary.risk_level.upper()} risk session on {session.persona_id}"
-    mitre_str = ", ".join(summary.mitre_tags) if summary.mitre_tags else "none"
-    evidence_lines = "\n".join(f"  - {e.text}" for e in summary.evidence) or "  (none)"
-    body = (
-        f"ECHIDRA HONEYPOT ALERT\n"
-        f"{'=' * 40}\n\n"
-        f"Risk Level:    {summary.risk_level.upper()}\n"
-        f"Risk Score:    {summary.risk_score}/100\n"
-        f"Actor:         {summary.actor_label or 'unknown'}\n"
-        f"Behavior:      {summary.behavior_stage}\n"
-        f"Intent:        {summary.intent}\n"
-        f"Persona:       {session.persona_id}\n"
-        f"Peer IP:       {session.peer_ip or 'unknown'}\n"
-        f"Session ID:    {session.session_id}\n"
-        f"Run ID:        {run.id if run is not None else 'live-session'}\n\n"
-        f"MITRE: {mitre_str}\n\n"
-        f"Evidence:\n{evidence_lines}\n"
-    )
-    return _smtp_send(config, recipient, subject, body)
 
 
 def _dispatch_test_email(config: AlertConfigRecord) -> str | None:

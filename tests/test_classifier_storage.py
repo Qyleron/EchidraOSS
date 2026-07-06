@@ -21,8 +21,10 @@ from classifier.storage.models import (
     MitreTechnique,
 )
 from classifier.storage.repository import (
+    DatabaseDriverMissingError,
     DatabaseNotConfiguredError,
     PostgresClassifierRepository,
+    _encrypt_alert_password,
     classifier_run_insert_params,
     classifier_run_statements,
     manual_label_insert_params,
@@ -83,6 +85,13 @@ def test_repository_requires_database_url(monkeypatch):
 
     with pytest.raises(DatabaseNotConfiguredError, match="ECHIDRA_DATABASE_URL"):
         PostgresClassifierRepository()
+
+
+def test_alert_password_encryption_round_trips_plaintext():
+    encrypted = _encrypt_alert_password("secret-password")
+
+    assert encrypted is not None
+    assert encrypted != "secret-password"
 
 
 def test_classifier_run_record_captures_searchable_summary_fields():
@@ -540,7 +549,8 @@ def test_repository_upsert_issue_refetches_persisted_status(monkeypatch):
     assert result.mitre[0].id == "T1110"
 
 
-def test_dashboard_report_summary_combines_database_aggregates(monkeypatch):
+def test_dashboard_report_summary_combines_database_aggregates_without_driver(monkeypatch):
+    """When psycopg itself is unavailable, fall back to the simple per-call helpers."""
     overview = {
         "total_runs": 12,
         "elevated_runs": 4,
@@ -556,6 +566,13 @@ def test_dashboard_report_summary_combines_database_aggregates(monkeypatch):
         ]
     )
 
+    def raise_driver_missing():
+        raise DatabaseDriverMissingError("psycopg is not installed")
+
+    monkeypatch.setattr(
+        "classifier.storage.repository._load_psycopg",
+        raise_driver_missing,
+    )
     monkeypatch.setattr(
         "classifier.storage.repository._fetch_one",
         lambda database_url, sql, params: overview,
@@ -571,6 +588,90 @@ def test_dashboard_report_summary_combines_database_aggregates(monkeypatch):
 
     assert summary == DashboardReportSummary(
         **overview,
+        risk_counts={"high": 4, "low": 8},
+        actor_counts={"commodity_bot": 7},
+        intent_counts={"reconnaissance": 6},
+    )
+
+
+class _FakeCursor:
+    """Stand-in for a psycopg cursor serving one canned result per execute()."""
+
+    def __init__(self, result_sequence):
+        self._results = list(result_sequence)
+
+    def execute(self, sql, params):
+        pass
+
+    def fetchall(self):
+        return self._results.pop(0)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc_info):
+        return False
+
+
+class _FakeConnection:
+    """Stand-in for a psycopg connection that always hands back one cursor."""
+
+    def __init__(self, cursor):
+        self._cursor = cursor
+
+    def cursor(self, row_factory=None):
+        return self._cursor
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc_info):
+        return False
+
+
+def test_dashboard_report_summary_reuses_one_connection_when_driver_available(monkeypatch):
+    """Regression test: overview + all three count queries must run even when
+    the overview row is found (previously, a stray indent meant risk/actor/
+    intent counts were only computed when overview was None, raising a
+    NameError as soon as a real database had any classifier runs)."""
+    overview_row = {
+        "total_runs": 12,
+        "elevated_runs": 4,
+        "distinct_personas": 3,
+        "manual_labels": 2,
+        "average_risk_score": 42.5,
+    }
+    cursor = _FakeCursor(
+        [
+            [overview_row],
+            [{"key": "high", "count": 4}, {"key": "low", "count": 8}],
+            [{"key": "commodity_bot", "count": 7}],
+            [{"key": "reconnaissance", "count": 6}],
+        ]
+    )
+    connection = _FakeConnection(cursor)
+
+    class _FakeRows:
+        dict_row = object()
+
+    class _FakePsycopg:
+        rows = _FakeRows()
+
+        @staticmethod
+        def connect(database_url):
+            return connection
+
+    monkeypatch.setattr(
+        "classifier.storage.repository._load_psycopg",
+        lambda: _FakePsycopg,
+    )
+
+    summary = PostgresClassifierRepository(
+        "postgresql://example/echidra"
+    ).get_dashboard_report_summary()
+
+    assert summary == DashboardReportSummary(
+        **overview_row,
         risk_counts={"high": 4, "low": 8},
         actor_counts={"commodity_bot": 7},
         intent_counts={"reconnaissance": 6},
@@ -734,6 +835,41 @@ def test_storage_cli_init_db_redacts_database_url_in_errors(
     assert exit_code == 2
     assert "postgresql://user:***@example.local:5432/echidra" in captured.err
     assert "secret" not in captured.err
+
+
+def test_storage_cli_init_db_can_seed_demo_issues_when_requested(
+    monkeypatch,
+    tmp_path,
+    capsys,
+):
+    schema_path = tmp_path / "schema.sql"
+    schema_path.write_text("CREATE TABLE example(id integer);", encoding="utf-8")
+    database_url = "postgresql://user:secret@example.local:5432/echidra"
+    calls = []
+
+    monkeypatch.setenv("ECHIDRA_DATABASE_URL", database_url)
+    monkeypatch.setattr(
+        storage_cli,
+        "apply_schema",
+        lambda url, path: calls.append(("schema", url, path)),
+    )
+    monkeypatch.setattr(
+        storage_cli,
+        "seed_demo_issues",
+        lambda url, path=None: calls.append(("seed", url, path)),
+    )
+
+    exit_code = storage_cli.main(
+        ["init-db", "--schema", str(schema_path), "--seed-demo-issues"]
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert calls[0] == ("schema", database_url, schema_path)
+    assert calls[1][0] == "seed"
+    assert calls[1][1] == database_url
+    assert captured.out == "database initialized\n"
+    assert "secret" not in captured.out
 
 
 def test_storage_cli_sync_issues_requires_database_url(monkeypatch, capsys):
