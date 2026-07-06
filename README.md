@@ -85,8 +85,8 @@ Set any protocol port to `0` to disable that listener. Pick a persona with
 `ECHIDRA_PERSONA=ubuntu_web_server python -m honeypot.main`.
 
 The dashboard is at `http://localhost:8000/dashboard` (sign up at `/auth` on
-first run). See [docs/PROJECT_PLAN.md](docs/PROJECT_PLAN.md) for build status
-and next steps, and [docs/TESTING_GUIDE.md](docs/TESTING_GUIDE.md) for
+first run). See [CONTEXT.md](CONTEXT.md) for current build status and
+architecture notes, and [docs/TESTING_GUIDE.md](docs/TESTING_GUIDE.md) for
 per-service and per-page manual test commands.
 
 ---
