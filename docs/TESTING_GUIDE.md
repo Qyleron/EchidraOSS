@@ -10,7 +10,7 @@ Prereqs for most sections:
 cp .env.example .env                       # set ECHIDRA_DATABASE_URL inside
 python -m classifier.storage.cli init-db   # creates tables + seeds 4 demo issues
 python -m honeypot.main                    # terminal 1 — the 4 protocol listeners
-uvicorn classifier.api:app --reload        # terminal 2 — API + dashboard, port 8000
+uvicorn classifier.api.app:create_app --factory --reload        # terminal 2 — API + dashboard, port 8000
 ```
 
 ---
@@ -339,19 +339,19 @@ pytest tests/test_rules_engine.py tests/test_scoring_session.py -v   # classifie
 pytest tests/test_session_features.py -v # timing/feature extraction
 pytest tests/test_issue_sync.py -v        # issue rollup + brute-force-by-IP logic
 ```
-Note: `FtpHandler`, `HttpHandler`, and `TelnetHandler` currently have **no**
-automated test coverage (`grep -rl "FtpHandler\|HttpHandler\|TelnetHandler" tests/`
-returns nothing) — section 1's manual commands are the only current
-verification for those three listeners.
+Note: `FtpHandler`, `HttpHandler`, and `TelnetHandler` already have dedicated
+automated coverage in [tests/test_ftp_handler.py](tests/test_ftp_handler.py),
+[tests/test_http_handler.py](tests/test_http_handler.py), and
+[tests/test_telnet_handler.py](tests/test_telnet_handler.py). Those tests are
+the right place to confirm listener behavior alongside the broader suite.
 
 ---
 
 ## 9. persona.txt spec vs. what's built
 
-One deviation worth testing for specifically: `personas.txt` describes a
-single **Alert Level** field (`Single endpoint / L1 only / L1+L2 / Full
-L1+L2+CISO`). What's actually implemented is two separate fields — **Alert
-Routing** (`none/email/slack/both`) and **Min Risk Level**
-(`critical/high/medium/low`) — visible in the Personas modal and in
-`persona_configs.alert_routing_level` / `alert_min_risk_level`. Confirm which
-behavior you want before treating the current two-field design as a bug.
+The current persona spec and implementation use two distinct fields in the
+Personas modal: **Alert Routing** (`none/email/slack/both`) and **Min Risk
+Level** (`critical/high/medium/low`). These values are stored in
+`persona_configs.alert_routing_level` and `persona_configs.alert_min_risk_level`.
+Use this section to verify that the modal, saved persona configuration, and the
+spec text all reflect those two fields consistently.

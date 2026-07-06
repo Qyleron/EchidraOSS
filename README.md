@@ -66,10 +66,10 @@ dashboard.
 ## Quick Start
 
 ```bash
-cp .env.example .env                    # optional local config
-python -m classifier.storage.cli init-db   # create PostgreSQL tables (requires ECHIDRA_DATABASE_URL)
-python -m honeypot.main                    # start the honeypot listeners
-uvicorn classifier.api:app --reload        # start the API + dashboard, in a separate shell
+cp .env.example .env                                    # optional local config
+python -m classifier.storage.cli init-db                # create PostgreSQL tables (requires ECHIDRA_DATABASE_URL)
+python -m honeypot.main                                  # start the honeypot listeners
+uvicorn classifier.api.app:create_app --factory --reload # start the API + dashboard, in a separate shell
 ```
 
 Default listeners:
