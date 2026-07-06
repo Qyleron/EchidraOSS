@@ -1,0 +1,51 @@
+# Technique-keyed fix guidance for the Intelligence page's MITRE reference.
+#
+# Unlike issue_playbook.yaml (keyed by actor_label + technique, used to build
+# aggregate Issues with actor-specific copy), this maps every individual MITRE
+# technique id the classifier can emit to one canonical explanation that holds
+# regardless of which actor triggered it. get_playbook_entry() in
+# mitre_playbook.py falls back to a generic entry for any technique id not
+# listed here, so newly observed classifier output never renders blank.
+#
+# Every mitre_tags value used in classifier/rules/default_rules.yaml must have
+# an entry here.
+
+T1005:
+  name: Data from Local System
+  recommended_fix: Tune decoy file placement so sensitive-looking files are the ones being read, and alert on any read of a real credential or configuration file.
+  impact: Confirms which local files attract attacker attention and where equivalent monitoring is worth adding on real systems.
+
+T1059:
+  name: Command and Scripting Interpreter
+  recommended_fix: Flag interactive, low-and-slow shell sessions for manual review and keep the session open long enough to observe further behavior before disconnecting.
+  impact: Separates scripted bot traffic from real human operators, who carry more investigative value.
+
+T1082:
+  name: System Information Discovery
+  recommended_fix: Trim shell banner and uname detail, randomize first-command response timing, and alert on rapid fingerprinting sequences.
+  impact: Shortens the window an attacker has to fingerprint the system before staging a payload.
+
+T1087:
+  name: Account Discovery
+  recommended_fix: Return uniform responses with no user-existence hints, and rate-limit account-enumeration command bursts.
+  impact: Removes the reconnaissance signal scanners use to pick high-value accounts to target next.
+
+T1110:
+  name: Brute Force
+  recommended_fix: Rate-limit or temporarily block source IPs that exceed a connection or login-attempt threshold within a short window.
+  impact: Catches automated credential hammering even on listeners with no real authentication to brute-force.
+
+T1190:
+  name: Exploit Public-Facing Application
+  recommended_fix: Patch or isolate the fingerprinted service/version, and alert when a known exploit tool name or payload signature appears in a session.
+  impact: Closes the gap between a scanner finding a vulnerable-looking service and an attacker acting on it.
+
+T1552.001:
+  name: Credentials In Files
+  recommended_fix: Remove plaintext credentials from disk, rotate decoy credentials periodically, and alert on any credential-file read.
+  impact: Closes a common, low-effort path to lateral movement from a single compromised host.
+
+T1595:
+  name: Active Scanning
+  recommended_fix: Rate-limit connections per source IP and correlate scanning activity across personas and protocols.
+  impact: Surfaces reconnaissance sweeps early, before an attacker commits to a specific target.

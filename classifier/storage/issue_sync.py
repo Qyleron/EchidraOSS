@@ -12,17 +12,12 @@ from classifier.rules.issue_playbook import (
     load_issue_playbook,
     load_mitre_technique_catalog,
 )
+from classifier.rules.mitre_playbook import get_playbook_entry
 from classifier.storage.models import IssueRecord, MitreTechnique
 from classifier.storage.repository import PostgresClassifierRepository
 
 
 DEFAULT_ISSUE_PLAYBOOK_PATH = Path(__file__).resolve().parents[1] / "rules" / "issue_playbook.yaml"
-_FALLBACK_RECOMMENDED_FIX = (
-    "Review matched session output and triage manually; add an entry for this "
-    "actor/technique pair to classifier/rules/issue_playbook.yaml to automate "
-    "this recommendation."
-)
-_FALLBACK_IMPACT = "Impact not yet documented for this pair in issue_playbook.yaml."
 _RISK_RANK_SEVERITIES = {4: "high", 3: "high", 2: "medium", 1: "low", 0: "low"}
 
 # This honeypot has no auth step, so there is nothing to literally
@@ -91,14 +86,15 @@ def _build_issue(
     technique_name = _technique_name(mitre_tag, playbook, mitre_catalog)
     actor_display = playbook.actor_label_display(actor_label)
     fix = playbook.fix_for(actor_label, mitre_tag)
+    technique_entry = get_playbook_entry(mitre_tag)
 
     return IssueRecord(
         id=_issue_id_for_pair(actor_label, mitre_tag),
         title=fix.title if fix else f"{actor_display} are exhibiting {technique_name} behavior.",
         severity=_RISK_RANK_SEVERITIES[aggregate["max_risk_rank"]],
         evidence=_build_evidence(aggregate, technique_name),
-        recommended_fix=fix.recommended_fix if fix else _FALLBACK_RECOMMENDED_FIX,
-        impact=fix.impact if fix else _FALLBACK_IMPACT,
+        recommended_fix=fix.recommended_fix if fix else technique_entry.recommended_fix,
+        impact=fix.impact if fix else technique_entry.impact,
         session_count=aggregate["session_count"],
         persona_count=aggregate["persona_count"],
         mitre=[MitreTechnique(id=mitre_tag, name=technique_name)],
@@ -129,24 +125,31 @@ def _build_repeat_connection_issue(
     technique_name = _technique_name(mitre_tag, playbook, mitre_catalog)
     actor_display = playbook.actor_label_display(actor_label)
     fix = playbook.fix_for(actor_label, mitre_tag)
+    technique_entry = get_playbook_entry(mitre_tag)
 
     return IssueRecord(
         id=_issue_id_for_pair(actor_label, mitre_tag),
         title=fix.title if fix else f"{actor_display} are repeatedly reconnecting from the same source.",
-        severity=_repeat_connection_severity(aggregate["session_count"]),
+        severity=_repeat_connection_severity(aggregate["session_count"], min_sessions),
         evidence=_build_repeat_connection_evidence(aggregate, window_seconds, min_sessions),
-        recommended_fix=fix.recommended_fix if fix else _FALLBACK_RECOMMENDED_FIX,
-        impact=fix.impact if fix else _FALLBACK_IMPACT,
+        recommended_fix=fix.recommended_fix if fix else technique_entry.recommended_fix,
+        impact=fix.impact if fix else technique_entry.impact,
         session_count=aggregate["session_count"],
         persona_count=aggregate["persona_count"],
         mitre=[MitreTechnique(id=mitre_tag, name=technique_name)],
     )
 
 
-def _repeat_connection_severity(session_count: int) -> str:
-    if session_count >= 50:
+def _repeat_connection_severity(session_count: int, min_sessions: int) -> str:
+    if min_sessions <= 0:
+        return "low"
+
+    medium_threshold = max(min_sessions * 3, min_sessions + 10)
+    high_threshold = max(min_sessions * 8, min_sessions + 40)
+
+    if session_count >= high_threshold:
         return "high"
-    if session_count >= 15:
+    if session_count >= medium_threshold:
         return "medium"
     return "low"
 
