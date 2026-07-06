@@ -64,13 +64,10 @@ class SessionState:
             self.end_time = time.time()
             self.end_reason = reason
 
-    def to_record(self) -> dict:
-        """Return a structured record suitable for persistence and analysis."""
-        if self.end_time is None or self.end_reason is None:
-            raise ValueError("Cannot serialize an active session")
-
+    def _peer_ip_and_port(self) -> tuple[str | None, int | None]:
         peer_ip = None
         peer_port = None
+
         if isinstance(self.peer, tuple):
             if self.peer:
                 peer_ip = str(self.peer[0])
@@ -78,6 +75,15 @@ class SessionState:
                 peer_port = self.peer[1]
         elif self.peer is not None:
             peer_ip = str(self.peer)
+
+        return peer_ip, peer_port
+
+    def to_record(self) -> dict:
+        """Return a structured record suitable for persistence and analysis."""
+        if self.end_time is None or self.end_reason is None:
+            raise ValueError("Cannot serialize an active session")
+
+        peer_ip, peer_port = self._peer_ip_and_port()
 
         return {
             "schema_version": 1,
@@ -98,12 +104,14 @@ class SessionState:
     def active_record(self) -> dict:
         """Return a consistent point-in-time record for live classification."""
         now = time.time()
+        peer_ip, peer_port = self._peer_ip_and_port()
+
         return {
             "schema_version": 1,
             "session_id": self.session_id,
             "protocol": "tcp_shell",
-            "peer_ip": str(self.peer[0]) if isinstance(self.peer, tuple) and self.peer else None,
-            "peer_port": self.peer[1] if isinstance(self.peer, tuple) and len(self.peer) > 1 else None,
+            "peer_ip": peer_ip,
+            "peer_port": peer_port,
             "persona_id": self.persona_id,
             "started_at": self.start_time,
             "ended_at": now,

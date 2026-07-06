@@ -112,11 +112,16 @@ class TelnetHandler:
         if not data:
             return None
         line = ""
-        for byte in data:
+        i = 0
+        while i < len(data):
+            byte = data[i]
             if byte == 0xFF:
+                # Skip a full IAC negotiation sequence if present, else just the marker
+                i += 3 if i + 2 < len(data) else 1
                 continue
             if byte in (0x08, 0x7F):
                 line = line[:-1]
+                i += 1
                 continue
             ch = chr(byte)
             if ch in ("\r", "\n"):
@@ -124,6 +129,7 @@ class TelnetHandler:
                     await self._send("\r\n")
                 break
             line += ch
+            i += 1
         return line
 
     async def _drain_iac(self) -> None:
