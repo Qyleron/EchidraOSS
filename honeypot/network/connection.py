@@ -6,6 +6,7 @@ from honeypot.core.engine import InteractionEngine
 from honeypot.core.session import SessionState
 from honeypot.logging.session_logger import SessionLogger
 from honeypot.network.config import READ_TIMEOUT, SESSION_LOG_PATH, get_active_persona
+from classifier.realtime import LiveSessionClassifier
 
 logger = logging.getLogger(__name__)
 
@@ -32,12 +33,19 @@ class ConnectionHandler:
         self.engine = InteractionEngine()
         self.session_logger = session_logger or SessionLogger(SESSION_LOG_PATH)
         self._closed = False
+        self._response_delay_seconds = 0.0
+        self._highest_alerted_rank = -1
 
     async def handle(self):  
         """Run the client command loop until timeout, disconnect, exit, or shutdown."""
         logger.info("Connection from %s", self.peer)
         graceful = False  # True when the client exits through the fake shell
         end_reason = "disconnect"
+        live_classifier = LiveSessionClassifier(
+            self.session,
+            on_result=self._handle_live_classification,
+        )
+        live_task = asyncio.create_task(live_classifier.run())
 
         try:
             # Send the initial fake login/banner text
@@ -80,6 +88,9 @@ class ConnectionHandler:
                     graceful = True
                     end_reason = "logout"
                     break
+
+                if self._response_delay_seconds:
+                    await asyncio.sleep(self._response_delay_seconds)
                 
                 # Send command output and the next prompt
                 await self._send(response)
@@ -95,6 +106,8 @@ class ConnectionHandler:
             end_reason = "error"
 
         finally:
+            live_task.cancel()
+            await asyncio.gather(live_task, return_exceptions=True)
             # Always close the transport after the session ends
             await self.close(fast=not graceful)
             self.session.finalize(end_reason)
@@ -107,6 +120,26 @@ class ConnectionHandler:
                     self.session.session_id,
                     e,
                 )
+
+    async def _handle_live_classification(self, summary) -> None:
+        """Apply local deception and dispatch each increased alert severity once."""
+        if summary.deception_action is not None:
+            self._response_delay_seconds = max(
+                self._response_delay_seconds,
+                summary.deception_action.delay_seconds,
+            )
+
+        if summary.alert_action is None:
+            return
+        ranks = {"none": 0, "low": 1, "medium": 2, "high": 3, "critical": 4}
+        rank = ranks[summary.risk_level]
+        if rank <= self._highest_alerted_rank:
+            return
+        self._highest_alerted_rank = rank
+
+        # SMTP and PostgreSQL calls are blocking; keep them off the connection loop.
+        from classifier.api.app import _maybe_send_alert
+        await asyncio.to_thread(_maybe_send_alert, None, self.session.active_record(), summary)
 
     async def _send(self, text: str):
         """Send text to the connected client."""

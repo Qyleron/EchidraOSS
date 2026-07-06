@@ -55,6 +55,20 @@ rules:
         operator: gte
         value: 5
 
+  - id: authentication_attempt
+    name: Authentication attempt observed
+    actor_label: brute_force_bot
+    confidence: 0.7
+    risk_score: 55
+    mitre_tags:
+      - T1110
+    evidence:
+      - A credential or authorization attempt was observed during the active session.
+    conditions:
+      - field: auth_attempt_count
+        operator: gte
+        value: 1
+
   - id: script_kiddie_tool_names
     name: Known tool name typed in the shell
     actor_label: script_kiddie
@@ -99,6 +113,9 @@ rules:
       - Ran a short sequence of common discovery commands, then exited cleanly.
       - Repeated commands suggest a copy-pasted script rather than independent exploration.
     conditions:
+      - field: protocol
+        operator: equals
+        value: tcp_shell
       - field: discovery_command_count
         operator: gte
         value: 2

@@ -25,7 +25,9 @@ Intent = Literal[
     "interactive_operation",
 ]
 SafeguardPriority = Literal["low", "medium", "high", "critical"]
-SafeguardAction = Literal[
+DeceptionActionName = Literal["adaptive_response_delay"]
+AlertActionName = Literal["notify_analyst"]
+AnalystRecommendationName = Literal[
     "increase_source_monitoring",
     "preserve_session_transcript",
     "review_decoy_exposure",
@@ -73,12 +75,35 @@ class FeatureSummary(BaseModel):
         extra = "forbid"
 
 
-class SafeguardRecommendation(BaseModel):
-    """Advisory control recommendation for external security tools."""
+class DeceptionAction(BaseModel):
+    """A safe action the honeypot can apply without an external service."""
 
-    action: SafeguardAction
+    action: DeceptionActionName
+    delay_seconds: float = Field(ge=0, le=10)
+    rationale: str
+
+    class Config:
+        extra = "forbid"
+
+
+class AlertAction(BaseModel):
+    """A typed instruction consumed by alert delivery."""
+
+    action: AlertActionName
     priority: SafeguardPriority
-    tool_category: str
+    minimum_risk_level: RiskLevel
+    rationale: str
+    supporting_evidence: list[str]
+
+    class Config:
+        extra = "forbid"
+
+
+class AnalystRecommendation(BaseModel):
+    """The next investigation step shown to an analyst."""
+
+    action: AnalystRecommendationName
+    priority: SafeguardPriority
     rationale: str
     supporting_evidence: list[str]
 
@@ -102,7 +127,9 @@ class ClassificationSummary(BaseModel):
     intent: Intent
     persona_context: PersonaContext
     feature_summary: FeatureSummary | None
-    safeguard_recommendations: list[SafeguardRecommendation]
+    deception_action: DeceptionAction | None
+    alert_action: AlertAction | None
+    analyst_recommendation: AnalystRecommendation | None
     mitre_tags: list[str]
     evidence: list[EvidenceItem]
     matched_rule_ids: list[str]
@@ -132,7 +159,9 @@ def summarize_rule_evaluation(
             intent="unknown",
             persona_context=_persona_context(features),
             feature_summary=_feature_summary(features),
-            safeguard_recommendations=[],
+            deception_action=None,
+            alert_action=None,
+            analyst_recommendation=None,
             mitre_tags=[],
             evidence=[],
             matched_rule_ids=[],
@@ -172,7 +201,9 @@ def summarize_rule_evaluation(
         intent=intent,
         persona_context=persona_context,
         feature_summary=_feature_summary(features),
-        safeguard_recommendations=_safeguard_recommendations(
+        deception_action=_deception_action(risk_level),
+        alert_action=_alert_action(risk_level, evidence),
+        analyst_recommendation=_analyst_recommendation(
             risk_level=risk_level,
             behavior_stage=behavior_stage,
             intent=intent,
@@ -197,17 +228,17 @@ def _classification_status(
     duration — that case is always insufficient_data, not a low-confidence
     guess.
     """
+    if matched_rules:
+        return "complete", None
     if features is None or features.command_count == 0:
         return "insufficient_data", (
             "no commands were observed during the session, so no command or "
             "timing evidence is available"
         )
-    if not matched_rules:
-        return "partial", (
-            "commands were observed but none matched a classification rule "
-            "confidently enough to assign an actor label"
-        )
-    return "complete", None
+    return "partial", (
+        "commands were observed but none matched a classification rule "
+        "confidently enough to assign an actor label"
+    )
 
 
 def _combined_risk_score(matches: list[RuleMatch]) -> int:
@@ -311,94 +342,104 @@ def _behavior_stage_and_intent(
     return "none", "unknown"
 
 
-def _safeguard_recommendations(
+def _deception_action(risk_level: RiskLevel) -> DeceptionAction | None:
+    if risk_level not in {"medium", "high", "critical"}:
+        return None
+    delay = {"medium": 0.5, "high": 1.0, "critical": 2.0}[risk_level]
+    return DeceptionAction(
+        action="adaptive_response_delay",
+        delay_seconds=delay,
+        rationale="Slow suspicious interaction while preserving a believable session.",
+    )
+
+
+def _alert_action(
+    risk_level: RiskLevel,
+    evidence: list[EvidenceItem],
+) -> AlertAction | None:
+    if risk_level not in {"medium", "high", "critical"}:
+        return None
+    return AlertAction(
+        action="notify_analyst",
+        priority="critical" if risk_level == "critical" else risk_level,
+        minimum_risk_level=risk_level,
+        rationale="The observed session crossed the live analyst notification threshold.",
+        supporting_evidence=[item.text for item in evidence],
+    )
+
+
+def _analyst_recommendation(
     risk_level: RiskLevel,
     behavior_stage: BehaviorStage,
     intent: Intent,
     persona_context: PersonaContext,
     evidence: list[EvidenceItem],
-) -> list[SafeguardRecommendation]:
+) -> AnalystRecommendation | None:
     supporting_evidence = [item.text for item in evidence]
-    recommendations = []
 
     if risk_level in {"high", "critical"}:
-        recommendations.append(
-            SafeguardRecommendation(
+        return AnalystRecommendation(
                 action="escalate_incident_review",
                 priority="critical" if risk_level == "critical" else "high",
-                tool_category="SIEM/SOAR",
                 rationale=(
                     "High-risk classifier output should be reviewed before "
                     "any external enforcement action."
                 ),
                 supporting_evidence=supporting_evidence,
-            )
         )
 
     if intent == "credential_theft":
-        recommendations.append(
-            SafeguardRecommendation(
+        return AnalystRecommendation(
                 action="rotate_exposed_credentials",
                 priority="high",
-                tool_category="IAM or secrets manager",
                 rationale=(
                     "Credential-access behavior indicates possible interest "
                     "in reusable secrets."
                 ),
                 supporting_evidence=supporting_evidence,
-            )
         )
 
     if (
         behavior_stage == "collection"
         and persona_context.decoy_files_surfaced
     ):
-        recommendations.append(
-            SafeguardRecommendation(
+        return AnalystRecommendation(
                 action="review_decoy_exposure",
                 priority="medium",
-                tool_category="SIEM or ticketing system",
                 rationale=(
                     "Surfaced decoy files provide analyst context for "
                     "follow-up investigation."
                 ),
                 supporting_evidence=persona_context.decoy_files_surfaced,
-            )
         )
 
     if behavior_stage == "discovery":
-        recommendations.append(
-            SafeguardRecommendation(
+        return AnalystRecommendation(
                 action="increase_source_monitoring",
                 priority=(
                     "medium"
                     if risk_level in {"medium", "high", "critical"}
                     else "low"
                 ),
-                tool_category="Firewall, WAF, or SIEM",
                 rationale=(
                     "Discovery activity may precede credential access, "
                     "collection, or exploitation attempts."
                 ),
                 supporting_evidence=supporting_evidence,
-            )
         )
 
     if behavior_stage == "execution":
-        recommendations.append(
-            SafeguardRecommendation(
+        return AnalystRecommendation(
                 action="preserve_session_transcript",
                 priority="medium",
-                tool_category="SIEM or case management",
                 rationale=(
                     "Interactive execution behavior is useful for analyst "
                     "review and replay."
                 ),
                 supporting_evidence=supporting_evidence,
-            )
         )
 
-    return recommendations
+    return None
 
 
 def _unique_ordered(values) -> list[str]:

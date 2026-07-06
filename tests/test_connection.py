@@ -6,6 +6,8 @@ import pytest
 import honeypot.network.connection as connection_module
 from honeypot.logging.session_logger import SessionLogger
 from honeypot.network.connection import ConnectionHandler
+from classifier.pipeline import classify_session
+from classifier.schemas.session import SessionRecord
 
 
 """
@@ -112,6 +114,33 @@ async def test_connection_whoami():
     output = writer.buffer.decode()
 
     assert "root" in output
+
+
+@pytest.mark.asyncio
+async def test_live_classification_applies_adaptive_response_delay(monkeypatch):
+    handler = ConnectionHandler(FakeReader([]), FakeWriter())
+    now = handler.session.start_time
+    handler.session.commands = [
+        {"cmd": "whoami", "timestamp": now + 0.1},
+        {"cmd": "hostname", "timestamp": now + 0.2},
+        {"cmd": "ls", "timestamp": now + 0.3},
+        {"cmd": "cat /etc/passwd", "timestamp": now + 0.4},
+    ]
+    handler.session.command_count = 4
+    handler.session.decoy_files_surfaced = ["/etc/passwd"]
+    record = handler.session.active_record()
+    record["ended_at"] = now + 1
+    record["duration_seconds"] = 1
+    summary = classify_session(SessionRecord.parse_obj(record), active=True)
+
+    async def no_alert(*_args, **_kwargs):
+        return None
+
+    # No alert import is reached when this severity was already dispatched.
+    handler._highest_alerted_rank = 4
+    await handler._handle_live_classification(summary)
+
+    assert handler._response_delay_seconds == 0.5
 
 
 @pytest.mark.asyncio

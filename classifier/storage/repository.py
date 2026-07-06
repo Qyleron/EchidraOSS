@@ -1229,9 +1229,16 @@ def classifier_signal_insert_params(
         for key, value in feature_summary.items():
             add_signal("feature", key, str(value))
 
-    for recommendation in record.summary.get("safeguard_recommendations", []):
+    for field_name in (
+        "deception_action",
+        "alert_action",
+        "analyst_recommendation",
+    ):
+        recommendation = record.summary.get(field_name)
+        if recommendation is None:
+            continue
         add_signal(
-            "recommendation",
+            field_name,
             recommendation.get("action", "unknown"),
             recommendation.get("priority", "unknown"),
         )

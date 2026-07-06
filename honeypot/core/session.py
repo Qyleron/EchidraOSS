@@ -95,6 +95,25 @@ class SessionState:
             "decoy_files_surfaced": list(self.decoy_files_surfaced),
         }
 
+    def active_record(self) -> dict:
+        """Return a consistent point-in-time record for live classification."""
+        now = time.time()
+        return {
+            "schema_version": 1,
+            "session_id": self.session_id,
+            "protocol": "tcp_shell",
+            "peer_ip": str(self.peer[0]) if isinstance(self.peer, tuple) and self.peer else None,
+            "peer_port": self.peer[1] if isinstance(self.peer, tuple) and len(self.peer) > 1 else None,
+            "persona_id": self.persona_id,
+            "started_at": self.start_time,
+            "ended_at": now,
+            "duration_seconds": now - self.start_time,
+            "end_reason": "disconnect",
+            "command_count": self.command_count,
+            "commands": list(self.commands),
+            "decoy_files_surfaced": list(self.decoy_files_surfaced),
+        }
+
     @property
     def persona_id(self) -> str:
         """Expose the active persona ID without storing a duplicate copy."""

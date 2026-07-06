@@ -90,12 +90,34 @@ def test_classify_session_runs_default_post_session_pipeline():
     assert summary.feature_summary.session_id == str(session.session_id)
     assert summary.feature_summary.command_count == 4
     assert summary.feature_summary.sensitive_file_read_count == 1
-    assert [
-        recommendation.action
-        for recommendation in summary.safeguard_recommendations
-    ] == [
-        "rotate_exposed_credentials",
-    ]
+    assert summary.deception_action.action == "adaptive_response_delay"
+    assert summary.alert_action.action == "notify_analyst"
+    assert summary.analyst_recommendation.action == "rotate_exposed_credentials"
+
+
+def test_active_classification_is_always_marked_partial():
+    session = make_session(
+        [("whoami", 1.0), ("hostname", 2.0), ("ls", 3.0)],
+        duration_seconds=4.0,
+    )
+
+    summary = classify_session(session, active=True)
+
+    assert summary.classification_status == "partial"
+    assert "active session" in summary.insufficient_data_reason
+    assert summary.matched_rule_ids == ["automated_discovery_burst"]
+
+
+def test_authentication_attempt_rule_handles_partial_protocol_data():
+    session = make_session([("USER admin", 1.0)], duration_seconds=2.0)
+    record = json.loads(session.json())
+    record["protocol"] = "ftp"
+
+    summary = classify_session(SessionRecord.parse_obj(record), active=True)
+
+    assert summary.classification_status == "partial"
+    assert "authentication_attempt" in summary.matched_rule_ids
+    assert summary.alert_action.action == "notify_analyst"
 
 
 def test_classify_session_accepts_custom_ruleset():

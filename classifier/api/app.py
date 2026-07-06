@@ -784,8 +784,8 @@ def _risk_meets_threshold(risk_level: str, min_risk_level: str) -> bool:
 
 
 def _maybe_send_alert(
-    run: ClassifierRunRecord,
-    session: SessionRecord,
+    run: ClassifierRunRecord | None,
+    session: SessionRecord | dict,
     summary: ClassificationSummary,
 ) -> None:
     """Fire an email alert if the run meets the configured threshold.
@@ -793,8 +793,10 @@ def _maybe_send_alert(
     Never raises — alert errors are logged and recorded but the classifier run
     was already persisted and the HTTP response was already sent.
     """
-    if summary.risk_level in ("none", "low"):
-        return  # Quick exit before any DB queries
+    if summary.alert_action is None:
+        return
+    if isinstance(session, dict):
+        session = SessionRecord.parse_obj(session)
     try:
         repository = PostgresClassifierRepository()
         config = repository.get_alert_config()
@@ -820,7 +822,7 @@ def _maybe_send_alert(
         err = _dispatch_alert_email(config, persona_config.contact_email, run, session, summary)
         repository.insert_alert_event(
             AlertEventRecord(
-                run_id=run.id,
+                run_id=run.id if run is not None else None,
                 session_id=session.session_id,
                 persona_id=session.persona_id,
                 risk_level=summary.risk_level,
@@ -837,7 +839,7 @@ def _maybe_send_alert(
 def _dispatch_alert_email(
     config: AlertConfigRecord,
     recipient: str,
-    run: ClassifierRunRecord,
+    run: ClassifierRunRecord | None,
     session: SessionRecord,
     summary: ClassificationSummary,
 ) -> str | None:
@@ -856,7 +858,7 @@ def _dispatch_alert_email(
         f"Persona:       {session.persona_id}\n"
         f"Peer IP:       {session.peer_ip or 'unknown'}\n"
         f"Session ID:    {session.session_id}\n"
-        f"Run ID:        {run.id}\n\n"
+        f"Run ID:        {run.id if run is not None else 'live-session'}\n\n"
         f"MITRE: {mitre_str}\n\n"
         f"Evidence:\n{evidence_lines}\n"
     )
