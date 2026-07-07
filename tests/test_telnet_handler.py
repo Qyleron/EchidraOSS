@@ -4,7 +4,7 @@ import json
 import pytest
 
 from honeypot.logging.session_logger import SessionLogger
-from honeypot.network.telnet_handler import TelnetHandler
+from honeypot.network.telnet_handler import DO, IAC, WILL, TelnetHandler
 
 
 """
@@ -157,6 +157,48 @@ async def test_telnet_malformed_iac_negotiation_does_not_crash(tmp_path):
     assert len(records) == 1
     assert records[0]["end_reason"] == "disconnect"
     assert records[0]["command_count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_telnet_username_sent_in_same_burst_as_iac_negotiation_is_not_lost(tmp_path):
+    """Regression test: a fast client (most real Mirai-style bots) that sends
+    its username in the same packet as its IAC options, before waiting for
+    any prompt, must still have that username captured -- not silently
+    discarded along with the negotiation bytes."""
+    burst = (
+        IAC + WILL + b"\x01"  # WILL ECHO
+        + IAC + WILL + b"\x03"  # WILL SUPPRESS-GO-AHEAD
+        + b"root\r\n"  # username sent immediately, no waiting for a prompt
+    )
+    reader = FakeReader(burst, ["toor\r\n"])
+    writer = FakeWriter()
+    log_path = tmp_path / "sessions.jsonl"
+    handler = TelnetHandler(reader, writer, session_logger=SessionLogger(str(log_path)))
+
+    await handler.handle()
+
+    records = read_records(log_path)
+    commands = [entry["cmd"] for entry in records[0]["commands"]]
+    assert "login: root" in commands
+    assert "password: toor" in commands
+
+
+@pytest.mark.asyncio
+async def test_telnet_username_and_password_sent_in_one_burst_are_both_captured(tmp_path):
+    """An even faster client sends username AND password in the same initial
+    burst as its IAC options -- both must still be captured."""
+    burst = IAC + DO + b"\x18" + b"root\r\ntoor\r\n"  # DO TERMINAL-TYPE
+    reader = FakeReader(burst, [])
+    writer = FakeWriter()
+    log_path = tmp_path / "sessions.jsonl"
+    handler = TelnetHandler(reader, writer, session_logger=SessionLogger(str(log_path)))
+
+    await handler.handle()
+
+    records = read_records(log_path)
+    commands = [entry["cmd"] for entry in records[0]["commands"]]
+    assert "login: root" in commands
+    assert "password: toor" in commands
 
 
 @pytest.mark.asyncio

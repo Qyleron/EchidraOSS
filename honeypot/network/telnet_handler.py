@@ -48,14 +48,18 @@ class TelnetHandler:
         end_reason = "disconnect"
         persona = self.session.persona
         try:
-            # Drain any IAC negotiation bytes the client sends immediately
-            await self._drain_iac()
+            # Drain any IAC negotiation bytes the client sends immediately.
+            # A fast client (most Mirai-style bots) often sends its username
+            # in the same packet as its IAC options, before the server has
+            # even sent a prompt -- leftover carries those bytes forward
+            # instead of discarding them.
+            leftover = await self._drain_iac()
 
             banner = f"\r\n{persona.os_banner}\r\n\r\n"
             await self._send(banner)
             await self._send(f"{persona.hostname} login: ")
 
-            username = await self._read_line()
+            username, leftover = await self._read_line(initial=leftover)
             if username is None:
                 return
 
@@ -65,7 +69,7 @@ class TelnetHandler:
 
             await self._send("Password: ")
 
-            password = await self._read_line(echo=False)
+            password, leftover = await self._read_line(initial=leftover, echo=False)
             if password is None:
                 return
 
@@ -101,16 +105,33 @@ class TelnetHandler:
         self.writer.write(text.encode("latin-1", errors="replace"))
         await self.writer.drain()
 
-    async def _read_line(self, echo: bool = True) -> str | None:
-        try:
-            data = await asyncio.wait_for(
-                self.reader.readline(),
-                timeout=READ_TIMEOUT,
-            )
-        except asyncio.TimeoutError:
-            raise
-        if not data:
-            return None
+    async def _read_line(
+        self,
+        echo: bool = True,
+        initial: bytes = b"",
+    ) -> tuple[str | None, bytes]:
+        """Read one line, returning (line, unconsumed bytes after it).
+
+        `initial` is bytes already in hand from a previous read (the
+        non-negotiation leftover from _drain_iac(), or bytes left over after
+        a prior line parsed from the same burst) that must be parsed before
+        waiting on the network for more -- otherwise a client that sends its
+        username and password in one packet loses everything after the
+        first line.
+        """
+        data = initial
+        if b"\r" not in data and b"\n" not in data:
+            try:
+                more = await asyncio.wait_for(
+                    self.reader.readline(),
+                    timeout=READ_TIMEOUT,
+                )
+            except asyncio.TimeoutError:
+                raise
+            if not more and not data:
+                return None, b""
+            data += more
+
         line = ""
         i = 0
         while i < len(data):
@@ -123,23 +144,38 @@ class TelnetHandler:
                 line = line[:-1]
                 i += 1
                 continue
-            ch = chr(byte)
-            if ch in ("\r", "\n"):
+            if byte in (0x0D, 0x0A):
+                consumed = i + 1
+                # Swallow a paired \n right after \r so it isn't mistaken
+                # for the start of the next line.
+                if byte == 0x0D and consumed < len(data) and data[consumed] == 0x0A:
+                    consumed += 1
                 if echo:
                     await self._send("\r\n")
-                break
-            line += ch
+                return line, data[consumed:]
+            line += chr(byte)
             i += 1
-        return line
+        return line, b""
 
-    async def _drain_iac(self) -> None:
-        """Consume and respond to any initial Telnet option negotiation bytes."""
+    async def _drain_iac(self) -> bytes:
+        """Consume and respond to any initial Telnet option negotiation bytes.
+
+        Returns any non-negotiation bytes read in the same burst (e.g. a
+        username a fast client sent immediately after its IAC options)
+        instead of discarding them -- most Mirai-style bots don't wait for
+        a prompt before sending credentials.
+        """
         try:
             data = await asyncio.wait_for(self.reader.read(64), timeout=2)
-            reply = b""
-            i = 0
-            while i < len(data):
-                if data[i:i+1] == IAC and i + 2 < len(data):
+        except (asyncio.TimeoutError, OSError):
+            return b""
+
+        reply = b""
+        leftover = b""
+        i = 0
+        while i < len(data):
+            if data[i:i+1] == IAC:
+                if i + 2 < len(data):
                     cmd = data[i+1:i+2]
                     opt = data[i+2:i+3]
                     if cmd == DO:
@@ -148,9 +184,19 @@ class TelnetHandler:
                         reply += IAC + DONT + opt
                     i += 3
                 else:
-                    i += 1
-            if reply:
+                    # Truncated IAC sequence at the end of this read -- an
+                    # IAC marker is never literal content, and nothing
+                    # coherent follows, so there's nothing left to recover.
+                    break
+            else:
+                leftover += data[i:i+1]
+                i += 1
+
+        if reply:
+            try:
                 self.writer.write(reply)
                 await self.writer.drain()
-        except (asyncio.TimeoutError, Exception):
-            pass
+            except OSError:
+                pass
+
+        return leftover
