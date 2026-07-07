@@ -32,6 +32,8 @@ app_module = importlib.import_module("classifier.api.app")
 @pytest.fixture(autouse=True)
 def clear_dashboard_session_secret(monkeypatch):
     monkeypatch.delenv("ECHIDRA_SESSION_SECRET", raising=False)
+    monkeypatch.delenv(app_module.INGEST_API_KEY_ENV, raising=False)
+    monkeypatch.delenv(app_module.ALLOW_SIGNUPS_ENV, raising=False)
 
 
 class FakeRequest:
@@ -52,6 +54,13 @@ def dashboard_request(cookies=None, headers=None, authenticated=True):
     if cookies is None and authenticated:
         cookies = dashboard_cookie()
     return FakeRequest(cookies=cookies, headers=headers)
+
+
+def ingest_request(api_key=None):
+    headers = {}
+    if api_key is not None:
+        headers[app_module.INGEST_API_KEY_HEADER] = api_key
+    return FakeRequest(headers=headers)
 
 
 def route_for(path, method):
@@ -141,6 +150,9 @@ def test_signup_dashboard_user_hashes_password_and_sets_cookie(monkeypatch):
     saved = {}
 
     class FakeRepository:
+        def count_dashboard_users(self):
+            return 0
+
         def get_dashboard_user_by_email(self, email):
             assert email == "analyst@example.com"
             return None
@@ -174,6 +186,13 @@ def test_signup_dashboard_user_rejects_duplicate_email(monkeypatch):
     )
 
     class FakeRepository:
+        # Simulates re-signing-up with the same email as the sole existing
+        # account: count is 1, but _signup_allowed still isn't reached first
+        # in real life once any user exists (see the dedicated lock test
+        # below) — kept at 0 here to isolate the duplicate-email branch.
+        def count_dashboard_users(self):
+            return 0
+
         def get_dashboard_user_by_email(self, email):
             return user
 
@@ -188,6 +207,51 @@ def test_signup_dashboard_user_rejects_duplicate_email(monkeypatch):
 
     assert exc_info.value.status_code == 409
     assert exc_info.value.detail == "email already registered"
+
+
+def test_signup_dashboard_user_blocked_once_an_account_exists(monkeypatch):
+    route = route_for("/auth/signup", "POST")
+
+    class FakeRepository:
+        def count_dashboard_users(self):
+            return 1
+
+    monkeypatch.setattr(app_module, "PostgresClassifierRepository", FakeRepository)
+    payload = app_module.DashboardSignupInput(
+        email="second-analyst@example.com",
+        password="password1",
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        route.endpoint(payload, Response())
+
+    assert exc_info.value.status_code == 403
+    assert "signup is disabled" in exc_info.value.detail
+
+
+def test_signup_dashboard_user_allowed_when_env_override_set(monkeypatch):
+    monkeypatch.setenv(app_module.ALLOW_SIGNUPS_ENV, "true")
+    route = route_for("/auth/signup", "POST")
+
+    class FakeRepository:
+        def count_dashboard_users(self):
+            return 1
+
+        def get_dashboard_user_by_email(self, email):
+            return None
+
+        def create_dashboard_user(self, *, email, password_hash):
+            return DashboardUserRecord(email=email, password_hash=password_hash)
+
+    monkeypatch.setattr(app_module, "PostgresClassifierRepository", FakeRepository)
+    payload = app_module.DashboardSignupInput(
+        email="second-analyst@example.com",
+        password="password1",
+    )
+
+    body = route.endpoint(payload, Response())
+
+    assert body == {"authenticated": True, "email": "second-analyst@example.com"}
 
 
 def test_login_dashboard_user_sets_cookie_for_valid_credentials(monkeypatch):
@@ -395,6 +459,7 @@ def test_classify_session_endpoint_hides_unhandled_exception_details(monkeypatch
 
 
 def test_classify_and_store_endpoint_returns_run_id(monkeypatch):
+    monkeypatch.setenv(app_module.INGEST_API_KEY_ENV, "test-ingest-key")
     route = route_for("/classify/session/store", "POST")
     session = SessionRecord.parse_obj(make_record())
     saved_runs = []
@@ -413,7 +478,7 @@ def test_classify_and_store_endpoint_returns_run_id(monkeypatch):
 
     monkeypatch.setattr(app_module, "PostgresClassifierRepository", FakeRepository)
 
-    response = route.endpoint(session)
+    response = route.endpoint(session, ingest_request("test-ingest-key"))
 
     assert response.run_id == saved_runs[0].id
     assert response.summary.intent == "credential_theft"
@@ -421,6 +486,7 @@ def test_classify_and_store_endpoint_returns_run_id(monkeypatch):
 
 
 def test_classify_and_store_endpoint_reports_missing_database(monkeypatch):
+    monkeypatch.setenv(app_module.INGEST_API_KEY_ENV, "test-ingest-key")
     route = route_for("/classify/session/store", "POST")
     session = SessionRecord.parse_obj(make_record())
 
@@ -435,13 +501,14 @@ def test_classify_and_store_endpoint_reports_missing_database(monkeypatch):
     )
 
     with pytest.raises(HTTPException) as exc_info:
-        route.endpoint(session)
+        route.endpoint(session, ingest_request("test-ingest-key"))
 
     assert exc_info.value.status_code == 503
     assert exc_info.value.detail == "ECHIDRA_DATABASE_URL must be set"
 
 
 def test_classify_and_store_endpoint_hides_persistence_failures(monkeypatch):
+    monkeypatch.setenv(app_module.INGEST_API_KEY_ENV, "test-ingest-key")
     route = route_for("/classify/session/store", "POST")
     session = SessionRecord.parse_obj(make_record())
 
@@ -458,10 +525,36 @@ def test_classify_and_store_endpoint_hides_persistence_failures(monkeypatch):
     monkeypatch.setattr(app_module, "PostgresClassifierRepository", CrashingRepository)
 
     with pytest.raises(HTTPException) as exc_info:
-        route.endpoint(session)
+        route.endpoint(session, ingest_request("test-ingest-key"))
 
     assert exc_info.value.status_code == 500
     assert exc_info.value.detail == "internal server error"
+
+
+def test_classify_and_store_endpoint_fails_closed_without_configured_key():
+    """No ECHIDRA_INGEST_API_KEY set at all -> 503, not a silent accept."""
+    route = route_for("/classify/session/store", "POST")
+    session = SessionRecord.parse_obj(make_record())
+
+    with pytest.raises(HTTPException) as exc_info:
+        route.endpoint(session, ingest_request("anything"))
+
+    assert exc_info.value.status_code == 503
+    assert app_module.INGEST_API_KEY_ENV in exc_info.value.detail
+
+
+def test_classify_and_store_endpoint_rejects_missing_or_wrong_key(monkeypatch):
+    monkeypatch.setenv(app_module.INGEST_API_KEY_ENV, "correct-key")
+    route = route_for("/classify/session/store", "POST")
+    session = SessionRecord.parse_obj(make_record())
+
+    with pytest.raises(HTTPException) as exc_info:
+        route.endpoint(session, ingest_request(None))
+    assert exc_info.value.status_code == 401
+
+    with pytest.raises(HTTPException) as exc_info:
+        route.endpoint(session, ingest_request("wrong-key"))
+    assert exc_info.value.status_code == 401
 
 
 def test_get_classifier_run_endpoint_returns_stored_run(monkeypatch):

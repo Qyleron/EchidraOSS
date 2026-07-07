@@ -189,7 +189,11 @@ Expected (verified against the current rule set):
 
 To persist it (requires `ECHIDRA_DATABASE_URL`), swap the path to
 `/classify/session/store` — response adds a `run_id`, and the row lands in
-`classifier_runs`/`classifier_signals` (see section 6).
+`classifier_runs`/`classifier_signals` (see section 6). This endpoint also
+requires `ECHIDRA_INGEST_API_KEY` to be set and sent back as the `X-Api-Key`
+header (`-H "X-Api-Key: $ECHIDRA_INGEST_API_KEY"`) — it writes to the database
+and can trigger alert emails, so it 503s if the key isn't configured and 401s
+if the header is missing or wrong.
 
 ---
 
@@ -263,8 +267,9 @@ print(resolve_country('1.1.1.1'))   # expect: Australia
 
 `resolve_country()` now returns `NULL` for private/reserved/unresolved lookups, so use public IPs for positive geolocation checks.
 
-To see it end-to-end through storage, POST to `/classify/session/store` with
-`"peer_ip": "8.8.8.8"` and then check the `country` column (section 6).
+To see it end-to-end through storage, POST to `/classify/session/store`
+(with the `X-Api-Key` header from section 3) with `"peer_ip": "8.8.8.8"` and
+then check the `country` column (section 6).
 
 ---
 
@@ -312,7 +317,11 @@ curl -s -c cookies.txt -X POST http://127.0.0.1:8000/auth/signup \
   -d '{"email": "test@example.com", "password": "correct horse battery staple"}'
 ```
 Expect `{"authenticated": true, "email": "test@example.com"}`. A second signup
-with the same email should 409 (`"email already registered"`).
+with the same email should 409 (`"email already registered"`). Signup is also
+now first-account-only: once any dashboard user exists, a signup attempt with
+a *different* email 403s (`"signup is disabled ..."`) unless
+`ECHIDRA_ALLOW_SIGNUPS=true` is set. On a fresh database, run this section's
+signup before any other, since it's the one that gets to succeed.
 
 Then in a browser: visit `http://localhost:8000/auth`, log in with the same
 credentials, and walk each page:
