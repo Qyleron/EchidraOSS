@@ -4,7 +4,7 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: echidra
-      POSTGRES_PASSWORD: echidra
+      POSTGRES_PASSWORD: ${ECHIDRA_DB_PASSWORD:?set ECHIDRA_DB_PASSWORD in your .env}
       POSTGRES_DB: echidra
     volumes:
       - echidra_db_data:/var/lib/postgresql/data
@@ -24,7 +24,7 @@ services:
       ECHIDRA_HTTP_PORT: 8080
       ECHIDRA_FTP_PORT: 2121
       ECHIDRA_TELNET_PORT: 2323
-      ECHIDRA_DATABASE_URL: postgresql://echidra:echidra@db:5432/echidra
+      ECHIDRA_DATABASE_URL: postgresql://echidra:${ECHIDRA_DB_PASSWORD:?set ECHIDRA_DB_PASSWORD in your .env}@db:5432/echidra
       ECHIDRA_INGEST_API_KEY: ${ECHIDRA_INGEST_API_KEY:?set ECHIDRA_INGEST_API_KEY in your .env}
       ECHIDRA_PERSONA: ${ECHIDRA_PERSONA:-generic_linux}
     ports:
@@ -41,9 +41,9 @@ services:
   api:
     build: .
     restart: unless-stopped
-    command: ["uvicorn", "classifier.api.app:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000"]
+    command: ["python", "-m", "uvicorn", "classifier.api.app:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000"]
     environment:
-      ECHIDRA_DATABASE_URL: postgresql://echidra:echidra@db:5432/echidra
+      ECHIDRA_DATABASE_URL: postgresql://echidra:${ECHIDRA_DB_PASSWORD:?set ECHIDRA_DB_PASSWORD in your .env}@db:5432/echidra
       ECHIDRA_INGEST_API_KEY: ${ECHIDRA_INGEST_API_KEY:?set ECHIDRA_INGEST_API_KEY in your .env}
       ECHIDRA_SESSION_SECRET: ${ECHIDRA_SESSION_SECRET:-}
       ECHIDRA_COOKIE_SECURE: ${ECHIDRA_COOKIE_SECURE:-false}
@@ -55,7 +55,6 @@ services:
     depends_on:
       db:
         condition: service_healthy
-
 volumes:
   echidra_db_data:
   echidra_logs:

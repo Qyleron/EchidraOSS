@@ -24,9 +24,17 @@ python -c "import secrets; print(secrets.token_urlsafe(32))"   # ECHIDRA_SESSION
 
 ## Docker Compose
 
+`docker-compose.yml` also requires `ECHIDRA_DB_PASSWORD` — it sets the
+Postgres container's password and is interpolated into both the `honeypot`
+and `api` services' `ECHIDRA_DATABASE_URL`, so the three stay in sync.
+Compose fails fast with a clear error if you forget to set it, same as
+`ECHIDRA_INGEST_API_KEY`. Avoid `@`, `/`, `:`, or `#` in the password —
+they're not percent-encoded before being interpolated into the connection
+string.
+
 ```bash
 cp .env.example .env
-# edit .env: set ECHIDRA_INGEST_API_KEY (see above)
+# edit .env: set ECHIDRA_DB_PASSWORD and ECHIDRA_INGEST_API_KEY (see above)
 docker compose up -d --build
 docker compose exec api python -m classifier.storage.cli init-db
 ```
