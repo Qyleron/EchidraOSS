@@ -28,6 +28,7 @@ from classifier.storage import (
     AlertConfigInput,
     AlertConfigRecord,
     AlertEventRecord,
+    AnalyticsSummary,
     ClassifierRunRecord,
     ClassifyAndStoreResponse,
     DashboardReportSummary,
@@ -42,6 +43,7 @@ from classifier.storage import (
     PersonaConfigRecord,
     PostgresClassifierRepository,
     StoredClassifierRun,
+    StoredSessionEvent,
 )
 from honeypot.core.persona import PRESET_PERSONAS, Persona
 
@@ -127,16 +129,6 @@ class DashboardPersonaFile(BaseModel):
         extra = "forbid"
 
 
-class DashboardPersonaCredential(BaseModel):
-    """One decoy credential exposed to the dashboard."""
-
-    username: str
-    password: str
-
-    class Config:
-        extra = "forbid"
-
-
 class DashboardPersonaPreset(BaseModel):
     """One available honeypot persona preset for dashboard configuration."""
 
@@ -153,7 +145,7 @@ class DashboardPersonaPreset(BaseModel):
     suid_binaries: list[str]
     open_ports_visible: list[int]
     fake_filesystem: list[DashboardPersonaFile]
-    fake_credentials: list[DashboardPersonaCredential]
+    decoy_credential_count: int
 
     class Config:
         extra = "forbid"
@@ -380,6 +372,30 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=500, detail="internal server error")
 
     @api.get(
+        "/analytics/summary",
+        response_model=AnalyticsSummary,
+        tags=["reports"],
+    )
+    def analytics_summary_endpoint(
+        request: Request,
+        from_ts: float = Query(..., description="Range start, Unix seconds"),
+        to_ts: float = Query(..., description="Range end, Unix seconds"),
+    ) -> AnalyticsSummary:
+        """Return aggregated session/classifier analytics for one date range."""
+        _require_dashboard_auth(request)
+        try:
+            repository = PostgresClassifierRepository()
+            return repository.get_analytics_summary(from_ts, to_ts)
+        except (DatabaseDriverMissingError, DatabaseNotConfiguredError) as exc:
+            raise HTTPException(status_code=503, detail=str(exc))
+        except Exception as exc:
+            logger.exception(
+                "Unhandled exception in analytics_summary_endpoint: %s",
+                exc,
+            )
+            raise HTTPException(status_code=500, detail="internal server error")
+
+    @api.get(
         "/classifier/runs",
         response_model=list[StoredClassifierRun],
         tags=["storage"],
@@ -438,6 +454,29 @@ def create_app() -> FastAPI:
         if run is None:
             raise HTTPException(status_code=404, detail="classifier run not found")
         return run
+
+    @api.get(
+        "/sessions/{session_id}/events",
+        response_model=list[StoredSessionEvent],
+        tags=["storage"],
+    )
+    def list_session_events_endpoint(
+        session_id: UUID,
+        request: Request,
+    ) -> list[StoredSessionEvent]:
+        """Return one session's command/decoy-access timeline, in order."""
+        _require_dashboard_auth(request)
+        try:
+            repository = PostgresClassifierRepository()
+            return repository.list_session_events(session_id)
+        except (DatabaseDriverMissingError, DatabaseNotConfiguredError) as exc:
+            raise HTTPException(status_code=503, detail=str(exc))
+        except Exception as exc:
+            logger.exception(
+                "Unhandled exception in list_session_events_endpoint: %s",
+                exc,
+            )
+            raise HTTPException(status_code=500, detail="internal server error")
 
     @api.get(
         "/manual-labels",
@@ -880,13 +919,9 @@ def _dashboard_persona_from_preset(persona: Persona) -> DashboardPersonaPreset:
             DashboardPersonaFile(path=fake_file.path, content=fake_file.content)
             for fake_file in persona.fake_filesystem
         ],
-        fake_credentials=[
-            DashboardPersonaCredential(
-                username=credential.username,
-                password=credential.password,
-            )
-            for credential in persona.fake_credentials
-        ],
+        # Never return decoy credential values over the API — a count is
+        # enough for the dashboard to show, and can't leak into logs/errors.
+        decoy_credential_count=len(persona.fake_credentials),
     )
 
 

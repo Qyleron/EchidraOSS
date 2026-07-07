@@ -18,8 +18,10 @@ class SessionLogger:
         record = SessionRecord.parse_obj(session.to_record())
         line = json.dumps(json.loads(record.json()), sort_keys=True) + "\n"
 
+        # 0o600: this file accumulates captured FTP/Telnet credentials and
+        # HTTP Authorization headers, so it must not be world/group-readable.
         flags = os.O_APPEND | os.O_CREAT | os.O_WRONLY
-        descriptor = os.open(self.path, flags, 0o644)
+        descriptor = os.open(self.path, flags, 0o600)
         try:
             os.write(descriptor, line.encode("utf-8"))
         finally:

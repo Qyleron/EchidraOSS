@@ -120,6 +120,18 @@ class StoredClassifierSignal(BaseModel):
         extra = "forbid"
 
 
+class StoredSessionEvent(BaseModel):
+    """One persisted command or decoy-file-access event for a session."""
+
+    event_index: int = Field(ge=0)
+    event_type: str
+    event_value: str
+    observed_at: float | None = None
+
+    class Config:
+        extra = "forbid"
+
+
 class StoredClassifierRun(BaseModel):
     """Readable storage view for one classifier run and its parent session."""
 
@@ -318,6 +330,21 @@ class PersonaAnalytics(BaseModel):
     risk_counts: dict[str, int] = Field(default_factory=dict)
     top_techniques: list[dict[str, Any]] = Field(default_factory=list)
     peak_hours: list[dict[str, Any]] = Field(default_factory=list)
+    top_countries: list[dict[str, Any]] = Field(default_factory=list)
+
+    class Config:
+        extra = "forbid"
+
+
+class AnalyticsSummary(BaseModel):
+    """Aggregated session/classifier analytics across all personas for one
+    date range, backing the Analytics dashboard page."""
+
+    intent_counts: dict[str, int] = Field(default_factory=dict)
+    attacks_by_hour: dict[str, int] = Field(default_factory=dict)
+    risk_trend: list[dict[str, Any]] = Field(default_factory=list)
+    top_commands: list[dict[str, Any]] = Field(default_factory=list)
+    top_personas: list[dict[str, Any]] = Field(default_factory=list)
     top_countries: list[dict[str, Any]] = Field(default_factory=list)
 
     class Config:

@@ -1,0 +1,15 @@
+.git
+.gitignore
+venv
+.venv
+__pycache__
+*.pyc
+.pytest_cache
+logs
+reports
+*.jsonl
+.env
+.dashboard_session_secret
+.claude
+.codex
+.agents

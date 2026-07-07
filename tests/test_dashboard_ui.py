@@ -89,3 +89,29 @@ def test_sessions_page_uses_shared_styles_and_session_table_columns():
     assert "Export CSV" in html
     assert "data-session-row" in html
     assert "Analyst Recommendation" in html
+
+
+def test_sessions_page_is_backed_by_live_api_calls():
+    html = (DASHBOARD_PUBLIC_PATH / "sessions.html").read_text(encoding="utf-8")
+
+    assert 'fetchJSON("/classifier/runs?limit=500&order=desc")' in html
+    assert "fetchJSON(`/sessions/${sessionId}/events`)" in html
+    # The old static mock dataset must be gone.
+    assert "sess-1048" not in html
+    assert "Ubuntu Web Server" not in html
+
+
+def test_analytics_page_is_backed_by_live_api_calls():
+    html = (DASHBOARD_PUBLIC_PATH / "analytics.html").read_text(encoding="utf-8")
+
+    assert "fetchJSON(" in html
+    assert "/analytics/summary?from_ts=" in html
+    # Intent tiles must reflect the classifier's real Intent values, not
+    # invented labels that can never actually be produced.
+    assert 'id="intentDataAccess"' in html
+    assert 'id="intentInteractiveOperation"' in html
+    # The old synthetic data generator must be gone.
+    assert "generateSyntheticEvents" not in html
+    assert "mulberry32" not in html
+    assert "Persistence Setup" not in html
+    assert "Scanner Validation" not in html

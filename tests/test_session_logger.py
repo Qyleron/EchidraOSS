@@ -1,4 +1,5 @@
 import json
+import stat
 
 import pytest
 
@@ -40,3 +41,17 @@ def test_logger_rejects_active_sessions(tmp_path):
 
     with pytest.raises(ValueError, match="active session"):
         logger.log(SessionState(("127.0.0.1", 4444)))
+
+
+def test_logger_creates_log_file_readable_only_by_owner(tmp_path):
+    """Captured FTP/Telnet credentials and HTTP auth headers land in this
+    file, so it must not be group/world-readable."""
+    log_path = tmp_path / "sessions.jsonl"
+    logger = SessionLogger(str(log_path))
+
+    session = SessionState(("127.0.0.1", 4444))
+    session.finalize("disconnect")
+    logger.log(session)
+
+    mode = stat.S_IMODE(log_path.stat().st_mode)
+    assert mode == 0o600

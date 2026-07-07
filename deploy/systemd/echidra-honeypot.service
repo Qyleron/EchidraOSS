@@ -1,0 +1,27 @@
+[Unit]
+Description=Echidra OSS honeypot listeners
+After=network.target
+
+[Service]
+Type=simple
+User=echidra
+Group=echidra
+WorkingDirectory=/opt/echidra
+EnvironmentFile=/opt/echidra/.env
+ExecStart=/opt/echidra/venv/bin/python -m honeypot.main
+Restart=on-failure
+RestartSec=5
+
+# Only needed if ECHIDRA_PORT/ECHIDRA_HTTP_PORT/etc. are set to privileged
+# ports (80/21/23/22) instead of the non-privileged defaults
+# (8080/2121/2323/2222). Remove this line if you're using the defaults.
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+
+# Hardening: this process only needs to read its own code/config and append
+# to its own log file, never write elsewhere.
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/opt/echidra/logs
+
+[Install]
+WantedBy=multi-user.target
