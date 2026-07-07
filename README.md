@@ -85,9 +85,16 @@ Set any protocol port to `0` to disable that listener. Pick a persona with
 `ECHIDRA_PERSONA=ubuntu_web_server python -m honeypot.main`.
 
 The dashboard is at `http://localhost:8000/dashboard` (sign up at `/auth` on
-first run). See [CONTEXT.md](CONTEXT.md) for current build status and
-architecture notes, and [docs/TESTING_GUIDE.md](docs/TESTING_GUIDE.md) for
-per-service and per-page manual test commands.
+first run). Signup is only open until that first account exists — after that
+it returns 403 unless you set `ECHIDRA_ALLOW_SIGNUPS=true`, so a self-hosted
+instance doesn't stay open to public registration forever. `POST
+/classify/session/store` (the only write-and-alert-capable classifier
+endpoint) similarly refuses all requests until you set
+`ECHIDRA_INGEST_API_KEY` and send it back as the `X-Api-Key` header — see
+`.env.example` for how to generate one. See [CONTEXT.md](CONTEXT.md) for
+current build status and architecture notes, and
+[docs/TESTING_GUIDE.md](docs/TESTING_GUIDE.md) for per-service and per-page
+manual test commands.
 
 ---
 

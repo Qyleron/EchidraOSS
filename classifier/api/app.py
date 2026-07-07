@@ -62,6 +62,9 @@ DASHBOARD_PAGE_FILES = {
 DASHBOARD_SESSION_SECRET_ENV = "ECHIDRA_SESSION_SECRET"
 DASHBOARD_COOKIE_SECURE_ENV = "ECHIDRA_COOKIE_SECURE"
 DASHBOARD_AUTH_COOKIE = "echidra_dashboard_auth"
+INGEST_API_KEY_ENV = "ECHIDRA_INGEST_API_KEY"
+INGEST_API_KEY_HEADER = "x-api-key"
+ALLOW_SIGNUPS_ENV = "ECHIDRA_ALLOW_SIGNUPS"
 SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 7
 PASSWORD_HASH_ITERATIONS = 390_000
 MAX_EMAIL_LENGTH = 254
@@ -191,9 +194,23 @@ def create_app() -> FastAPI:
         payload: DashboardSignupInput,
         response: Response,
     ) -> dict[str, str | bool]:
-        """Create a dashboard user and set the auth cookie."""
+        """Create a dashboard user and set the auth cookie.
+
+        Self-hosted single-operator deployments should not stay open to
+        public registration forever: signup is only allowed until the first
+        account exists, unless ECHIDRA_ALLOW_SIGNUPS explicitly opts back in
+        for deployments that want more than one dashboard user.
+        """
         try:
             repository = PostgresClassifierRepository()
+            if not _signup_allowed(repository.count_dashboard_users()):
+                raise HTTPException(
+                    status_code=403,
+                    detail=(
+                        "signup is disabled — a dashboard account already exists. "
+                        f"Set {ALLOW_SIGNUPS_ENV}=true to allow additional accounts."
+                    ),
+                )
             existing_user = repository.get_dashboard_user_by_email(payload.email)
             if existing_user is not None:
                 raise HTTPException(status_code=409, detail="email already registered")
@@ -297,6 +314,7 @@ def create_app() -> FastAPI:
     )
     def classify_and_store_session_endpoint(
         session: SessionRecord,
+        request: Request,
     ) -> ClassifyAndStoreResponse:
         """Classify one session and persist the classifier run.
 
@@ -304,7 +322,13 @@ def create_app() -> FastAPI:
         It queries the session count for the peer IP before classifying so
         that the cross-session brute_force_bot YAML rule can match — the
         stateless endpoint cannot do this and always leaves that feature None.
+
+        Requires ECHIDRA_INGEST_API_KEY (X-Api-Key header) since it writes to
+        the database and can trigger alert emails — unlike /classify/session,
+        which is read-only and side-effect-free.
         """
+        _require_ingest_api_key(request)
+
         # Look up cross-session connection count before classification so the
         # repeat_connections_same_ip rule can fire on this session.
         connection_count: int | None = None
@@ -876,6 +900,30 @@ def _dashboard_request_is_authenticated(request: Request) -> bool:
 def _require_dashboard_auth(request: Request) -> None:
     if not _dashboard_request_is_authenticated(request):
         raise HTTPException(status_code=401, detail="dashboard auth required")
+
+
+def _signup_allowed(existing_user_count: int) -> bool:
+    if os.getenv(ALLOW_SIGNUPS_ENV, "").strip().lower() in ("1", "true", "yes"):
+        return True
+    return existing_user_count == 0
+
+
+def _require_ingest_api_key(request: Request) -> None:
+    """Gate write/alert-triggering ingestion behind a configured shared secret.
+
+    Fails closed: if the operator hasn't set ECHIDRA_INGEST_API_KEY, this
+    endpoint refuses all requests rather than silently accepting writes from
+    anyone who can reach the port.
+    """
+    configured_key = os.getenv(INGEST_API_KEY_ENV, "")
+    if not configured_key:
+        raise HTTPException(
+            status_code=503,
+            detail=f"{INGEST_API_KEY_ENV} is not configured on this server",
+        )
+    provided_key = request.headers.get(INGEST_API_KEY_HEADER, "")
+    if not provided_key or not hmac.compare_digest(provided_key, configured_key):
+        raise HTTPException(status_code=401, detail="invalid or missing API key")
 
 
 def _normalize_email(value: str) -> str:

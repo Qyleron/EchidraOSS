@@ -273,6 +273,10 @@ FROM dashboard_users
 WHERE email = %(email)s
 """
 
+COUNT_DASHBOARD_USERS_SQL = """
+SELECT COUNT(*) AS total FROM dashboard_users
+"""
+
 SELECT_DASHBOARD_REPORT_OVERVIEW_SQL = """
 SELECT
     COUNT(*) AS total_runs,
@@ -829,6 +833,11 @@ class PostgresClassifierRepository:
         if row is None:
             return None
         return dashboard_user_from_row(row)
+
+    def count_dashboard_users(self) -> int:
+        """Count all dashboard users — used to gate signup to first-run bootstrap."""
+        row = _fetch_one(self.database_url, COUNT_DASHBOARD_USERS_SQL, {})
+        return int(row["total"]) if row else 0
 
     def get_dashboard_report_summary(self) -> DashboardReportSummary:
         """Fetch database-wide aggregate values for dashboard reporting."""
