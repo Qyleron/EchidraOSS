@@ -139,6 +139,28 @@ Note: each preset persona also declares `suid_binaries` (e.g.
 interactive shell (`honeypot/core/engine.py`) has no `find`/`sudo` command
 that surfaces it yet, so there's nothing to test interactively here today.
 
+**A saved persona config now reaches the live honeypot.** To confirm:
+```bash
+curl -s -b cookies.txt -X POST "http://127.0.0.1:8000/persona-configs?persona_id=custom_demo" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Custom demo",
+    "hostname": "custom-demo-01",
+    "os_banner": "Linux custom-demo-01 6.1.0-custom x86_64",
+    "ssh_enabled": true,
+    "ssh_port": 2222,
+    "running_processes": ["nginx", "redis-server"],
+    "fake_users": ["deploy"],
+    "decoy_files": []
+  }'
+ECHIDRA_PERSONA=custom_demo python -m honeypot.main
+```
+Then connect over the SSH-shell listener (section 1) — the login banner
+should show `custom-demo-01`, not a preset hostname. Editing the config
+afterward won't take effect on its own — the process caches the persona
+until `clear_active_persona_cache()` runs or the process restarts; that's
+expected, not a bug.
+
 ---
 
 ## 3. Event classification / MITRE mapping (post-session classifier)

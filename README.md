@@ -72,6 +72,19 @@ python -m honeypot.main                                  # start the honeypot li
 uvicorn classifier.api.app:create_app --factory --reload # start the API + dashboard, in a separate shell
 ```
 
+Or the equivalent one-command form via the `echidra` CLI (`pip install -e .`
+first to get the `echidra` command on your PATH, or just run it as
+`python -m echidra`):
+
+```bash
+echidra init    # creates .env, generates ECHIDRA_INGEST_API_KEY, initializes the schema
+echidra serve   # runs the honeypot listeners and the API/dashboard together until Ctrl+C
+echidra status  # confirms listeners/API/database are actually up and reports session counts
+```
+
+For a Docker Compose stack or a systemd deployment on a VM, see
+[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+
 Default listeners:
 
 | Protocol | Port | Env override |

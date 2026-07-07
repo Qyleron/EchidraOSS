@@ -5,6 +5,7 @@ from classifier.storage.models import (
     AlertConfigInput,
     AlertConfigRecord,
     AlertEventRecord,
+    AnalyticsSummary,
     ClassifierRunRecord,
     ClassifyAndStoreResponse,
     DashboardReportSummary,
@@ -20,6 +21,7 @@ from classifier.storage.models import (
     PersonaConfigRecord,
     StoredClassifierRun,
     StoredClassifierSignal,
+    StoredSessionEvent,
 )
 from classifier.storage.repository import (
     DatabaseNotConfiguredError,
@@ -31,6 +33,7 @@ __all__ = [
     "AlertConfigInput",
     "AlertConfigRecord",
     "AlertEventRecord",
+    "AnalyticsSummary",
     "ClassifierRunRecord",
     "ClassifyAndStoreResponse",
     "DashboardReportSummary",
@@ -49,5 +52,6 @@ __all__ = [
     "PostgresClassifierRepository",
     "StoredClassifierRun",
     "StoredClassifierSignal",
+    "StoredSessionEvent",
     "get_database_url",
 ]

@@ -19,6 +19,7 @@ from classifier.storage.models import (
     ManualLabelInput,
     ManualLabelRecord,
     MitreTechnique,
+    StoredSessionEvent,
 )
 from classifier.storage.repository import (
     DatabaseDriverMissingError,
@@ -418,6 +419,74 @@ def test_repository_list_issues_batches_mitre_techniques(monkeypatch):
     assert [issue.id for issue in issues] == [issue_id_1, issue_id_2]
     assert issues[0].mitre[0].id == "T1110"
     assert issues[1].mitre[0].id == "T1082"
+
+
+def test_list_session_events_returns_ordered_timeline(monkeypatch):
+    session_id = uuid4()
+    rows = [
+        {"event_index": 0, "event_type": "command", "event_value": "whoami", "observed_at": 100.0},
+        {"event_index": 1, "event_type": "command", "event_value": "cat /etc/passwd", "observed_at": 101.5},
+        {"event_index": 2, "event_type": "decoy_file", "event_value": "/etc/passwd", "observed_at": None},
+    ]
+    calls = []
+
+    def fake_fetch_all(database_url, sql, params):
+        calls.append(params)
+        return rows
+
+    monkeypatch.setattr("classifier.storage.repository._fetch_all", fake_fetch_all)
+
+    events = PostgresClassifierRepository("postgresql://example/echidra").list_session_events(session_id)
+
+    assert calls == [{"session_id": session_id}]
+    assert events == [StoredSessionEvent(**row) for row in rows]
+
+
+def test_get_analytics_summary_aggregates_all_dimensions_without_driver(monkeypatch):
+    """All six aggregate queries must run via the simple per-call fallback
+    (no psycopg installed / cursor-reuse path not exercised here)."""
+    query_results = iter(
+        [
+            [{"hour": 9, "count": 3}, {"hour": 14, "count": 5}],
+            [
+                {"date": "2026-07-01", "risk_level": "critical", "count": 1},
+                {"date": "2026-07-01", "risk_level": "high", "count": 2},
+                {"date": "2026-07-01", "risk_level": "medium", "count": 3},
+                {"date": "2026-07-02", "risk_level": "low", "count": 4},
+                {"date": "2026-07-02", "risk_level": "none", "count": 1},
+            ],
+            [{"key": "credential_theft", "count": 2}, {"key": "reconnaissance", "count": 6}],
+            [{"key": "whoami", "count": 9}],
+            [{"key": "generic_linux", "count": 5}],
+            [{"key": "United States", "count": 3}],
+        ]
+    )
+
+    def raise_driver_missing():
+        raise DatabaseDriverMissingError("psycopg is not installed")
+
+    monkeypatch.setattr("classifier.storage.repository._load_psycopg", raise_driver_missing)
+    monkeypatch.setattr(
+        "classifier.storage.repository._fetch_all",
+        lambda database_url, sql, params: next(query_results),
+    )
+
+    summary = PostgresClassifierRepository(
+        "postgresql://example/echidra"
+    ).get_analytics_summary(from_ts=1000.0, to_ts=2000.0)
+
+    assert summary.intent_counts == {"credential_theft": 2, "reconnaissance": 6}
+    assert summary.attacks_by_hour["09"] == 3
+    assert summary.attacks_by_hour["14"] == 5
+    assert summary.attacks_by_hour["00"] == 0  # hours with no data default to 0
+    # critical folds into high, none folds into low.
+    assert summary.risk_trend == [
+        {"date": "2026-07-01", "high": 3, "medium": 3, "low": 0},
+        {"date": "2026-07-02", "high": 0, "medium": 0, "low": 5},
+    ]
+    assert summary.top_commands == [{"command": "whoami", "count": 9}]
+    assert summary.top_personas == [{"persona_id": "generic_linux", "count": 5}]
+    assert summary.top_countries == [{"country": "United States", "count": 3}]
 
 
 def test_repository_update_issue_status_returns_none_when_missing(monkeypatch):

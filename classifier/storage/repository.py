@@ -18,6 +18,7 @@ from classifier.schemas.session import SessionRecord
 from classifier.scoring.session import ClassificationSummary
 from classifier.storage.config import get_database_url
 from classifier.storage.models import (
+    AnalyticsSummary,
     ClassifierRunRecord,
     DashboardReportSummary,
     DashboardUserRecord,
@@ -31,6 +32,7 @@ from classifier.storage.models import (
     PersonaConfigRecord,
     StoredClassifierRun,
     StoredClassifierSignal,
+    StoredSessionEvent,
 )
 
 
@@ -275,6 +277,13 @@ WHERE email = %(email)s
 
 COUNT_DASHBOARD_USERS_SQL = """
 SELECT COUNT(*) AS total FROM dashboard_users
+"""
+
+SELECT_SESSION_EVENTS_SQL = """
+SELECT event_index, event_type, event_value, observed_at
+FROM session_events
+WHERE session_id = %(session_id)s
+ORDER BY event_index
 """
 
 SELECT_DASHBOARD_REPORT_OVERVIEW_SQL = """
@@ -574,6 +583,68 @@ ORDER BY count DESC
 LIMIT 10
 """
 
+# Global (not persona-scoped), date-range-filtered aggregates for the
+# Analytics dashboard page.
+SELECT_ANALYTICS_ATTACKS_BY_HOUR_SQL = """
+SELECT
+    EXTRACT(HOUR FROM to_timestamp(started_at))::int AS hour,
+    COUNT(*) AS count
+FROM sessions
+WHERE started_at >= %(from_ts)s AND started_at <= %(to_ts)s
+GROUP BY hour
+ORDER BY hour
+"""
+
+SELECT_ANALYTICS_RISK_TREND_SQL = """
+SELECT
+    to_char(to_timestamp(s.started_at)::date, 'YYYY-MM-DD') AS date,
+    cr.risk_level AS risk_level,
+    COUNT(*) AS count
+FROM classifier_runs cr
+JOIN sessions s ON s.id = cr.session_id
+WHERE s.started_at >= %(from_ts)s AND s.started_at <= %(to_ts)s
+GROUP BY date, cr.risk_level
+ORDER BY date
+"""
+
+SELECT_ANALYTICS_INTENT_COUNTS_SQL = """
+SELECT cr.intent AS key, COUNT(*) AS count
+FROM classifier_runs cr
+JOIN sessions s ON s.id = cr.session_id
+WHERE s.started_at >= %(from_ts)s AND s.started_at <= %(to_ts)s
+GROUP BY cr.intent
+"""
+
+SELECT_ANALYTICS_TOP_COMMANDS_SQL = """
+SELECT se.event_value AS key, COUNT(*) AS count
+FROM session_events se
+JOIN sessions s ON s.id = se.session_id
+WHERE se.event_type = 'command'
+  AND s.started_at >= %(from_ts)s AND s.started_at <= %(to_ts)s
+GROUP BY se.event_value
+ORDER BY count DESC, key
+LIMIT 5
+"""
+
+SELECT_ANALYTICS_TOP_PERSONAS_SQL = """
+SELECT persona_id AS key, COUNT(*) AS count
+FROM sessions
+WHERE started_at >= %(from_ts)s AND started_at <= %(to_ts)s
+GROUP BY persona_id
+ORDER BY count DESC, key
+LIMIT 4
+"""
+
+SELECT_ANALYTICS_TOP_COUNTRIES_SQL = """
+SELECT country AS key, COUNT(*) AS count
+FROM sessions
+WHERE country IS NOT NULL
+  AND started_at >= %(from_ts)s AND started_at <= %(to_ts)s
+GROUP BY country
+ORDER BY count DESC, key
+LIMIT 5
+"""
+
 SELECT_SESSIONS_FROM_IP_SQL = """
 SELECT COUNT(*) AS cnt
 FROM sessions
@@ -834,6 +905,15 @@ class PostgresClassifierRepository:
             return None
         return dashboard_user_from_row(row)
 
+    def list_session_events(self, session_id: UUID) -> list[StoredSessionEvent]:
+        """Fetch one session's command/decoy-access timeline, in order."""
+        rows = _fetch_all(
+            self.database_url,
+            SELECT_SESSION_EVENTS_SQL,
+            {"session_id": session_id},
+        )
+        return [StoredSessionEvent(**row) for row in rows]
+
     def count_dashboard_users(self) -> int:
         """Count all dashboard users — used to gate signup to first-run bootstrap."""
         row = _fetch_one(self.database_url, COUNT_DASHBOARD_USERS_SQL, {})
@@ -1073,6 +1153,53 @@ class PostgresClassifierRepository:
             risk_counts={str(row["key"]): int(row["count"]) for row in risk_rows},
             top_techniques=top_techniques,
             peak_hours=[{"hour": int(row["hour"]), "count": int(row["count"])} for row in hour_rows],
+            top_countries=[{"country": str(row["key"]), "count": int(row["count"])} for row in country_rows],
+        )
+
+    def get_analytics_summary(self, from_ts: float, to_ts: float) -> AnalyticsSummary:
+        """Aggregate session + classifier data across all personas for one
+        date range, backing the Analytics dashboard page."""
+        params = {"from_ts": from_ts, "to_ts": to_ts}
+        try:
+            psycopg = _load_psycopg()
+            with psycopg.connect(self.database_url) as conn:
+                with conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
+                    hour_rows = _fetch_all_with_conn(
+                        self.database_url, SELECT_ANALYTICS_ATTACKS_BY_HOUR_SQL, params, connection=conn, cursor=cur
+                    )
+                    risk_trend_rows = _fetch_all_with_conn(
+                        self.database_url, SELECT_ANALYTICS_RISK_TREND_SQL, params, connection=conn, cursor=cur
+                    )
+                    intent_rows = _fetch_all_with_conn(
+                        self.database_url, SELECT_ANALYTICS_INTENT_COUNTS_SQL, params, connection=conn, cursor=cur
+                    )
+                    command_rows = _fetch_all_with_conn(
+                        self.database_url, SELECT_ANALYTICS_TOP_COMMANDS_SQL, params, connection=conn, cursor=cur
+                    )
+                    persona_rows = _fetch_all_with_conn(
+                        self.database_url, SELECT_ANALYTICS_TOP_PERSONAS_SQL, params, connection=conn, cursor=cur
+                    )
+                    country_rows = _fetch_all_with_conn(
+                        self.database_url, SELECT_ANALYTICS_TOP_COUNTRIES_SQL, params, connection=conn, cursor=cur
+                    )
+        except DatabaseDriverMissingError:
+            hour_rows = _fetch_all(self.database_url, SELECT_ANALYTICS_ATTACKS_BY_HOUR_SQL, params)
+            risk_trend_rows = _fetch_all(self.database_url, SELECT_ANALYTICS_RISK_TREND_SQL, params)
+            intent_rows = _fetch_all(self.database_url, SELECT_ANALYTICS_INTENT_COUNTS_SQL, params)
+            command_rows = _fetch_all(self.database_url, SELECT_ANALYTICS_TOP_COMMANDS_SQL, params)
+            persona_rows = _fetch_all(self.database_url, SELECT_ANALYTICS_TOP_PERSONAS_SQL, params)
+            country_rows = _fetch_all(self.database_url, SELECT_ANALYTICS_TOP_COUNTRIES_SQL, params)
+
+        attacks_by_hour = {f"{hour:02d}": 0 for hour in range(24)}
+        for row in hour_rows:
+            attacks_by_hour[f"{int(row['hour']):02d}"] = int(row["count"])
+
+        return AnalyticsSummary(
+            intent_counts={str(row["key"]): int(row["count"]) for row in intent_rows},
+            attacks_by_hour=attacks_by_hour,
+            risk_trend=_pivot_risk_trend(risk_trend_rows),
+            top_commands=[{"command": str(row["key"]), "count": int(row["count"])} for row in command_rows],
+            top_personas=[{"persona_id": str(row["key"]), "count": int(row["count"])} for row in persona_rows],
             top_countries=[{"country": str(row["key"]), "count": int(row["count"])} for row in country_rows],
         )
 
@@ -1527,6 +1654,27 @@ def _persona_config_from_row(row: dict[str, Any]) -> PersonaConfigRecord:
 
 def _count_map(rows: list[dict[str, Any]]) -> dict[str, int]:
     return {str(row["key"]): int(row["count"]) for row in rows}
+
+
+def _risk_trend_tier(risk_level: str) -> str:
+    """Fold the 5-value risk_level scale down to the 3 tiers the Analytics
+    risk trend chart renders (none/low -> low, medium -> medium, high/critical -> high)."""
+    if risk_level in ("critical", "high"):
+        return "high"
+    if risk_level == "medium":
+        return "medium"
+    return "low"
+
+
+def _pivot_risk_trend(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Pivot (date, risk_level, count) rows into one {date, high, medium, low}
+    bucket per date, preserving the SQL's date ordering."""
+    buckets: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        date = str(row["date"])
+        bucket = buckets.setdefault(date, {"date": date, "high": 0, "medium": 0, "low": 0})
+        bucket[_risk_trend_tier(row["risk_level"])] += int(row["count"])
+    return list(buckets.values())
 
 
 def classifier_run_list_query(

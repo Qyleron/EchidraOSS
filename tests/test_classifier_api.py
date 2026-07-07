@@ -145,6 +145,21 @@ def test_dashboard_route_accepts_valid_session_cookie():
     assert isinstance(response, FileResponse)
 
 
+def test_personas_endpoint_never_returns_decoy_credential_values():
+    """/personas must expose only a count, never the actual username/password."""
+    route = route_for("/personas", "GET")
+
+    presets = route.endpoint(dashboard_request())
+
+    assert presets, "expected at least one preset persona"
+    for preset in presets:
+        assert not hasattr(preset, "fake_credentials")
+        assert isinstance(preset.decoy_credential_count, int)
+    generic = next(p for p in presets if p.persona_id == "generic_linux")
+    expected_count = len(app_module.PRESET_PERSONAS["generic_linux"].fake_credentials)
+    assert generic.decoy_credential_count == expected_count
+
+
 def test_signup_dashboard_user_hashes_password_and_sets_cookie(monkeypatch):
     route = route_for("/auth/signup", "POST")
     saved = {}
@@ -632,6 +647,59 @@ def test_get_classifier_run_endpoint_reports_missing_database(monkeypatch):
     assert exc_info.value.detail == "ECHIDRA_DATABASE_URL must be set"
 
 
+def test_list_session_events_endpoint_returns_ordered_timeline(monkeypatch):
+    from classifier.storage import StoredSessionEvent
+
+    route = route_for("/sessions/{session_id}/events", "GET")
+    session_id = SessionRecord.parse_obj(make_record()).session_id
+    events = [
+        StoredSessionEvent(event_index=0, event_type="command", event_value="whoami", observed_at=100.0),
+        StoredSessionEvent(event_index=1, event_type="decoy_file", event_value="/etc/passwd", observed_at=None),
+    ]
+
+    class FakeRepository:
+        def list_session_events(self, requested_session_id):
+            assert requested_session_id == session_id
+            return events
+
+    monkeypatch.setattr(app_module, "PostgresClassifierRepository", FakeRepository)
+
+    response = route.endpoint(session_id, dashboard_request())
+
+    assert response == events
+
+
+def test_list_session_events_endpoint_reports_missing_database(monkeypatch):
+    route = route_for("/sessions/{session_id}/events", "GET")
+    session_id = SessionRecord.parse_obj(make_record()).session_id
+
+    class MissingDatabaseRepository:
+        def __init__(self):
+            raise DatabaseNotConfiguredError("ECHIDRA_DATABASE_URL must be set")
+
+    monkeypatch.setattr(
+        app_module,
+        "PostgresClassifierRepository",
+        MissingDatabaseRepository,
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        route.endpoint(session_id, dashboard_request())
+
+    assert exc_info.value.status_code == 503
+    assert exc_info.value.detail == "ECHIDRA_DATABASE_URL must be set"
+
+
+def test_list_session_events_endpoint_requires_dashboard_auth():
+    route = route_for("/sessions/{session_id}/events", "GET")
+    session_id = SessionRecord.parse_obj(make_record()).session_id
+
+    with pytest.raises(HTTPException) as exc_info:
+        route.endpoint(session_id, dashboard_request(authenticated=False))
+
+    assert exc_info.value.status_code == 401
+
+
 def test_list_classifier_runs_endpoint_passes_filters(monkeypatch):
     route = route_for("/classifier/runs", "GET")
     session = SessionRecord.parse_obj(make_record())
@@ -748,6 +816,57 @@ def test_dashboard_report_summary_endpoint_requires_dashboard_session():
 
     assert exc_info.value.status_code == 401
     assert exc_info.value.detail == "dashboard auth required"
+
+
+def test_analytics_summary_endpoint_returns_aggregates(monkeypatch):
+    from classifier.storage import AnalyticsSummary
+
+    route = route_for("/analytics/summary", "GET")
+    summary = AnalyticsSummary(
+        intent_counts={"reconnaissance": 6},
+        attacks_by_hour={f"{hour:02d}": 0 for hour in range(24)},
+        risk_trend=[{"date": "2026-07-01", "high": 1, "medium": 2, "low": 3}],
+        top_commands=[{"command": "whoami", "count": 9}],
+        top_personas=[{"persona_id": "generic_linux", "count": 5}],
+        top_countries=[{"country": "United States", "count": 3}],
+    )
+
+    class FakeRepository:
+        def get_analytics_summary(self, from_ts, to_ts):
+            assert from_ts == 1000.0
+            assert to_ts == 2000.0
+            return summary
+
+    monkeypatch.setattr(app_module, "PostgresClassifierRepository", FakeRepository)
+
+    response = route.endpoint(dashboard_request(), from_ts=1000.0, to_ts=2000.0)
+
+    assert response == summary
+    assert route.response_model is AnalyticsSummary
+
+
+def test_analytics_summary_endpoint_requires_dashboard_session():
+    route = route_for("/analytics/summary", "GET")
+
+    with pytest.raises(HTTPException) as exc_info:
+        route.endpoint(dashboard_request(authenticated=False), from_ts=1000.0, to_ts=2000.0)
+
+    assert exc_info.value.status_code == 401
+
+
+def test_analytics_summary_endpoint_reports_missing_database(monkeypatch):
+    route = route_for("/analytics/summary", "GET")
+
+    class MissingDatabaseRepository:
+        def __init__(self):
+            raise DatabaseNotConfiguredError("ECHIDRA_DATABASE_URL must be set")
+
+    monkeypatch.setattr(app_module, "PostgresClassifierRepository", MissingDatabaseRepository)
+
+    with pytest.raises(HTTPException) as exc_info:
+        route.endpoint(dashboard_request(), from_ts=1000.0, to_ts=2000.0)
+
+    assert exc_info.value.status_code == 503
 
 
 def test_get_manual_label_endpoint_returns_stored_label(monkeypatch):
