@@ -101,6 +101,22 @@ def test_sessions_page_is_backed_by_live_api_calls():
     assert "Ubuntu Web Server" not in html
 
 
+def test_sessions_and_analytics_range_pickers_cannot_produce_an_inverted_range():
+    for page in ("sessions.html", "analytics.html"):
+        html = (DASHBOARD_PUBLIC_PATH / page).read_text(encoding="utf-8")
+
+        assert "function syncRangeConstraints" in html, page
+        # The calendar itself must be constrained (native min/max), not just
+        # validated after the fact.
+        assert "toDateInput.min = fromDateInput.value" in html, page
+        assert "fromDateInput.max = toDateInput.value" in html, page
+        # Hour dropdowns must be mutually constrained when the range is a
+        # single day, not left free to produce an inverted same-day range.
+        assert "HOUR_OPTIONS.filter(({ hour }) => hour <= upperBound)" in html, page
+        assert "HOUR_OPTIONS.filter(({ hour }) => hour >= lowerBound)" in html, page
+        assert 'addEventListener("change", syncRangeConstraints)' in html, page
+
+
 def test_analytics_page_is_backed_by_live_api_calls():
     html = (DASHBOARD_PUBLIC_PATH / "analytics.html").read_text(encoding="utf-8")
 

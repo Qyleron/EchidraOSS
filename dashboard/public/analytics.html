@@ -283,9 +283,40 @@
       return { hour, label: `${displayHour} ${period}` };
     });
 
-    function populateHourSelect(select, defaultHour) {
-      select.innerHTML = HOUR_OPTIONS.map(({ hour, label }) => `<option value="${hour}">${label}</option>`).join("");
-      select.value = String(defaultHour);
+    function populateHourSelect(select, hours, selectedHour) {
+      select.innerHTML = hours.map(({ hour, label }) => `<option value="${hour}">${label}</option>`).join("");
+      select.value = String(selectedHour);
+    }
+
+    // Keeps the range picker from ever producing an inverted range: the
+    // calendar can't pick a "to" date before "from" (native min/max), and
+    // when both dates are the same day, each hour dropdown only offers
+    // hours that keep the combined range valid.
+    function syncRangeConstraints() {
+      const fromDateInput = document.getElementById("rangeFromDate");
+      const toDateInput = document.getElementById("rangeToDate");
+      const fromHourSelect = document.getElementById("rangeFromHour");
+      const toHourSelect = document.getElementById("rangeToHour");
+
+      if (fromDateInput.value) toDateInput.min = fromDateInput.value;
+      if (toDateInput.value) fromDateInput.max = toDateInput.value;
+      if (fromDateInput.value && toDateInput.value && toDateInput.value < fromDateInput.value) {
+        toDateInput.value = fromDateInput.value;
+      }
+
+      const sameDay = Boolean(fromDateInput.value) && fromDateInput.value === toDateInput.value;
+      const currentFromHour = Number(fromHourSelect.value || 0);
+      const currentToHour = Number(toHourSelect.value || 23);
+
+      if (sameDay) {
+        const upperBound = Math.max(currentFromHour, currentToHour);
+        const lowerBound = Math.min(currentFromHour, currentToHour);
+        populateHourSelect(fromHourSelect, HOUR_OPTIONS.filter(({ hour }) => hour <= upperBound), lowerBound);
+        populateHourSelect(toHourSelect, HOUR_OPTIONS.filter(({ hour }) => hour >= lowerBound), upperBound);
+      } else {
+        populateHourSelect(fromHourSelect, HOUR_OPTIONS, currentFromHour);
+        populateHourSelect(toHourSelect, HOUR_OPTIONS, currentToHour);
+      }
     }
 
     function formatRangeLabel(from, to) {
@@ -338,12 +369,17 @@
       const timeRangePanel = document.getElementById("timeRangePanel");
 
       const now = new Date();
-      populateHourSelect(fromHourSelect, 0);
-      populateHourSelect(toHourSelect, 23);
+      populateHourSelect(fromHourSelect, HOUR_OPTIONS, 0);
+      populateHourSelect(toHourSelect, HOUR_OPTIONS, 23);
       toDateInput.value = localDateKey(now);
       const defaultFrom = new Date(now);
       defaultFrom.setDate(defaultFrom.getDate() - 6);
       fromDateInput.value = localDateKey(defaultFrom);
+      syncRangeConstraints();
+
+      [fromDateInput, toDateInput, fromHourSelect, toHourSelect].forEach((input) => {
+        input.addEventListener("change", syncRangeConstraints);
+      });
 
       timeRangeButton.addEventListener("click", (event) => {
         event.stopPropagation();
