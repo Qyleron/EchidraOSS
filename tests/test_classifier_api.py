@@ -34,6 +34,7 @@ def clear_dashboard_session_secret(monkeypatch):
     monkeypatch.delenv("ECHIDRA_SESSION_SECRET", raising=False)
     monkeypatch.delenv(app_module.INGEST_API_KEY_ENV, raising=False)
     monkeypatch.delenv(app_module.ALLOW_SIGNUPS_ENV, raising=False)
+    app_module._login_failures.clear()
 
 
 class FakeRequest:
@@ -165,14 +166,9 @@ def test_signup_dashboard_user_hashes_password_and_sets_cookie(monkeypatch):
     saved = {}
 
     class FakeRepository:
-        def count_dashboard_users(self):
-            return 0
-
-        def get_dashboard_user_by_email(self, email):
+        def create_dashboard_user_if_eligible(self, *, email, password_hash, allow_multiple):
             assert email == "analyst@example.com"
-            return None
-
-        def create_dashboard_user(self, *, email, password_hash):
+            assert allow_multiple is False
             saved["email"] = email
             saved["password_hash"] = password_hash
             return DashboardUserRecord(email=email, password_hash=password_hash)
@@ -195,21 +191,10 @@ def test_signup_dashboard_user_hashes_password_and_sets_cookie(monkeypatch):
 
 def test_signup_dashboard_user_rejects_duplicate_email(monkeypatch):
     route = route_for("/auth/signup", "POST")
-    user = DashboardUserRecord(
-        email="analyst@example.com",
-        password_hash=app_module._hash_password("password1"),
-    )
 
     class FakeRepository:
-        # Simulates re-signing-up with the same email as the sole existing
-        # account: count is 1, but _signup_allowed still isn't reached first
-        # in real life once any user exists (see the dedicated lock test
-        # below) — kept at 0 here to isolate the duplicate-email branch.
-        def count_dashboard_users(self):
-            return 0
-
-        def get_dashboard_user_by_email(self, email):
-            return user
+        def create_dashboard_user_if_eligible(self, *, email, password_hash, allow_multiple):
+            raise app_module.DashboardEmailAlreadyRegisteredError()
 
     monkeypatch.setattr(app_module, "PostgresClassifierRepository", FakeRepository)
     payload = app_module.DashboardSignupInput(
@@ -228,8 +213,9 @@ def test_signup_dashboard_user_blocked_once_an_account_exists(monkeypatch):
     route = route_for("/auth/signup", "POST")
 
     class FakeRepository:
-        def count_dashboard_users(self):
-            return 1
+        def create_dashboard_user_if_eligible(self, *, email, password_hash, allow_multiple):
+            assert allow_multiple is False
+            raise app_module.DashboardSignupNotAllowedError()
 
     monkeypatch.setattr(app_module, "PostgresClassifierRepository", FakeRepository)
     payload = app_module.DashboardSignupInput(
@@ -249,13 +235,8 @@ def test_signup_dashboard_user_allowed_when_env_override_set(monkeypatch):
     route = route_for("/auth/signup", "POST")
 
     class FakeRepository:
-        def count_dashboard_users(self):
-            return 1
-
-        def get_dashboard_user_by_email(self, email):
-            return None
-
-        def create_dashboard_user(self, *, email, password_hash):
+        def create_dashboard_user_if_eligible(self, *, email, password_hash, allow_multiple):
+            assert allow_multiple is True
             return DashboardUserRecord(email=email, password_hash=password_hash)
 
     monkeypatch.setattr(app_module, "PostgresClassifierRepository", FakeRepository)
@@ -289,7 +270,7 @@ def test_login_dashboard_user_sets_cookie_for_valid_credentials(monkeypatch):
         password="password1",
     )
 
-    body = route.endpoint(payload, response)
+    body = route.endpoint(payload, FakeRequest(), response)
 
     assert body == {"authenticated": True, "email": "analyst@example.com"}
     assert app_module.DASHBOARD_AUTH_COOKIE in response.headers["set-cookie"]
@@ -315,10 +296,44 @@ def test_login_dashboard_user_rejects_invalid_credentials(monkeypatch):
     )
 
     with pytest.raises(HTTPException) as exc_info:
-        route.endpoint(payload, Response())
+        route.endpoint(payload, FakeRequest(), Response())
 
     assert exc_info.value.status_code == 401
     assert exc_info.value.detail == "invalid email or password"
+
+
+def test_login_dashboard_user_locks_out_after_repeated_failures(monkeypatch):
+    route = route_for("/auth/login", "POST")
+    user = DashboardUserRecord(
+        email="analyst@example.com",
+        password_hash=app_module._hash_password("password1"),
+    )
+
+    class FakeRepository:
+        def get_dashboard_user_by_email(self, email):
+            return user
+
+    monkeypatch.setattr(app_module, "PostgresClassifierRepository", FakeRepository)
+    payload = app_module.DashboardLoginInput(
+        email="analyst@example.com",
+        password="wrongpass1",
+    )
+
+    for _ in range(app_module.LOGIN_RATE_LIMIT_MAX_ATTEMPTS):
+        with pytest.raises(HTTPException) as exc_info:
+            route.endpoint(payload, FakeRequest(), Response())
+        assert exc_info.value.status_code == 401
+
+    with pytest.raises(HTTPException) as exc_info:
+        route.endpoint(payload, FakeRequest(), Response())
+
+    assert exc_info.value.status_code == 429
+
+    # A correct password is also rejected while the lockout window is active.
+    good_payload = app_module.DashboardLoginInput(email="analyst@example.com", password="password1")
+    with pytest.raises(HTTPException) as exc_info:
+        route.endpoint(good_payload, FakeRequest(), Response())
+    assert exc_info.value.status_code == 429
 
 
 def test_dashboard_password_validation_requires_length_letter_and_number():
@@ -1078,3 +1093,68 @@ def test_update_issue_status_endpoint_requires_dashboard_session():
 def test_issue_status_update_rejects_unsupported_status_value():
     with pytest.raises(ValidationError, match="status must be one of"):
         IssueStatusUpdate(status="archived")
+
+
+def _alert_config(**overrides):
+    defaults = dict(
+        enabled=True,
+        smtp_host="smtp.example.com",
+        smtp_port=587,
+        smtp_username="alerts@example.com",
+        smtp_password_configured=True,
+        smtp_from_email="alerts@example.com",
+        smtp_use_tls=True,
+        global_min_risk_level="high",
+    )
+    defaults.update(overrides)
+    return app_module.AlertConfigRecord(**defaults)
+
+
+def test_smtp_send_fails_closed_when_repository_has_no_password(monkeypatch):
+    class FakeRepository:
+        def get_alert_smtp_password(self):
+            return None
+
+    monkeypatch.setattr(app_module, "PostgresClassifierRepository", FakeRepository)
+
+    err = app_module._smtp_send(_alert_config(), "dest@example.com", "subject", "body")
+
+    assert err == "smtp_username is set but no SMTP password is configured"
+
+
+def test_smtp_send_logs_in_with_repository_returned_password(monkeypatch):
+    class FakeRepository:
+        def get_alert_smtp_password(self):
+            return "the-real-password"
+
+    monkeypatch.setattr(app_module, "PostgresClassifierRepository", FakeRepository)
+
+    logins = []
+    sent = []
+
+    class FakeSMTP:
+        def __init__(self, host, port, timeout=10):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc_info):
+            return False
+
+        def starttls(self, context=None):
+            pass
+
+        def login(self, username, password):
+            logins.append((username, password))
+
+        def sendmail(self, from_addr, to_addrs, message):
+            sent.append((from_addr, to_addrs))
+
+    monkeypatch.setattr(app_module.smtplib, "SMTP", FakeSMTP)
+
+    err = app_module._smtp_send(_alert_config(), "dest@example.com", "subject", "body")
+
+    assert err is None
+    assert logins == [("alerts@example.com", "the-real-password")]
+    assert sent == [("alerts@example.com", ["dest@example.com"])]

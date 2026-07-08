@@ -24,6 +24,8 @@ from classifier.storage.models import (
     StoredSessionEvent,
 )
 from classifier.storage.repository import (
+    DashboardEmailAlreadyRegisteredError,
+    DashboardSignupNotAllowedError,
     DatabaseNotConfiguredError,
     DatabaseDriverMissingError,
     PostgresClassifierRepository,
@@ -36,7 +38,9 @@ __all__ = [
     "AnalyticsSummary",
     "ClassifierRunRecord",
     "ClassifyAndStoreResponse",
+    "DashboardEmailAlreadyRegisteredError",
     "DashboardReportSummary",
+    "DashboardSignupNotAllowedError",
     "DashboardUserRecord",
     "DatabaseDriverMissingError",
     "DatabaseNotConfiguredError",
