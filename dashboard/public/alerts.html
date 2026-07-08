@@ -234,10 +234,23 @@
     async function loadAlertEvents() {
       var tbody = document.getElementById("alertEventsBody");
       try {
-        var r = await fetch("/alerts/events?limit=200");
-        if (!r.ok) throw new Error("HTTP " + r.status);
-        var events = await r.json();
-        renderSummary(events);
+        var responses = await Promise.all([
+          fetch("/alerts/events?limit=200"),
+          fetch("/alerts/events/count"),
+        ]);
+        var eventsResp = responses[0];
+        var countResp = responses[1];
+        if (!eventsResp.ok) throw new Error("HTTP " + eventsResp.status);
+        var events = await eventsResp.json();
+        // Total Alerts must reflect every alert ever sent, not just this
+        // capped-at-200 list -- fall back to the list length only if the
+        // dedicated count endpoint itself is unavailable.
+        var total = events.length;
+        if (countResp.ok) {
+          var countBody = await countResp.json();
+          if (typeof countBody.total === "number") total = countBody.total;
+        }
+        renderSummary(events, total);
         if (!events.length) {
           tbody.innerHTML = '<tr><td colspan="6" class="empty-state">No alerts dispatched yet.</td></tr>';
           return;
@@ -274,13 +287,13 @@
       }
     }
 
-    function renderSummary(events) {
+    function renderSummary(events, total) {
       var now = Date.now();
       var day = 24 * 60 * 60 * 1000;
       var last24 = events.filter(function(e) { return (now - new Date(e.sent_at).getTime()) < day; });
       var success = events.filter(function(e) { return e.success; });
       var failed = events.filter(function(e) { return !e.success; });
-      document.getElementById("metricTotal").textContent = events.length;
+      document.getElementById("metricTotal").textContent = total;
       document.getElementById("metricLast24h").textContent = last24.length;
       document.getElementById("metricSuccess").textContent = success.length;
       document.getElementById("metricFailed").textContent = failed.length;

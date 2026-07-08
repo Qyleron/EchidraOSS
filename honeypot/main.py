@@ -57,7 +57,10 @@ async def main():
         )
         for task in done:
             if task is not stop_task:
-                task.result()
+                try:
+                    task.result()
+                except Exception:
+                    logger.exception("A protocol listener terminated unexpectedly")
     finally:
         logger.info("Shutting down gracefully...")
         await ssh_server.shutdown()

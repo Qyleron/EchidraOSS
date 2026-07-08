@@ -224,7 +224,7 @@
 
     async function loadRecentActivity() {
       try {
-        const runs = await fetchJSON("/classifier/runs?limit=10&order=desc");
+        const runs = await fetchJSON("/classifier/runs?limit=10");
         renderEvents(runs);
         renderMap(runs);
       } catch (error) {

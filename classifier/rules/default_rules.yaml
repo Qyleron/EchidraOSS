@@ -63,11 +63,18 @@ rules:
     mitre_tags:
       - T1110
     evidence:
-      - A credential or authorization attempt was observed during the active session.
+      - A complete credential submission (username and password) was observed during the active session.
     conditions:
+      # >= 2 requires both a username and a password to have been submitted --
+      # a bare, unfinished username line (auth_attempt_count == 1) isn't
+      # evidence of a login attempt at all. Note this can't require *repeated*
+      # attempts: FtpHandler and TelnetHandler each accept exactly one
+      # USER/PASS exchange per connection by design (see their docstrings),
+      # so a genuinely repeated pattern only shows up across sessions --
+      # that's what repeat_connections_same_ip is for.
       - field: auth_attempt_count
         operator: gte
-        value: 1
+        value: 2
 
   - id: script_kiddie_tool_names
     name: Known tool name typed in the shell

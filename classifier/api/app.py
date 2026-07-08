@@ -12,7 +12,6 @@ import re
 import secrets
 import smtplib
 import ssl
-import threading
 import time
 from pathlib import Path
 from uuid import UUID
@@ -42,6 +41,7 @@ from classifier.storage import (
     IssueStatusUpdate,
     ManualLabelRecord,
     PersonaAnalytics,
+    PersonaConfigAlreadyExistsError,
     PersonaConfigInput,
     PersonaConfigRecord,
     PostgresClassifierRepository,
@@ -80,8 +80,6 @@ _FALLBACK_SESSION_SECRET_PATH = (
 _fallback_session_secret: str | None = None
 LOGIN_RATE_LIMIT_MAX_ATTEMPTS = 5
 LOGIN_RATE_LIMIT_WINDOW_SECONDS = 15 * 60
-_login_failures_lock = threading.Lock()
-_login_failures: dict[str, list[float]] = {}
 _EMAIL_RE = re.compile(
     r"^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@"
     r"[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$"
@@ -234,11 +232,12 @@ def create_app() -> FastAPI:
     ) -> dict[str, str | bool]:
         """Verify dashboard credentials and set the auth cookie."""
         rate_limit_key = _login_rate_limit_key(request, payload.email)
-        _check_login_rate_limit(rate_limit_key)
-
         try:
             repository = PostgresClassifierRepository()
+            _check_login_rate_limit(rate_limit_key, repository)
             user = repository.get_dashboard_user_by_email(payload.email)
+        except HTTPException:
+            raise
         except (DatabaseDriverMissingError, DatabaseNotConfiguredError) as exc:
             raise HTTPException(status_code=503, detail=str(exc))
         except Exception as exc:
@@ -246,10 +245,10 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=500, detail="internal server error")
 
         if user is None or not _verify_password(payload.password, user.password_hash):
-            _record_login_failure(rate_limit_key)
+            _record_login_failure(rate_limit_key, repository)
             raise HTTPException(status_code=401, detail="invalid email or password")
 
-        _clear_login_failures(rate_limit_key)
+        _clear_login_failures(rate_limit_key, repository)
         _set_dashboard_session_cookie(response, user)
         return {"authenticated": True, "email": user.email}
 
@@ -341,6 +340,8 @@ def create_app() -> FastAPI:
                 connection_count = _repo.count_sessions_from_ip(session.peer_ip)
             except (DatabaseDriverMissingError, DatabaseNotConfiguredError):
                 pass  # classify without brute_force_bot detection if DB unavailable
+            except Exception:
+                logger.exception("count_sessions_from_ip failed; classifying without it")
 
         summary = _classify_or_http_error(
             session, connection_count_from_same_ip=connection_count
@@ -616,7 +617,7 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=500, detail="internal server error")
 
     @api.post(
-        "/persona-configs",
+        "/persona-configs/{persona_id}",
         response_model=PersonaConfigRecord,
         status_code=201,
         tags=["personas"],
@@ -630,11 +631,9 @@ def create_app() -> FastAPI:
         _require_dashboard_auth(request)
         try:
             repository = PostgresClassifierRepository()
-            if repository.get_persona_config(persona_id) is not None:
-                raise HTTPException(status_code=409, detail="persona config already exists")
             return repository.create_persona_config(persona_id, payload)
-        except HTTPException:
-            raise
+        except PersonaConfigAlreadyExistsError:
+            raise HTTPException(status_code=409, detail="persona config already exists")
         except (DatabaseDriverMissingError, DatabaseNotConfiguredError) as exc:
             raise HTTPException(status_code=503, detail=str(exc))
         except Exception as exc:
@@ -827,6 +826,26 @@ def create_app() -> FastAPI:
             logger.exception("Unhandled exception in list_alert_events_endpoint: %s", exc)
             raise HTTPException(status_code=500, detail="internal server error")
 
+    @api.get(
+        "/alerts/events/count",
+        tags=["alerts"],
+    )
+    def count_alert_events_endpoint(request: Request) -> dict[str, int]:
+        """Return the total number of alert dispatch records ever stored.
+
+        list_alert_events_endpoint is capped at 500, so the dashboard's
+        "Total Alerts" tile needs this separate authoritative count.
+        """
+        _require_dashboard_auth(request)
+        try:
+            repository = PostgresClassifierRepository()
+            return {"total": repository.count_alert_events()}
+        except (DatabaseDriverMissingError, DatabaseNotConfiguredError) as exc:
+            raise HTTPException(status_code=503, detail=str(exc))
+        except Exception as exc:
+            logger.exception("Unhandled exception in count_alert_events_endpoint: %s", exc)
+            raise HTTPException(status_code=500, detail="internal server error")
+
     return api
 
 
@@ -855,6 +874,7 @@ def _classify_or_http_error(
 
 
 _RISK_LEVEL_ORDER = ("critical", "high", "medium", "low", "none")
+_SMTP_IMPLICIT_TLS_PORT = 465
 
 
 def _risk_meets_threshold(risk_level: str, min_risk_level: str) -> bool:
@@ -903,10 +923,19 @@ def _smtp_send(
         if not raw_password:
             return "smtp_username is set but no SMTP password is configured"
 
+    # Port 465 servers expect TLS from the first byte of the connection
+    # (implicit TLS) -- STARTTLS on a plaintext SMTP connection is a
+    # different, incompatible protocol and would fail against them.
+    use_implicit_tls = config.smtp_use_tls and config.smtp_port == _SMTP_IMPLICIT_TLS_PORT
+
     try:
         context = ssl.create_default_context() if config.smtp_use_tls else None
-        with smtplib.SMTP(config.smtp_host, config.smtp_port, timeout=10) as server:
-            if config.smtp_use_tls:
+        if use_implicit_tls:
+            server_cm = smtplib.SMTP_SSL(config.smtp_host, config.smtp_port, timeout=10, context=context)
+        else:
+            server_cm = smtplib.SMTP(config.smtp_host, config.smtp_port, timeout=10)
+        with server_cm as server:
+            if config.smtp_use_tls and not use_implicit_tls:
                 server.starttls(context=context)
             if raw_password:
                 server.login(config.smtp_username, raw_password)
@@ -962,31 +991,31 @@ def _login_rate_limit_key(request: Request, email: str) -> str:
     return f"{host}:{_normalize_email(email)}"
 
 
-def _check_login_rate_limit(key: str) -> None:
+def _check_login_rate_limit(key: str, repository: PostgresClassifierRepository) -> None:
     """Reject a login attempt if this (client, account) pair failed too often recently.
 
-    Checked before the DB lookup/PBKDF2 verify so a lockout is cheap, not just
-    a delayed 401 after the expensive work already ran.
+    Backed by the database (shared across every API worker process) rather
+    than a process-local dict, which would let an attacker bypass the limit
+    by simply spreading requests across workers. Checked before the PBKDF2
+    verify so a lockout skips the expensive hash, not just delays the 401.
     """
-    now = time.time()
-    with _login_failures_lock:
-        recent = [t for t in _login_failures.get(key, []) if now - t < LOGIN_RATE_LIMIT_WINDOW_SECONDS]
-        if recent:
-            _login_failures[key] = recent
-        else:
-            _login_failures.pop(key, None)
-        if len(recent) >= LOGIN_RATE_LIMIT_MAX_ATTEMPTS:
-            raise HTTPException(status_code=429, detail="too many login attempts — try again later")
+    recent = repository.count_recent_login_failures(key, LOGIN_RATE_LIMIT_WINDOW_SECONDS)
+    if recent >= LOGIN_RATE_LIMIT_MAX_ATTEMPTS:
+        raise HTTPException(status_code=429, detail="too many login attempts — try again later")
 
 
-def _record_login_failure(key: str) -> None:
-    with _login_failures_lock:
-        _login_failures.setdefault(key, []).append(time.time())
+def _record_login_failure(key: str, repository: PostgresClassifierRepository) -> None:
+    try:
+        repository.record_login_failure(key, window_seconds=LOGIN_RATE_LIMIT_WINDOW_SECONDS)
+    except Exception:
+        logger.exception("Could not record login failure for rate limiting")
 
 
-def _clear_login_failures(key: str) -> None:
-    with _login_failures_lock:
-        _login_failures.pop(key, None)
+def _clear_login_failures(key: str, repository: PostgresClassifierRepository) -> None:
+    try:
+        repository.clear_login_failures(key)
+    except Exception:
+        logger.exception("Could not clear login failure history after successful login")
 
 
 def _require_ingest_api_key(request: Request) -> None:
@@ -1080,25 +1109,49 @@ def _dashboard_session_secret() -> str:
     return _fallback_session_secret
 
 
+def _read_fallback_session_secret() -> str | None:
+    try:
+        existing = _FALLBACK_SESSION_SECRET_PATH.read_text(encoding="utf-8").strip()
+        return existing or None
+    except OSError:
+        return None
+
+
 def _load_or_create_fallback_session_secret() -> str:
     """Fall back secret used when ECHIDRA_SESSION_SECRET is unset.
 
     Persisted to disk so dashboard logins survive process restarts (eg.
     --reload, crashes, redeploys) instead of invalidating every cookie the
     moment a fresh random secret is generated in memory.
-    """
-    try:
-        existing = _FALLBACK_SESSION_SECRET_PATH.read_text(encoding="utf-8").strip()
-        if existing:
-            return existing
-    except OSError:
-        pass
 
-    secret = secrets.token_urlsafe(32)
+    Creation is atomic (O_CREAT | O_EXCL) so that if multiple worker
+    processes start at once and race to create this file, only the first
+    one's secret is ever persisted -- every loser re-reads that file instead
+    of quietly signing/verifying cookies with its own, different candidate
+    secret, which previously desynced sessions across workers.
+    """
+    existing = _read_fallback_session_secret()
+    if existing:
+        return existing
+
+    candidate = secrets.token_urlsafe(32)
     try:
         _FALLBACK_SESSION_SECRET_PATH.parent.mkdir(parents=True, exist_ok=True)
-        _FALLBACK_SESSION_SECRET_PATH.write_text(secret, encoding="utf-8")
-        _FALLBACK_SESSION_SECRET_PATH.chmod(0o600)
+        fd = os.open(
+            _FALLBACK_SESSION_SECRET_PATH,
+            os.O_CREAT | os.O_EXCL | os.O_WRONLY,
+            0o600,
+        )
+        try:
+            os.write(fd, candidate.encode("utf-8"))
+        finally:
+            os.close(fd)
+        return candidate
+    except FileExistsError:
+        # Another process won the race and created the file first between
+        # our read above and our create attempt -- use its secret so every
+        # worker shares one value.
+        return _read_fallback_session_secret() or candidate
     except OSError:
         logger.warning(
             "Could not persist fallback dashboard session secret to %s; "
@@ -1107,7 +1160,7 @@ def _load_or_create_fallback_session_secret() -> str:
             _FALLBACK_SESSION_SECRET_PATH,
             DASHBOARD_SESSION_SECRET_ENV,
         )
-    return secret
+    return candidate
 
 
 def _set_dashboard_session_cookie(

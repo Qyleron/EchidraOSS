@@ -19,12 +19,15 @@ from classifier.storage.models import (
     ManualLabelInput,
     ManualLabelRecord,
     MitreTechnique,
+    PersonaConfigInput,
     StoredSessionEvent,
 )
 from classifier.storage.repository import (
     DatabaseDriverMissingError,
     DatabaseNotConfiguredError,
+    PersonaConfigAlreadyExistsError,
     PostgresClassifierRepository,
+    _alert_password_key,
     _decrypt_alert_password,
     _encrypt_alert_password,
     classifier_run_insert_params,
@@ -89,13 +92,66 @@ def test_repository_requires_database_url(monkeypatch):
         PostgresClassifierRepository()
 
 
+def _fake_persisted_salt_fetch_one(stored: dict):
+    """Mimic UPSERT_ALERT_PASSWORD_SALT_SQL's ON CONFLICT ... COALESCE
+    semantics: the first candidate salt persisted "wins" and every later
+    call returns that same value, regardless of the new candidate passed in."""
+
+    def fake_fetch_one(database_url, sql, params):
+        if stored.get("value") is None:
+            stored["value"] = params["salt"]
+        return {"smtp_password_salt": stored["value"]}
+
+    return fake_fetch_one
+
+
 def test_alert_password_encryption_round_trips_plaintext(monkeypatch):
     monkeypatch.setenv("ECHIDRA_ALERT_SECRET", "test-alert-secret")
-    encrypted = _encrypt_alert_password("secret-password")
+    monkeypatch.setattr(
+        "classifier.storage.repository._fetch_one",
+        _fake_persisted_salt_fetch_one({}),
+    )
+
+    database_url = "postgresql://example/echidra"
+    encrypted = _encrypt_alert_password(database_url, "secret-password")
 
     assert encrypted is not None
     assert encrypted != "secret-password"
-    assert _decrypt_alert_password(encrypted) == "secret-password"
+    assert _decrypt_alert_password(database_url, encrypted) == "secret-password"
+
+
+def test_alert_password_salt_is_per_installation_not_hardcoded(monkeypatch):
+    """Two installations (independent persisted salts) with the same
+    ECHIDRA_ALERT_SECRET must derive different keys -- a fixed source-embedded
+    salt would make the derived key identical across every deployment."""
+    monkeypatch.setenv("ECHIDRA_ALERT_SECRET", "test-alert-secret")
+
+    monkeypatch.setattr(
+        "classifier.storage.repository._fetch_one",
+        _fake_persisted_salt_fetch_one({}),
+    )
+    key_a = _alert_password_key("postgresql://install-a/echidra")
+
+    monkeypatch.setattr(
+        "classifier.storage.repository._fetch_one",
+        _fake_persisted_salt_fetch_one({}),
+    )
+    key_b = _alert_password_key("postgresql://install-b/echidra")
+
+    assert key_a != key_b
+
+
+def test_count_alert_events_returns_total_regardless_of_list_limit(monkeypatch):
+    """count_alert_events must reflect every stored row, not the <=500-row
+    cap list_alert_events applies for the history table."""
+    monkeypatch.setattr(
+        "classifier.storage.repository._fetch_one",
+        lambda database_url, sql, params: {"total": 734},
+    )
+
+    total = PostgresClassifierRepository("postgresql://example/echidra").count_alert_events()
+
+    assert total == 734
 
 
 def test_classifier_run_record_captures_searchable_summary_fields():
@@ -337,6 +393,40 @@ def test_dashboard_user_from_row_returns_storage_model():
     stored_user = dashboard_user_from_row(row)
 
     assert stored_user == user
+
+
+def test_login_rate_limit_methods_are_backed_by_the_database(monkeypatch):
+    """The login rate limiter must go through the repository (shared across
+    every API worker process) rather than any process-local cache."""
+    fetch_calls = []
+    statement_calls = []
+    insert_calls = []
+
+    monkeypatch.setattr(
+        "classifier.storage.repository._fetch_one",
+        lambda database_url, sql, params: fetch_calls.append((sql, params)) or {"total": 3},
+    )
+    monkeypatch.setattr(
+        "classifier.storage.repository._execute_statements",
+        lambda database_url, statements: statement_calls.append(statements),
+    )
+    monkeypatch.setattr(
+        "classifier.storage.repository._execute_insert",
+        lambda database_url, sql, params: insert_calls.append((sql, params)),
+    )
+
+    repository = PostgresClassifierRepository("postgresql://example/echidra")
+
+    total = repository.count_recent_login_failures("127.0.0.1:analyst@example.com", 900)
+    assert total == 3
+    assert fetch_calls[0][1] == {"key": "127.0.0.1:analyst@example.com", "window_seconds": 900}
+
+    repository.record_login_failure("127.0.0.1:analyst@example.com", window_seconds=900)
+    assert len(statement_calls[0]) == 2
+    assert statement_calls[0][1][1] == {"key": "127.0.0.1:analyst@example.com"}
+
+    repository.clear_login_failures("127.0.0.1:analyst@example.com")
+    assert insert_calls[0][1] == {"key": "127.0.0.1:analyst@example.com"}
 
 
 def test_issue_from_row_includes_mitre_techniques():
@@ -750,6 +840,55 @@ def test_dashboard_report_summary_reuses_one_connection_when_driver_available(mo
     )
 
 
+def test_get_persona_analytics_reuses_one_connection_when_driver_available(monkeypatch):
+    """get_persona_analytics shares _fetch_aggregate_batch with
+    get_dashboard_report_summary -- exercise its own seven-query order with a
+    real (fake) psycopg connection/cursor, not just the per-call fallback."""
+    cursor = _FakeCursor(
+        [
+            [{"total": 9}],
+            [{"date": "2026-07-01", "count": 3}],
+            [{"key": "reconnaissance", "count": 5}],
+            [{"key": "high", "count": 2}],
+            [{"technique_id": "T1110", "count": 4}],
+            [{"hour": 14, "count": 6}],
+            [{"key": "United States", "count": 1}],
+        ]
+    )
+    connection = _FakeConnection(cursor)
+
+    class _FakeRows:
+        dict_row = object()
+
+    class _FakePsycopg:
+        rows = _FakeRows()
+
+        @staticmethod
+        def connect(database_url):
+            return connection
+
+    monkeypatch.setattr(
+        "classifier.storage.repository._load_psycopg",
+        lambda: _FakePsycopg,
+    )
+    monkeypatch.setattr(
+        "classifier.storage.repository.load_mitre_technique_catalog",
+        lambda: {},
+    )
+
+    analytics = PostgresClassifierRepository(
+        "postgresql://example/echidra"
+    ).get_persona_analytics("generic_linux")
+
+    assert analytics.sessions_captured == 9
+    assert analytics.sessions_trend == [{"date": "2026-07-01", "count": 3}]
+    assert analytics.intent_counts == {"reconnaissance": 5}
+    assert analytics.risk_counts == {"high": 2}
+    assert analytics.top_techniques == [{"id": "T1110", "name": "T1110", "count": 4}]
+    assert analytics.peak_hours == [{"hour": 14, "count": 6}]
+    assert analytics.top_countries == [{"country": "United States", "count": 1}]
+
+
 def test_classifier_run_list_query_applies_supported_filters():
     session_id = uuid4()
 
@@ -1007,3 +1146,20 @@ def test_storage_cli_sync_issues_redacts_database_url_in_errors(monkeypatch, cap
     assert exit_code == 2
     assert "postgresql://user:***@example.local:5432/echidra" in captured.err
     assert "secret" not in captured.err
+
+
+def test_create_persona_config_translates_unique_violation_to_conflict_error(monkeypatch):
+    """A duplicate slug ID must surface as PersonaConfigAlreadyExistsError,
+    from the DB's own unique constraint rather than a prior existence check
+    (which would be a TOCTOU race between two concurrent create requests)."""
+    import psycopg
+
+    def raise_unique_violation(*args, **kwargs):
+        raise psycopg.errors.UniqueViolation("duplicate key value violates unique constraint")
+
+    monkeypatch.setattr("classifier.storage.repository._execute_insert", raise_unique_violation)
+
+    repository = PostgresClassifierRepository("postgresql://example/echidra")
+
+    with pytest.raises(PersonaConfigAlreadyExistsError):
+        repository.create_persona_config("generic_linux", PersonaConfigInput(name="Generic Linux"))

@@ -45,7 +45,7 @@ def test_dashboard_map_and_events_are_backed_by_live_api_calls():
     assert "L.circle([run.latitude, run.longitude]" in html
     assert "L.circleMarker([run.latitude, run.longitude]" in html
     assert 'fetchJSON("/reports/summary")' in html
-    assert 'fetchJSON("/classifier/runs?limit=10&order=desc")' in html
+    assert 'fetchJSON("/classifier/runs?limit=10")' in html
     # The old static mock dataset must be gone.
     assert "attackOrigins" not in html
     assert "Moscow" not in html
@@ -94,11 +94,11 @@ def test_sessions_page_uses_shared_styles_and_session_table_columns():
 def test_sessions_page_is_backed_by_live_api_calls():
     html = (DASHBOARD_PUBLIC_PATH / "sessions.html").read_text(encoding="utf-8")
 
-    assert 'fetchJSON("/classifier/runs?limit=500&order=desc")' in html
+    assert 'fetchJSON("/classifier/runs?limit=500")' in html
     assert "fetchJSON(`/sessions/${sessionId}/events`)" in html
     # The old static mock dataset must be gone.
     assert "sess-1048" not in html
-    assert "Ubuntu Web Server" not in html
+    assert "185.234.219.x" not in html
 
 
 def test_sessions_and_analytics_range_pickers_cannot_produce_an_inverted_range():

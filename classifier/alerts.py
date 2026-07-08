@@ -34,9 +34,9 @@ def _maybe_send_alert(
     """Fire an email alert if the run meets the configured threshold."""
     if summary.alert_action is None:
         return
-    if isinstance(session, dict):
-        session = SessionRecord.parse_obj(session)
     try:
+        if isinstance(session, dict):
+            session = SessionRecord.parse_obj(session)
         repository = PostgresClassifierRepository()
         config = repository.get_alert_config()
         if config is None or not config.enabled:

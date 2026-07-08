@@ -290,7 +290,7 @@ def _check_database() -> None:
         print(f"  Database: driver missing ({exc})")
         return
     except Exception as exc:
-        print(f"  Database: configured but unreachable ({exc})")
+        print(f"  Database: configured but unreachable ({type(exc).__name__})")
         return
 
     print("  Database: connected")

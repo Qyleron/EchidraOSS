@@ -1,6 +1,7 @@
 import hashlib
 import hmac
 import importlib
+from datetime import datetime, timezone
 
 import pytest
 from fastapi import HTTPException
@@ -22,6 +23,9 @@ from classifier.storage import (
     IssueStatusUpdate,
     ManualLabelInput,
     ManualLabelRecord,
+    PersonaConfigAlreadyExistsError,
+    PersonaConfigInput,
+    PersonaConfigRecord,
     StoredClassifierRun,
 )
 from tests.test_classifier_pipeline import make_record
@@ -34,7 +38,6 @@ def clear_dashboard_session_secret(monkeypatch):
     monkeypatch.delenv("ECHIDRA_SESSION_SECRET", raising=False)
     monkeypatch.delenv(app_module.INGEST_API_KEY_ENV, raising=False)
     monkeypatch.delenv(app_module.ALLOW_SIGNUPS_ENV, raising=False)
-    app_module._login_failures.clear()
 
 
 class FakeRequest:
@@ -263,6 +266,12 @@ def test_login_dashboard_user_sets_cookie_for_valid_credentials(monkeypatch):
             assert email == "analyst@example.com"
             return user
 
+        def count_recent_login_failures(self, key, window_seconds):
+            return 0
+
+        def clear_login_failures(self, key):
+            pass
+
     monkeypatch.setattr(app_module, "PostgresClassifierRepository", FakeRepository)
     response = Response()
     payload = app_module.DashboardLoginInput(
@@ -289,6 +298,12 @@ def test_login_dashboard_user_rejects_invalid_credentials(monkeypatch):
         def get_dashboard_user_by_email(self, email):
             return user
 
+        def count_recent_login_failures(self, key, window_seconds):
+            return 0
+
+        def record_login_failure(self, key, *, window_seconds):
+            pass
+
     monkeypatch.setattr(app_module, "PostgresClassifierRepository", FakeRepository)
     payload = app_module.DashboardLoginInput(
         email="analyst@example.com",
@@ -308,10 +323,23 @@ def test_login_dashboard_user_locks_out_after_repeated_failures(monkeypatch):
         email="analyst@example.com",
         password_hash=app_module._hash_password("password1"),
     )
+    # Shared across FakeRepository instances -- simulates the DB-backed
+    # store persisting across the fresh PostgresClassifierRepository()
+    # constructed on every request.
+    failures = []
 
     class FakeRepository:
         def get_dashboard_user_by_email(self, email):
             return user
+
+        def count_recent_login_failures(self, key, window_seconds):
+            return len(failures)
+
+        def record_login_failure(self, key, *, window_seconds):
+            failures.append(key)
+
+        def clear_login_failures(self, key):
+            failures.clear()
 
     monkeypatch.setattr(app_module, "PostgresClassifierRepository", FakeRepository)
     payload = app_module.DashboardLoginInput(
@@ -393,6 +421,44 @@ def test_dashboard_cookie_secure_flag_reads_environment(monkeypatch):
     monkeypatch.setenv("ECHIDRA_COOKIE_SECURE", "true")
 
     assert app_module._dashboard_cookie_secure()
+
+
+def test_fallback_session_secret_persists_and_reuses_same_value(tmp_path, monkeypatch):
+    monkeypatch.setattr(app_module, "_FALLBACK_SESSION_SECRET_PATH", tmp_path / ".dashboard_session_secret")
+
+    first = app_module._load_or_create_fallback_session_secret()
+    second = app_module._load_or_create_fallback_session_secret()
+
+    assert first == second
+    assert (tmp_path / ".dashboard_session_secret").read_text(encoding="utf-8").strip() == first
+
+
+def test_fallback_session_secret_converges_when_workers_race(tmp_path, monkeypatch):
+    """Simulate two worker processes starting at once: both see no file at
+    first, but only one can win the atomic create -- the loser must adopt
+    the winner's secret instead of persisting its own different candidate,
+    or workers would sign/verify session cookies with different secrets."""
+    monkeypatch.setattr(app_module, "_FALLBACK_SESSION_SECRET_PATH", tmp_path / ".dashboard_session_secret")
+
+    # The "winning" worker already created and wrote the file...
+    (tmp_path / ".dashboard_session_secret").write_text("winner-secret-value", encoding="utf-8")
+
+    # ...but this call's initial read raced before that write landed, so it
+    # still attempts (and fails) to create the file itself.
+    real_read = app_module._read_fallback_session_secret
+    calls = {"count": 0}
+
+    def read_empty_first_time(*args, **kwargs):
+        calls["count"] += 1
+        if calls["count"] == 1:
+            return None
+        return real_read(*args, **kwargs)
+
+    monkeypatch.setattr(app_module, "_read_fallback_session_secret", read_empty_first_time)
+
+    result = app_module._load_or_create_fallback_session_secret()
+
+    assert result == "winner-secret-value"
 
 
 def test_classify_session_route_uses_classifier_summary_contract():
@@ -1095,6 +1161,50 @@ def test_issue_status_update_rejects_unsupported_status_value():
         IssueStatusUpdate(status="archived")
 
 
+def test_create_persona_config_endpoint_binds_persona_id_as_path_param(monkeypatch):
+    """persona_id must be a path parameter, matching the GET/PUT/DELETE routes
+    for the same resource, not an implicit query parameter."""
+    route = route_for("/persona-configs/{persona_id}", "POST")
+    payload = PersonaConfigInput(name="Custom demo box")
+
+    class FakeRepository:
+        def create_persona_config(self, persona_id, config):
+            assert persona_id == "custom_demo_box"
+            assert config is payload
+            return PersonaConfigRecord(
+                id=persona_id,
+                created_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(timezone.utc),
+                **config.dict(),
+            )
+
+    monkeypatch.setattr(app_module, "PostgresClassifierRepository", FakeRepository)
+
+    result = route.endpoint("custom_demo_box", payload, dashboard_request())
+
+    assert result.id == "custom_demo_box"
+    assert result.name == "Custom demo box"
+
+
+def test_create_persona_config_endpoint_reports_conflict_on_duplicate_id(monkeypatch):
+    """The repository's unique-constraint handling (not a prior existence
+    check) is what produces this 409 -- see PersonaConfigAlreadyExistsError."""
+    route = route_for("/persona-configs/{persona_id}", "POST")
+    payload = PersonaConfigInput(name="Custom demo box")
+
+    class FakeRepository:
+        def create_persona_config(self, persona_id, config):
+            raise PersonaConfigAlreadyExistsError(persona_id)
+
+    monkeypatch.setattr(app_module, "PostgresClassifierRepository", FakeRepository)
+
+    with pytest.raises(HTTPException) as exc_info:
+        route.endpoint("custom_demo_box", payload, dashboard_request())
+
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.detail == "persona config already exists"
+
+
 def _alert_config(**overrides):
     defaults = dict(
         enabled=True,
@@ -1158,3 +1268,81 @@ def test_smtp_send_logs_in_with_repository_returned_password(monkeypatch):
     assert err is None
     assert logins == [("alerts@example.com", "the-real-password")]
     assert sent == [("alerts@example.com", ["dest@example.com"])]
+
+
+def test_smtp_send_uses_implicit_tls_on_port_465(monkeypatch):
+    """Port 465 servers expect TLS from the first byte -- STARTTLS on a
+    plaintext smtplib.SMTP connection is a different, incompatible protocol,
+    so this must use smtplib.SMTP_SSL instead."""
+    class FakeRepository:
+        def get_alert_smtp_password(self):
+            return "the-real-password"
+
+    monkeypatch.setattr(app_module, "PostgresClassifierRepository", FakeRepository)
+
+    logins = []
+    sent = []
+    ssl_calls = []
+    plain_smtp_calls = []
+
+    class FakeSMTP_SSL:
+        def __init__(self, host, port, timeout=10, context=None):
+            ssl_calls.append((host, port))
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc_info):
+            return False
+
+        def login(self, username, password):
+            logins.append((username, password))
+
+        def sendmail(self, from_addr, to_addrs, message):
+            sent.append((from_addr, to_addrs))
+
+    class FakeSMTP:
+        def __init__(self, host, port, timeout=10):
+            plain_smtp_calls.append((host, port))
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc_info):
+            return False
+
+        def starttls(self, context=None):
+            raise AssertionError("starttls() must not be called on an implicit-TLS connection")
+
+        def login(self, username, password):
+            logins.append((username, password))
+
+        def sendmail(self, from_addr, to_addrs, message):
+            sent.append((from_addr, to_addrs))
+
+    monkeypatch.setattr(app_module.smtplib, "SMTP_SSL", FakeSMTP_SSL)
+    monkeypatch.setattr(app_module.smtplib, "SMTP", FakeSMTP)
+
+    err = app_module._smtp_send(_alert_config(smtp_port=465), "dest@example.com", "subject", "body")
+
+    assert err is None
+    assert ssl_calls == [("smtp.example.com", 465)]
+    assert plain_smtp_calls == []
+    assert logins == [("alerts@example.com", "the-real-password")]
+    assert sent == [("alerts@example.com", ["dest@example.com"])]
+
+
+def test_count_alert_events_endpoint_returns_authoritative_total(monkeypatch):
+    """The dashboard's Total Alerts tile needs this separate count endpoint
+    since list_alert_events_endpoint is capped at 500 rows."""
+    route = route_for("/alerts/events/count", "GET")
+
+    class FakeRepository:
+        def count_alert_events(self):
+            return 734
+
+    monkeypatch.setattr(app_module, "PostgresClassifierRepository", FakeRepository)
+
+    result = route.endpoint(dashboard_request())
+
+    assert result == {"total": 734}

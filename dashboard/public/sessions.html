@@ -134,9 +134,16 @@
         .replace(/>/g, "&gt;");
     }
 
+    const PERSONA_LABEL_OVERRIDES = {
+      ubuntu_web_server: "Ubuntu Web Server",
+      debian_mail_gateway: "Debian Mail Gateway",
+      centos_database: "CentOS Database",
+      generic_linux: "Generic Linux Shell"
+    };
+
     function personaDisplay(personaId) {
       if (!personaId) return "Unknown persona";
-      return personaId
+      return PERSONA_LABEL_OVERRIDES[personaId] || personaId
         .split(/[_-]/)
         .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
         .join(" ");
@@ -492,7 +499,7 @@
 
     async function loadSessions() {
       try {
-        const runs = await fetchJSON("/classifier/runs?limit=500&order=desc");
+        const runs = await fetchJSON("/classifier/runs?limit=500");
         allSessions = runs.map(mapRun);
       } catch (error) {
         console.error(error);

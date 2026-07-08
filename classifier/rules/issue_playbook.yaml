@@ -19,11 +19,16 @@ actor_label_names:
   skilled_human_operator: Skilled human operators
 
 fixes:
-  # This honeypot has no auth step, so nothing can literally brute-force a
-  # password. brute_force_bot/T1110 is produced by issue_sync's repeat
-  # connection check instead (classifier/storage/issue_sync.py), off raw
-  # connection frequency per source IP in `sessions` -- not from a
-  # default_rules.yaml rule like every other entry below.
+  # brute_force_bot/T1110 comes from two places that share this one fix
+  # entry: default_rules.yaml's authentication_attempt and
+  # repeat_connections_same_ip rules (via classifier_runs), and issue_sync's
+  # own repeat-connection check (classifier/storage/issue_sync.py), computed
+  # directly off raw connection frequency per source IP in `sessions`. Both
+  # paths upsert to the same deterministic issue ID (see _issue_id_for_pair
+  # in issue_sync.py), so they consolidate into one issue instead of
+  # duplicating it -- the repeat-connection check runs last in
+  # sync_issues_from_classifier_runs and wins, since it's the more precise,
+  # purpose-built measurement of this specific behavior.
   brute_force_bot:
     T1110:
       title: The same source IP is reconnecting far more often than normal, consistent with automated credential or access testing.
