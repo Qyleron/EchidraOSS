@@ -117,6 +117,20 @@ def test_sessions_and_analytics_range_pickers_cannot_produce_an_inverted_range()
         assert 'addEventListener("change", syncRangeConstraints)' in html, page
 
 
+def test_sessions_and_analytics_csv_export_neutralizes_formula_injection():
+    """top_commands/session fields can contain raw attacker-typed honeypot
+    input (e.g. a 'command' starting with =/+/-/@) -- exporting it verbatim
+    would let it execute as a live formula when opened in a spreadsheet."""
+    for page in ("sessions.html", "analytics.html"):
+        html = (DASHBOARD_PUBLIC_PATH / page).read_text(encoding="utf-8")
+
+        assert "function sanitizeCsvCell" in html, page
+        assert "/^[=+\\-@\\t\\r]/.test(stringValue)" in html, page
+        # downloadCsv must actually route every cell through the sanitizer,
+        # not just define it unused.
+        assert "sanitizeCsvCell(value).replaceAll" in html, page
+
+
 def test_analytics_page_is_backed_by_live_api_calls():
     html = (DASHBOARD_PUBLIC_PATH / "analytics.html").read_text(encoding="utf-8")
 
