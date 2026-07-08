@@ -714,16 +714,16 @@ SELECT smtp_password FROM alert_config WHERE id = 1
 INSERT_ALERT_EVENT_SQL = """
 INSERT INTO alert_events (
     id, run_id, session_id, persona_id, risk_level, actor_label,
-    contact_email, sent_at, success, error_message
+    channel, contact_email, sent_at, success, error_message
 ) VALUES (
     %(id)s, %(run_id)s, %(session_id)s, %(persona_id)s, %(risk_level)s, %(actor_label)s,
-    %(contact_email)s, %(sent_at)s, %(success)s, %(error_message)s
+    %(channel)s, %(contact_email)s, %(sent_at)s, %(success)s, %(error_message)s
 )
 """
 
 SELECT_ALERT_EVENTS_SQL = """
 SELECT id, run_id, session_id, persona_id, risk_level, actor_label,
-       contact_email, sent_at, success, error_message
+       channel, contact_email, sent_at, success, error_message
 FROM alert_events
 ORDER BY sent_at DESC
 LIMIT %(limit)s
@@ -1410,6 +1410,7 @@ class PostgresClassifierRepository:
                 "persona_id": event.persona_id,
                 "risk_level": event.risk_level,
                 "actor_label": event.actor_label,
+                "channel": event.channel,
                 "contact_email": event.contact_email,
                 "sent_at": event.sent_at,
                 "success": event.success,
@@ -1436,6 +1437,7 @@ class PostgresClassifierRepository:
                 persona_id=row["persona_id"],
                 risk_level=row["risk_level"],
                 actor_label=row["actor_label"],
+                channel=row["channel"],
                 contact_email=row["contact_email"],
                 sent_at=row["sent_at"],
                 success=row["success"],

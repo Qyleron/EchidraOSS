@@ -393,7 +393,7 @@ class AlertConfigRecord(BaseModel):
 
 
 class AlertEventRecord(BaseModel):
-    """One persisted record of an attempted alert email dispatch."""
+    """One persisted record of an attempted alert dispatch (email or Slack)."""
 
     id: UUID = Field(default_factory=uuid4)
     run_id: UUID | None = None
@@ -401,6 +401,7 @@ class AlertEventRecord(BaseModel):
     persona_id: str
     risk_level: str
     actor_label: str | None = None
+    channel: str = "email"
     contact_email: str | None = None
     sent_at: datetime = Field(default_factory=_utc_now)
     success: bool

@@ -12,6 +12,7 @@ from classifier.storage.config import (
     redact_database_url,
 )
 from classifier.storage.models import (
+    AlertEventRecord,
     ClassifierRunRecord,
     DashboardReportSummary,
     DashboardUserRecord,
@@ -152,6 +153,54 @@ def test_count_alert_events_returns_total_regardless_of_list_limit(monkeypatch):
     total = PostgresClassifierRepository("postgresql://example/echidra").count_alert_events()
 
     assert total == 734
+
+
+def test_insert_alert_event_persists_channel(monkeypatch):
+    """A Slack-channel alert event must round-trip its channel, not silently
+    default back to "email" (the column default) once actually stored."""
+    captured = {}
+
+    def fake_execute_insert(database_url, sql, params):
+        captured.update(params)
+
+    monkeypatch.setattr("classifier.storage.repository._execute_insert", fake_execute_insert)
+
+    event = AlertEventRecord(
+        persona_id="generic_linux",
+        risk_level="high",
+        channel="slack",
+        contact_email=None,
+        success=True,
+    )
+    PostgresClassifierRepository("postgresql://example/echidra").insert_alert_event(event)
+
+    assert captured["channel"] == "slack"
+    assert captured["contact_email"] is None
+
+
+def test_list_alert_events_reads_back_channel(monkeypatch):
+    monkeypatch.setattr(
+        "classifier.storage.repository._fetch_all",
+        lambda database_url, sql, params: [
+            {
+                "id": uuid4(),
+                "run_id": None,
+                "session_id": None,
+                "persona_id": "generic_linux",
+                "risk_level": "high",
+                "actor_label": None,
+                "channel": "slack",
+                "contact_email": None,
+                "sent_at": datetime.now(timezone.utc),
+                "success": True,
+                "error_message": None,
+            }
+        ],
+    )
+
+    events = PostgresClassifierRepository("postgresql://example/echidra").list_alert_events()
+
+    assert events[0].channel == "slack"
 
 
 def test_classifier_run_record_captures_searchable_summary_fields():

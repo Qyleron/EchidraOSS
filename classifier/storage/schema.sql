@@ -200,7 +200,7 @@ CREATE TABLE IF NOT EXISTS alert_config (
 -- use rather than a fixed value shared across every deployment.
 ALTER TABLE alert_config ADD COLUMN IF NOT EXISTS smtp_password_salt TEXT;
 
--- One row per email alert that was attempted.
+-- One row per alert dispatch attempt (email or Slack).
 CREATE TABLE IF NOT EXISTS alert_events (
     id UUID PRIMARY KEY,
     run_id UUID REFERENCES classifier_runs(id) ON DELETE SET NULL,
@@ -219,3 +219,8 @@ CREATE INDEX IF NOT EXISTS alert_events_sent_at_idx
 
 CREATE INDEX IF NOT EXISTS alert_events_persona_id_idx
     ON alert_events (persona_id);
+
+-- Which channel this dispatch attempt used. Doesn't carry the Slack webhook
+-- URL itself (that stays only in persona_configs) -- same reasoning as
+-- keeping the SMTP password out of alert_config's plaintext columns.
+ALTER TABLE alert_events ADD COLUMN IF NOT EXISTS channel TEXT NOT NULL DEFAULT 'email';
