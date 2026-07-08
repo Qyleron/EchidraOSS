@@ -14,8 +14,10 @@ RestartSec=5
 
 # Only needed if ECHIDRA_PORT/ECHIDRA_HTTP_PORT/etc. are set to privileged
 # ports (80/21/23/22) instead of the non-privileged defaults
-# (8080/2121/2323/2222). Remove this line if you're using the defaults.
-AmbientCapabilities=CAP_NET_BIND_SERVICE
+# (8080/2121/2323/2222). Uncomment if you need a privileged port -- left
+# off by default since it grants a capability the process doesn't
+# otherwise need.
+#AmbientCapabilities=CAP_NET_BIND_SERVICE
 
 # Hardening: this process only needs to read its own code/config and append
 # to its own log file, never write elsewhere.

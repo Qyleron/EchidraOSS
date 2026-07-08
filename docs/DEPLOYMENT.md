@@ -84,11 +84,11 @@ sudo systemctl enable --now echidra-honeypot echidra-api
 ```
 
 Both unit files run as the unprivileged `echidra` user with
-`ProtectSystem=strict` (read-only filesystem outside `logs/`). If you set
-any listener port below 1024 (e.g. `ECHIDRA_HTTP_PORT=80`), keep the
+`ProtectSystem=strict` (read-only filesystem outside `logs/`). The
 `AmbientCapabilities=CAP_NET_BIND_SERVICE` line in
-`echidra-honeypot.service` — remove it if you're using the non-privileged
-defaults, since it grants a capability the process doesn't otherwise need.
+`echidra-honeypot.service` is commented out by default, since it grants a
+capability the process doesn't otherwise need. Uncomment it only if you set
+any listener port below 1024 (e.g. `ECHIDRA_HTTP_PORT=80`).
 
 Check status:
 
