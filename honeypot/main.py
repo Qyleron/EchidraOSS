@@ -48,17 +48,26 @@ async def main():
 
     tasks = [asyncio.create_task(ssh_server.start())]
     tasks += [asyncio.create_task(s.start()) for s in extra_servers]
+    stop_task = asyncio.create_task(stop_event.wait())
 
-    await stop_event.wait()
+    try:
+        done, _ = await asyncio.wait(
+            [stop_task, *tasks],
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        for task in done:
+            if task is not stop_task:
+                task.result()
+    finally:
+        logger.info("Shutting down gracefully...")
+        await ssh_server.shutdown()
+        for s in extra_servers:
+            await s.shutdown()
 
-    logger.info("Shutting down gracefully...")
-    await ssh_server.shutdown()
-    for s in extra_servers:
-        await s.shutdown()
-
-    for task in tasks:
-        task.cancel()
-    await asyncio.gather(*tasks, return_exceptions=True)
+        stop_task.cancel()
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(stop_task, *tasks, return_exceptions=True)
 
 
 if __name__ == "__main__":

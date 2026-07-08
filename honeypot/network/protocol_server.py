@@ -68,11 +68,17 @@ class ProtocolServer:
             await writer.wait_closed()
             return
 
-        handler = self.handler_class(
-            reader,
-            writer,
-            session_logger=self.session_logger,
-        )
+        try:
+            handler = self.handler_class(
+                reader,
+                writer,
+                session_logger=self.session_logger,
+            )
+        except Exception:
+            logger.exception("%s: failed to construct handler", self.handler_class.__name__)
+            writer.close()
+            await writer.wait_closed()
+            return
         task = asyncio.create_task(handler.handle())
         self.tasks.add(task)
         task.add_done_callback(self.tasks.discard)

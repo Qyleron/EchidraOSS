@@ -23,6 +23,7 @@ class SessionLogger:
         flags = os.O_APPEND | os.O_CREAT | os.O_WRONLY
         descriptor = os.open(self.path, flags, 0o600)
         try:
+            os.fchmod(descriptor, 0o600)
             os.write(descriptor, line.encode("utf-8"))
         finally:
             os.close(descriptor)

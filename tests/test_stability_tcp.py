@@ -115,6 +115,74 @@ async def test_malformed_shell_input_returns_syntax_error(running_server):
 
 
 @pytest.mark.asyncio
+async def test_oversized_line_over_real_socket_does_not_crash_server(running_server):
+    """A single line far past the StreamReader's buffer limit (64KB default,
+    no custom limit set in TCPServer.start()) must hit the LimitOverrunError
+    path -- a clear rejection message and a closed connection -- not crash
+    the handler or the server. TESTS.md Level 3/5: malformed payload over a
+    real socket, not just a mocked reader."""
+    host, port, _ = running_server
+
+    reader, writer = await asyncio.open_connection(host, port)
+    await read_prompt(reader)
+
+    oversized_line = b"A" * (100 * 1024)  # no newline -- past the 64KB limit
+    writer.write(oversized_line)
+    await writer.drain()
+
+    response = await asyncio.wait_for(reader.read(), timeout=5)
+    assert b"Input too long" in response
+
+    writer.close()
+    await writer.wait_closed()
+
+    # The server itself must still be healthy for the next client.
+    await run_client(host, port)
+
+
+@pytest.mark.asyncio
+async def test_malformed_utf8_over_real_socket_does_not_crash_server(running_server):
+    """Invalid UTF-8 bytes in a command line must not crash the handler --
+    decode(errors='ignore') absorbs them and the session keeps going."""
+    host, port, _ = running_server
+
+    reader, writer = await asyncio.open_connection(host, port)
+    await read_prompt(reader)
+
+    writer.write(b"\xff\xfe\xc0\xc1whoami\n")
+    await writer.drain()
+
+    response = await asyncio.wait_for(reader.read(1024), timeout=2)
+    assert response  # got a real response, not a hang or a silent close
+
+    writer.close()
+    await writer.wait_closed()
+
+    # The server itself must still be healthy for the next client.
+    await run_client(host, port)
+
+
+async def run_client(host, port):
+    """One full command-and-exit cycle, used to confirm the server is still
+    healthy after an edge-case client above."""
+    reader, writer = await asyncio.open_connection(host, port)
+    await read_prompt(reader)
+
+    writer.write(b"whoami\n")
+    await writer.drain()
+    response = await read_prompt(reader)
+    assert b"root" in response
+
+    writer.write(b"exit\n")
+    await writer.drain()
+    goodbye = await asyncio.wait_for(reader.read(), timeout=2)
+    assert b"logout" in goodbye
+
+    writer.close()
+    await writer.wait_closed()
+
+
+@pytest.mark.asyncio
 async def test_multiple_sequential_commands_preserve_prompt_behavior(running_server):
     """Several commands in a row should each return output plus a prompt."""
     host, port, _ = running_server
