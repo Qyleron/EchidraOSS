@@ -62,26 +62,7 @@ Two separate units — `echidra-honeypot.service` and `echidra-api.service` —
 so a crash or restart in one never takes down the other. Both live in
 [deploy/systemd/](../deploy/systemd/).
 
-```bash
-sudo useradd --system --home /opt/echidra --shell /usr/sbin/nologin echidra
-sudo mkdir -p /opt/echidra
-sudo cp -r . /opt/echidra   # or git clone directly into /opt/echidra
-cd /opt/echidra
 
-python3 -m venv venv
-venv/bin/pip install -r requirements.txt
-
-cp .env.example .env
-# edit .env: set ECHIDRA_DATABASE_URL and ECHIDRA_INGEST_API_KEY
-venv/bin/python -m classifier.storage.cli init-db
-
-sudo chown -R echidra:echidra /opt/echidra
-sudo mkdir -p /opt/echidra/logs && sudo chown echidra:echidra /opt/echidra/logs
-
-sudo cp deploy/systemd/echidra-honeypot.service deploy/systemd/echidra-api.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now echidra-honeypot echidra-api
-```
 
 Both unit files run as the unprivileged `echidra` user with
 `ProtectSystem=strict` (read-only filesystem outside `logs/`). The

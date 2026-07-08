@@ -94,8 +94,10 @@ def get_active_persona() -> Persona:
 
     persona_id = os.getenv("ECHIDRA_PERSONA", DEFAULT_PERSONA_ID)
     if _cached_persona is None or _cached_persona_id != persona_id:
-        persona = _load_persona_from_db(persona_id) or get_persona(persona_id)
-        validate_persona(persona)
+        persona = _load_persona_from_db(persona_id)
+        if persona is None:
+            persona = get_persona(persona_id)
+            validate_persona(persona)
         _cached_persona = persona
         _cached_persona_id = persona_id
 
@@ -146,7 +148,18 @@ def _load_persona_from_db(persona_id: str) -> Persona | None:
 
     if record is None:
         return None
-    return _persona_from_config_record(record)
+
+    try:
+        persona = _persona_from_config_record(record)
+        validate_persona(persona)
+    except Exception:
+        logger.warning(
+            "persona_configs row for %r failed validation; using preset instead",
+            persona_id,
+            exc_info=True,
+        )
+        return None
+    return persona
 
 
 def _persona_from_config_record(record) -> Persona:

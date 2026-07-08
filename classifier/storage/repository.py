@@ -279,6 +279,25 @@ COUNT_DASHBOARD_USERS_SQL = """
 SELECT COUNT(*) AS total FROM dashboard_users
 """
 
+INSERT_LOGIN_FAILURE_SQL = """
+INSERT INTO login_failures (rate_limit_key) VALUES (%(key)s)
+"""
+
+DELETE_LOGIN_FAILURES_FOR_KEY_SQL = """
+DELETE FROM login_failures WHERE rate_limit_key = %(key)s
+"""
+
+DELETE_STALE_LOGIN_FAILURES_SQL = """
+DELETE FROM login_failures
+WHERE failed_at < now() - (%(window_seconds)s || ' seconds')::interval
+"""
+
+COUNT_RECENT_LOGIN_FAILURES_SQL = """
+SELECT COUNT(*) AS total FROM login_failures
+WHERE rate_limit_key = %(key)s
+  AND failed_at > now() - (%(window_seconds)s || ' seconds')::interval
+"""
+
 SELECT_SESSION_EVENTS_SQL = """
 SELECT event_index, event_type, event_value, observed_at
 FROM session_events
@@ -680,6 +699,14 @@ SELECT enabled, smtp_host, smtp_port, smtp_username,
 FROM alert_config WHERE id = 1
 """
 
+UPSERT_ALERT_PASSWORD_SALT_SQL = """
+INSERT INTO alert_config (id, smtp_password_salt)
+VALUES (1, %(salt)s)
+ON CONFLICT (id) DO UPDATE SET
+    smtp_password_salt = COALESCE(alert_config.smtp_password_salt, EXCLUDED.smtp_password_salt)
+RETURNING smtp_password_salt
+"""
+
 SELECT_ALERT_CONFIG_SMTP_PASSWORD_SQL = """
 SELECT smtp_password FROM alert_config WHERE id = 1
 """
@@ -700,6 +727,10 @@ SELECT id, run_id, session_id, persona_id, risk_level, actor_label,
 FROM alert_events
 ORDER BY sent_at DESC
 LIMIT %(limit)s
+"""
+
+COUNT_ALERT_EVENTS_SQL = """
+SELECT COUNT(*) AS total FROM alert_events
 """
 
 # Limit validation constants
@@ -724,6 +755,10 @@ class DashboardEmailAlreadyRegisteredError(RuntimeError):
     """Raised when a dashboard signup targets an email that's already registered."""
 
 
+class PersonaConfigAlreadyExistsError(RuntimeError):
+    """Raised when creating a persona config whose slug ID is already taken."""
+
+
 # Arbitrary constant advisory-lock key scoping the signup bootstrap check below
 # to a single serialized critical section — see create_dashboard_user_if_eligible.
 _DASHBOARD_SIGNUP_LOCK_KEY = 78_234_916
@@ -732,7 +767,22 @@ _DASHBOARD_SIGNUP_LOCK_KEY = 78_234_916
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
-def _alert_password_key() -> bytes:
+def _get_or_create_alert_password_salt(database_url: str) -> bytes:
+    """Return this installation's random PBKDF2 salt, generating it once.
+
+    Persisted on the singleton alert_config row so every process in this
+    installation derives the same key, but different installations don't
+    share a salt (a fixed source-embedded salt would let one precomputed
+    attack work against every Echidra deployment). The insert/update is a
+    single atomic statement (ON CONFLICT ... COALESCE) so concurrent first
+    callers converge on whichever salt actually got persisted first.
+    """
+    candidate = base64.urlsafe_b64encode(os.urandom(16)).decode("ascii")
+    row = _fetch_one(database_url, UPSERT_ALERT_PASSWORD_SALT_SQL, {"salt": candidate})
+    return base64.urlsafe_b64decode(row["smtp_password_salt"])
+
+
+def _alert_password_key(database_url: str) -> bytes:
     """Return a stable encryption key derived from an environment secret.
 
     Raises RuntimeError if neither ECHIDRA_ALERT_SECRET nor ECHIDRA_SECRET_KEY
@@ -746,25 +796,25 @@ def _alert_password_key() -> bytes:
     kdf = PBKDF2HMAC(
         algorithm=hashes.SHA256(),
         length=32,
-        salt=b"echidra-alert-config-v1",
+        salt=_get_or_create_alert_password_salt(database_url),
         iterations=480_000,
     )
     return base64.urlsafe_b64encode(kdf.derive(key.encode("utf-8")))
 
 
-def _encrypt_alert_password(value: str | None) -> str | None:
+def _encrypt_alert_password(database_url: str, value: str | None) -> str | None:
     if value is None:
         return None
     if not value:
         return ""
-    return Fernet(_alert_password_key()).encrypt(value.encode("utf-8")).decode("utf-8")
+    return Fernet(_alert_password_key(database_url)).encrypt(value.encode("utf-8")).decode("utf-8")
 
 
-def _decrypt_alert_password(value: str | None) -> str | None:
+def _decrypt_alert_password(database_url: str, value: str | None) -> str | None:
     if value is None or value == "":
         return value
     try:
-        return Fernet(_alert_password_key()).decrypt(value.encode("utf-8")).decode("utf-8")
+        return Fernet(_alert_password_key(database_url)).decrypt(value.encode("utf-8")).decode("utf-8")
     except Exception:
         return None
 
@@ -931,6 +981,32 @@ class PostgresClassifierRepository:
         row = _fetch_one(self.database_url, COUNT_DASHBOARD_USERS_SQL, {})
         return int(row["total"]) if row else 0
 
+    def count_recent_login_failures(self, key: str, window_seconds: int) -> int:
+        """Count failed /auth/login attempts for one rate-limit key within
+        the trailing window. Shared across every API worker process, unlike
+        a process-local dict."""
+        row = _fetch_one(
+            self.database_url,
+            COUNT_RECENT_LOGIN_FAILURES_SQL,
+            {"key": key, "window_seconds": window_seconds},
+        )
+        return int(row["total"]) if row else 0
+
+    def record_login_failure(self, key: str, *, window_seconds: int) -> None:
+        """Record one failed login attempt, pruning rows already outside the
+        rate-limit window so this table doesn't grow without bound."""
+        _execute_statements(
+            self.database_url,
+            [
+                (DELETE_STALE_LOGIN_FAILURES_SQL, {"window_seconds": window_seconds}),
+                (INSERT_LOGIN_FAILURE_SQL, {"key": key}),
+            ],
+        )
+
+    def clear_login_failures(self, key: str) -> None:
+        """Clear one rate-limit key's failure history after a successful login."""
+        _execute_insert(self.database_url, DELETE_LOGIN_FAILURES_FOR_KEY_SQL, {"key": key})
+
     def create_dashboard_user_if_eligible(
         self,
         *,
@@ -975,63 +1051,29 @@ class PostgresClassifierRepository:
 
     def get_dashboard_report_summary(self) -> DashboardReportSummary:
         """Fetch database-wide aggregate values for dashboard reporting."""
-        try:
-            psycopg = _load_psycopg()
-            with psycopg.connect(self.database_url) as conn:
-                with conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
-                    overview = _fetch_one_with_conn(
-                        self.database_url,
-                        SELECT_DASHBOARD_REPORT_OVERVIEW_SQL,
-                        {},
-                        connection=conn,
-                        cursor=cur,
-                    )
-                    if overview is None:
-                        overview = {
-                            "total_runs": 0,
-                            "elevated_runs": 0,
-                            "distinct_personas": 0,
-                            "manual_labels": 0,
-                            "average_risk_score": 0,
-                        }
-
-                    risk_counts = _count_map(
-                        _fetch_all_with_conn(
-                            self.database_url, SELECT_DASHBOARD_REPORT_RISK_COUNTS_SQL, {}, connection=conn, cursor=cur
-                        )
-                    )
-                    actor_counts = _count_map(
-                        _fetch_all_with_conn(
-                            self.database_url, SELECT_DASHBOARD_REPORT_ACTOR_COUNTS_SQL, {}, connection=conn, cursor=cur
-                        )
-                    )
-                    intent_counts = _count_map(
-                        _fetch_all_with_conn(
-                            self.database_url, SELECT_DASHBOARD_REPORT_INTENT_COUNTS_SQL, {}, connection=conn, cursor=cur
-                        )
-                    )
-        except DatabaseDriverMissingError:
-            # psycopg not available in this environment (tests monkeypatch
-            # the fetch helpers). Fall back to the original per-call helpers
-            # which tests may have replaced.
-            overview = _fetch_one(self.database_url, SELECT_DASHBOARD_REPORT_OVERVIEW_SQL, {})
-            if overview is None:
-                overview = {
-                    "total_runs": 0,
-                    "elevated_runs": 0,
-                    "distinct_personas": 0,
-                    "manual_labels": 0,
-                    "average_risk_score": 0,
-                }
-            risk_counts = _count_map(_fetch_all(self.database_url, SELECT_DASHBOARD_REPORT_RISK_COUNTS_SQL, {}))
-            actor_counts = _count_map(_fetch_all(self.database_url, SELECT_DASHBOARD_REPORT_ACTOR_COUNTS_SQL, {}))
-            intent_counts = _count_map(_fetch_all(self.database_url, SELECT_DASHBOARD_REPORT_INTENT_COUNTS_SQL, {}))
+        overview, risk_rows, actor_rows, intent_rows = _fetch_aggregate_batch(
+            self.database_url,
+            [
+                (SELECT_DASHBOARD_REPORT_OVERVIEW_SQL, {}, True),
+                (SELECT_DASHBOARD_REPORT_RISK_COUNTS_SQL, {}, False),
+                (SELECT_DASHBOARD_REPORT_ACTOR_COUNTS_SQL, {}, False),
+                (SELECT_DASHBOARD_REPORT_INTENT_COUNTS_SQL, {}, False),
+            ],
+        )
+        if overview is None:
+            overview = {
+                "total_runs": 0,
+                "elevated_runs": 0,
+                "distinct_personas": 0,
+                "manual_labels": 0,
+                "average_risk_score": 0,
+            }
 
         return DashboardReportSummary(
             **overview,
-            risk_counts=risk_counts,
-            actor_counts=actor_counts,
-            intent_counts=intent_counts,
+            risk_counts=_count_map(risk_rows),
+            actor_counts=_count_map(actor_rows),
+            intent_counts=_count_map(intent_rows),
         )
 
     def list_issues(
@@ -1084,15 +1126,27 @@ class PostgresClassifierRepository:
         persona_id: str,
         config: PersonaConfigInput,
     ) -> PersonaConfigRecord:
-        """Create a new persona config and return the stored record."""
+        """Create a new persona config and return the stored record.
+
+        Relies on persona_configs.id's primary key constraint rather than a
+        prior existence check -- a check-then-insert done as separate calls
+        is a TOCTOU race where two concurrent requests for the same slug
+        could both pass the check before either commits.
+
+        Raises PersonaConfigAlreadyExistsError if the slug ID is taken.
+        """
         from datetime import datetime, timezone
         now = datetime.now(timezone.utc)
         record = PersonaConfigRecord(id=persona_id, created_at=now, updated_at=now, **config.dict())
-        _execute_insert(
-            self.database_url,
-            INSERT_PERSONA_CONFIG_SQL,
-            _persona_config_params(record),
-        )
+        psycopg = _load_psycopg()
+        try:
+            _execute_insert(
+                self.database_url,
+                INSERT_PERSONA_CONFIG_SQL,
+                _persona_config_params(record),
+            )
+        except psycopg.errors.UniqueViolation:
+            raise PersonaConfigAlreadyExistsError(persona_id)
         return record
 
     def get_persona_config(self, persona_id: str) -> PersonaConfigRecord | None:
@@ -1144,43 +1198,27 @@ class PostgresClassifierRepository:
     def get_persona_analytics(self, persona_id: str) -> PersonaAnalytics:
         """Aggregate session + classifier data for one persona ID."""
         params = {"persona_id": persona_id}
-        try:
-            psycopg = _load_psycopg()
-            with psycopg.connect(self.database_url) as conn:
-                with conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
-                    total_row = _fetch_one_with_conn(
-                        self.database_url, SELECT_PERSONA_SESSION_COUNT_SQL, params, connection=conn, cursor=cur
-                    )
-                    sessions_captured = int(total_row["total"]) if total_row else 0
-
-                    trend_rows = _fetch_all_with_conn(
-                        self.database_url, SELECT_PERSONA_SESSIONS_TREND_SQL, params, connection=conn, cursor=cur
-                    )
-                    intent_rows = _fetch_all_with_conn(
-                        self.database_url, SELECT_PERSONA_INTENT_COUNTS_SQL, params, connection=conn, cursor=cur
-                    )
-                    risk_rows = _fetch_all_with_conn(
-                        self.database_url, SELECT_PERSONA_RISK_COUNTS_SQL, params, connection=conn, cursor=cur
-                    )
-                    technique_rows = _fetch_all_with_conn(
-                        self.database_url, SELECT_PERSONA_TOP_TECHNIQUES_SQL, params, connection=conn, cursor=cur
-                    )
-                    hour_rows = _fetch_all_with_conn(
-                        self.database_url, SELECT_PERSONA_PEAK_HOURS_SQL, params, connection=conn, cursor=cur
-                    )
-                    country_rows = _fetch_all_with_conn(
-                        self.database_url, SELECT_PERSONA_TOP_COUNTRIES_SQL, params, connection=conn, cursor=cur
-                    )
-        except DatabaseDriverMissingError:
-            total_row = _fetch_one(self.database_url, SELECT_PERSONA_SESSION_COUNT_SQL, params)
-            sessions_captured = int(total_row["total"]) if total_row else 0
-
-            trend_rows = _fetch_all(self.database_url, SELECT_PERSONA_SESSIONS_TREND_SQL, params)
-            intent_rows = _fetch_all(self.database_url, SELECT_PERSONA_INTENT_COUNTS_SQL, params)
-            risk_rows = _fetch_all(self.database_url, SELECT_PERSONA_RISK_COUNTS_SQL, params)
-            technique_rows = _fetch_all(self.database_url, SELECT_PERSONA_TOP_TECHNIQUES_SQL, params)
-            hour_rows = _fetch_all(self.database_url, SELECT_PERSONA_PEAK_HOURS_SQL, params)
-            country_rows = _fetch_all(self.database_url, SELECT_PERSONA_TOP_COUNTRIES_SQL, params)
+        (
+            total_row,
+            trend_rows,
+            intent_rows,
+            risk_rows,
+            technique_rows,
+            hour_rows,
+            country_rows,
+        ) = _fetch_aggregate_batch(
+            self.database_url,
+            [
+                (SELECT_PERSONA_SESSION_COUNT_SQL, params, True),
+                (SELECT_PERSONA_SESSIONS_TREND_SQL, params, False),
+                (SELECT_PERSONA_INTENT_COUNTS_SQL, params, False),
+                (SELECT_PERSONA_RISK_COUNTS_SQL, params, False),
+                (SELECT_PERSONA_TOP_TECHNIQUES_SQL, params, False),
+                (SELECT_PERSONA_PEAK_HOURS_SQL, params, False),
+                (SELECT_PERSONA_TOP_COUNTRIES_SQL, params, False),
+            ],
+        )
+        sessions_captured = int(total_row["total"]) if total_row else 0
 
         # Resolve MITRE technique names using the generated catalog when
         # available; fall back to the technique id when no name is known.
@@ -1214,35 +1252,24 @@ class PostgresClassifierRepository:
         """Aggregate session + classifier data across all personas for one
         date range, backing the Analytics dashboard page."""
         params = {"from_ts": from_ts, "to_ts": to_ts}
-        try:
-            psycopg = _load_psycopg()
-            with psycopg.connect(self.database_url) as conn:
-                with conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
-                    hour_rows = _fetch_all_with_conn(
-                        self.database_url, SELECT_ANALYTICS_ATTACKS_BY_HOUR_SQL, params, connection=conn, cursor=cur
-                    )
-                    risk_trend_rows = _fetch_all_with_conn(
-                        self.database_url, SELECT_ANALYTICS_RISK_TREND_SQL, params, connection=conn, cursor=cur
-                    )
-                    intent_rows = _fetch_all_with_conn(
-                        self.database_url, SELECT_ANALYTICS_INTENT_COUNTS_SQL, params, connection=conn, cursor=cur
-                    )
-                    command_rows = _fetch_all_with_conn(
-                        self.database_url, SELECT_ANALYTICS_TOP_COMMANDS_SQL, params, connection=conn, cursor=cur
-                    )
-                    persona_rows = _fetch_all_with_conn(
-                        self.database_url, SELECT_ANALYTICS_TOP_PERSONAS_SQL, params, connection=conn, cursor=cur
-                    )
-                    country_rows = _fetch_all_with_conn(
-                        self.database_url, SELECT_ANALYTICS_TOP_COUNTRIES_SQL, params, connection=conn, cursor=cur
-                    )
-        except DatabaseDriverMissingError:
-            hour_rows = _fetch_all(self.database_url, SELECT_ANALYTICS_ATTACKS_BY_HOUR_SQL, params)
-            risk_trend_rows = _fetch_all(self.database_url, SELECT_ANALYTICS_RISK_TREND_SQL, params)
-            intent_rows = _fetch_all(self.database_url, SELECT_ANALYTICS_INTENT_COUNTS_SQL, params)
-            command_rows = _fetch_all(self.database_url, SELECT_ANALYTICS_TOP_COMMANDS_SQL, params)
-            persona_rows = _fetch_all(self.database_url, SELECT_ANALYTICS_TOP_PERSONAS_SQL, params)
-            country_rows = _fetch_all(self.database_url, SELECT_ANALYTICS_TOP_COUNTRIES_SQL, params)
+        (
+            hour_rows,
+            risk_trend_rows,
+            intent_rows,
+            command_rows,
+            persona_rows,
+            country_rows,
+        ) = _fetch_aggregate_batch(
+            self.database_url,
+            [
+                (SELECT_ANALYTICS_ATTACKS_BY_HOUR_SQL, params, False),
+                (SELECT_ANALYTICS_RISK_TREND_SQL, params, False),
+                (SELECT_ANALYTICS_INTENT_COUNTS_SQL, params, False),
+                (SELECT_ANALYTICS_TOP_COMMANDS_SQL, params, False),
+                (SELECT_ANALYTICS_TOP_PERSONAS_SQL, params, False),
+                (SELECT_ANALYTICS_TOP_COUNTRIES_SQL, params, False),
+            ],
+        )
 
         attacks_by_hour = {f"{hour:02d}": 0 for hour in range(24)}
         for row in hour_rows:
@@ -1333,7 +1360,7 @@ class PostgresClassifierRepository:
     def upsert_alert_config(self, config: "AlertConfigInput") -> "AlertConfigRecord":
         """Persist the global alert config (password only updated if non-None)."""
         from classifier.storage.models import AlertConfigInput, AlertConfigRecord
-        encrypted_password = _encrypt_alert_password(config.smtp_password)
+        encrypted_password = _encrypt_alert_password(self.database_url, config.smtp_password)
         _execute_insert(
             self.database_url,
             UPSERT_ALERT_CONFIG_SQL,
@@ -1369,7 +1396,7 @@ class PostgresClassifierRepository:
         row = _fetch_one(self.database_url, SELECT_ALERT_CONFIG_SMTP_PASSWORD_SQL, {})
         if row is None:
             return None
-        return _decrypt_alert_password(row["smtp_password"])
+        return _decrypt_alert_password(self.database_url, row["smtp_password"])
 
     def insert_alert_event(self, event: "AlertEventRecord") -> "AlertEventRecord":
         """Persist one alert dispatch record."""
@@ -1416,6 +1443,16 @@ class PostgresClassifierRepository:
             )
             for row in rows
         ]
+
+    def count_alert_events(self) -> int:
+        """Count all alert dispatch records ever stored.
+
+        list_alert_events is capped (limit <= 500) for the history table, so
+        the dashboard's "Total Alerts" tile needs this authoritative count
+        instead of len() on that truncated list.
+        """
+        row = _fetch_one(self.database_url, COUNT_ALERT_EVENTS_SQL, {})
+        return int(row["total"]) if row else 0
 
 
 def classifier_run_insert_params(record: ClassifierRunRecord) -> dict[str, Any]:
@@ -2155,6 +2192,43 @@ def _fetch_all_with_conn(
         with conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
             cur.execute(sql, params)
             return list(cur.fetchall())
+
+
+def _fetch_aggregate_batch(
+    database_url: str,
+    queries: list[tuple[str, dict[str, Any], bool]],
+) -> list[Any]:
+    """Run several read queries for one aggregate report, in order.
+
+    Each entry is (sql, params, fetch_one). When psycopg is available, all
+    queries reuse a single connection/cursor (one round trip to open, N
+    round trips to run) instead of reconnecting per query. When it isn't
+    (DatabaseDriverMissingError), falls back to the simple per-call
+    _fetch_one/_fetch_all helpers — this is also the seam tests use to
+    monkeypatch these aggregate methods without a real DB or a fake
+    psycopg connection/cursor object.
+
+    Extracted after the connection-reuse version of this pattern, copied
+    across three call sites, shipped a nested-if bug and a wrong-helper-call
+    bug that only broke with a real database driver installed (see the
+    "Encrypt SMTP alert passwords..." commit) — one helper means one place
+    to get the fallback right.
+    """
+    try:
+        psycopg = _load_psycopg()
+        with psycopg.connect(database_url) as conn:
+            with conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
+                return [
+                    _fetch_one_with_conn(database_url, sql, params, connection=conn, cursor=cur)
+                    if fetch_one
+                    else _fetch_all_with_conn(database_url, sql, params, connection=conn, cursor=cur)
+                    for sql, params, fetch_one in queries
+                ]
+    except DatabaseDriverMissingError:
+        return [
+            _fetch_one(database_url, sql, params) if fetch_one else _fetch_all(database_url, sql, params)
+            for sql, params, fetch_one in queries
+        ]
 
 
 def _load_psycopg():

@@ -5,6 +5,7 @@ WORKDIR /app
 COPY . .
 RUN pip install --no-cache-dir .
 RUN useradd --create-home --shell /bin/false echidra \
+    && mkdir -p /app/logs \
     && chown -R echidra:echidra /app
 USER echidra
 

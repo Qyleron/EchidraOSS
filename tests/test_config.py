@@ -156,6 +156,38 @@ def test_active_persona_falls_back_to_preset_when_db_lookup_fails(monkeypatch):
     assert persona.persona_id == "generic_linux"
 
 
+def test_active_persona_falls_back_to_preset_when_db_record_fails_validation(monkeypatch):
+    """A saved config that fails validate_persona() (eg. duplicate decoy file
+    paths, which the schema doesn't reject) must fall back to the preset
+    instead of crashing every new session."""
+    from classifier.storage import DecoyFile
+
+    config.clear_active_persona_cache()
+    monkeypatch.setenv("ECHIDRA_PERSONA", "generic_linux")
+    monkeypatch.setenv("ECHIDRA_DATABASE_URL", "postgresql://fake/fake")
+    record = make_persona_config_record(
+        id="generic_linux",
+        decoy_files=[
+            DecoyFile(path="/home/admin/notes.txt", content="a"),
+            DecoyFile(path="/home/admin/notes.txt", content="b"),
+        ],
+    )
+
+    class FakeRepository:
+        def __init__(self):
+            pass
+
+        def get_persona_config(self, persona_id):
+            return record
+
+    monkeypatch.setattr("classifier.storage.PostgresClassifierRepository", FakeRepository)
+
+    persona = config.get_active_persona()  # must not raise
+
+    assert persona.persona_id == "generic_linux"
+    assert persona.hostname != "custom-demo-box"
+
+
 def test_int_from_env_rejects_invalid_values(monkeypatch):
     monkeypatch.setenv("ECHIDRA_PORT", "not-a-port")
 

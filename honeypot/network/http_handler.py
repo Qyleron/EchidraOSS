@@ -191,10 +191,7 @@ class HttpHandler:
     async def _read_headers(self) -> bytes:
         data = b""
         while len(data) < 16384:
-            try:
-                line = await self.reader.readline()
-            except Exception:
-                break
+            line = await self.reader.readline()
             if not line:
                 break
             data += line

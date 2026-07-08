@@ -532,6 +532,15 @@
           });
         }
 
+        // populateSelector adds/removes <option>s on an already-initialized
+        // select after save/delete; this lets it refresh the custom listbox
+        // overlay too, since initCustomSelects itself skips selects it has
+        // already wrapped.
+        select._refreshCustomSelect = function() {
+          renderOptions();
+          syncTrigger();
+        };
+
         trigger.addEventListener("click", function() {
           if (wrapper.classList.contains("open")) {
             wrapper.classList.remove("open");
@@ -548,6 +557,17 @@
           if (evt.key === "Enter" || evt.key === " ") {
             evt.preventDefault();
             trigger.click();
+          } else if (evt.key === "ArrowDown" || evt.key === "ArrowUp") {
+            evt.preventDefault();
+            wrapper.classList.add("open");
+            var items = Array.prototype.slice.call(listbox.children);
+            var idx = items.findIndex(function(i) { return i.classList.contains("is-selected"); });
+            idx = evt.key === "ArrowDown" ? Math.min(idx + 1, items.length - 1) : Math.max(idx - 1, 0);
+            select.selectedIndex = idx;
+            select.dispatchEvent(new Event("change", { bubbles: true }));
+            syncTrigger();
+          } else if (evt.key === "Escape") {
+            wrapper.classList.remove("open");
           }
         });
 
@@ -645,9 +665,7 @@
       statusEl.style.color = "var(--muted)";
 
       try {
-        var url = isNew
-          ? "/persona-configs?persona_id=" + encodeURIComponent(targetId)
-          : "/persona-configs/" + encodeURIComponent(targetId);
+        var url = "/persona-configs/" + encodeURIComponent(targetId);
         var method = isNew ? "POST" : "PUT";
         var resp = await fetch(url, {
           method: method,
@@ -663,6 +681,7 @@
         statusEl.textContent = "Saved.";
         statusEl.style.color = "var(--low)";
         renderPersonaRows(allPresets, allConfigs);
+        populateSelector(allPresets, Object.values(allConfigs));
         setTimeout(function() { openModal(targetId); }, 80);
       } catch (err) {
         statusEl.textContent = "Error: " + err.message;
@@ -680,6 +699,7 @@
         delete allConfigs[personaId];
         closeModal();
         renderPersonaRows(allPresets, allConfigs);
+        populateSelector(allPresets, Object.values(allConfigs));
       } catch (err) {
         alert("Delete failed: " + err.message);
       }
@@ -729,12 +749,25 @@
     // ── Persona selector (analytics) ───────────────────────────────────────────
     function populateSelector(presets, configs) {
       var sel = document.getElementById("personaSelector");
-      var existingVals = {};
-      Array.from(sel.options).forEach(function(o) { existingVals[o.value] = true; });
       var presetIds = presets.map(function(p) { return p.persona_id; });
       var configIds = configs.map(function(c) { return c.id; }).filter(function(id) {
         return !presets.find(function(p) { return p.persona_id === id; });
       });
+      var validIds = {};
+      presetIds.concat(configIds).forEach(function(id) { validIds[id] = true; });
+
+      var previousValue = sel.value;
+
+      // Drop options for personas that no longer exist (eg. a deleted
+      // custom config with no matching preset) -- this function used to
+      // only ever add options, so a deleted persona stayed selectable here
+      // until the page was reloaded.
+      Array.from(sel.options).forEach(function(opt) {
+        if (opt.value && !validIds[opt.value]) sel.removeChild(opt);
+      });
+
+      var existingVals = {};
+      Array.from(sel.options).forEach(function(o) { existingVals[o.value] = true; });
       presetIds.concat(configIds).forEach(function(id) {
         if (!existingVals[id]) {
           var opt = document.createElement("option");
@@ -744,12 +777,20 @@
         }
       });
 
+      if (previousValue && validIds[previousValue]) {
+        sel.value = previousValue;
+      } else if (previousValue) {
+        sel.value = "";
+        sel.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+
       var placeholderText = document.getElementById("analyticsPlaceholderText");
       placeholderText.textContent = sel.options.length > 1
         ? "Select a persona above to view analytics."
         : "No personas configured yet — create one to see analytics.";
 
       initCustomSelects(document.getElementById("analyticsView"));
+      if (sel._refreshCustomSelect) sel._refreshCustomSelect();
     }
 
     document.getElementById("personaSelector").addEventListener("change", async function(evt) {

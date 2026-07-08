@@ -57,6 +57,19 @@ class FakeReader:
         return chunk
 
 
+class OverrunReader:
+    """Reader that simulates a too-long header line arriving from the client.
+
+    Real asyncio.StreamReader.readline() catches its own internal
+    LimitOverrunError and re-raises it as a plain ValueError -- that's the
+    exception callers actually see, so this fake matches that contract.
+    """
+
+    async def readline(self):
+        await asyncio.sleep(0)
+        raise ValueError("line too long")
+
+
 def read_records(log_path):
     """Load JSONL records written by one handler test."""
     return [
@@ -162,3 +175,18 @@ async def test_http_malformed_request_does_not_crash(tmp_path):
     # The garbled request line itself must still be captured, not dropped.
     assert records[0]["command_count"] == 1
     assert records[0]["commands"][0]["cmd"] == "\x00\x01\x02NOT-HTTP-AT-ALL"
+
+
+@pytest.mark.asyncio
+async def test_http_malformed_oversized_input_does_not_crash(tmp_path):
+    """An overrun header line should surface as an error probe, not a silent disconnect."""
+    writer = FakeWriter()
+    log_path = tmp_path / "sessions.jsonl"
+    handler = HttpHandler(OverrunReader(), writer, session_logger=SessionLogger(str(log_path)))
+
+    await handler.handle()
+
+    records = read_records(log_path)
+    assert len(records) == 1
+    assert records[0]["end_reason"] == "error"
+    assert writer.closed is True

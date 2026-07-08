@@ -28,6 +28,7 @@ from classifier.storage.repository import (
     DashboardSignupNotAllowedError,
     DatabaseNotConfiguredError,
     DatabaseDriverMissingError,
+    PersonaConfigAlreadyExistsError,
     PostgresClassifierRepository,
 )
 
@@ -51,6 +52,7 @@ __all__ = [
     "ManualLabelRecord",
     "MitreTechnique",
     "PersonaAnalytics",
+    "PersonaConfigAlreadyExistsError",
     "PersonaConfigInput",
     "PersonaConfigRecord",
     "PostgresClassifierRepository",

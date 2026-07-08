@@ -8,6 +8,19 @@ CREATE TABLE IF NOT EXISTS dashboard_users (
 CREATE INDEX IF NOT EXISTS dashboard_users_email_idx
     ON dashboard_users (email);
 
+-- Failed dashboard /auth/login attempts, keyed by client-ip:email. Backs the
+-- login rate limiter in classifier/api/app.py with a store shared across all
+-- API worker processes -- a process-local dict would let an attacker bypass
+-- the limit by spreading requests across workers.
+CREATE TABLE IF NOT EXISTS login_failures (
+    id BIGSERIAL PRIMARY KEY,
+    rate_limit_key TEXT NOT NULL,
+    failed_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS login_failures_key_idx
+    ON login_failures (rate_limit_key, failed_at);
+
 CREATE TABLE IF NOT EXISTS sessions (
     id UUID PRIMARY KEY,
     protocol TEXT NOT NULL,
@@ -181,6 +194,11 @@ CREATE TABLE IF NOT EXISTS alert_config (
         CHECK (global_min_risk_level IN ('critical', 'high', 'medium', 'low')),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Per-installation random salt for deriving the SMTP password encryption
+-- key (see _alert_password_key in repository.py) -- generated once on first
+-- use rather than a fixed value shared across every deployment.
+ALTER TABLE alert_config ADD COLUMN IF NOT EXISTS smtp_password_salt TEXT;
 
 -- One row per email alert that was attempted.
 CREATE TABLE IF NOT EXISTS alert_events (

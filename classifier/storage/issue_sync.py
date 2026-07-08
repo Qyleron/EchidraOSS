@@ -20,12 +20,15 @@ from classifier.storage.repository import PostgresClassifierRepository
 DEFAULT_ISSUE_PLAYBOOK_PATH = Path(__file__).resolve().parents[1] / "rules" / "issue_playbook.yaml"
 _RISK_RANK_SEVERITIES = {4: "high", 3: "high", 2: "medium", 1: "low", 0: "low"}
 
-# This honeypot has no auth step, so there is nothing to literally
-# brute-force. Repeated rapid connections from one source IP is the closest
-# real, already-captured proxy signal for automated credential/access
-# testing, so brute_force_bot/T1110 is produced here -- from connection
-# frequency in `sessions` -- rather than from classifier_runs like every
-# other issue.
+# default_rules.yaml can also produce brute_force_bot/T1110 via classifier_runs
+# (authentication_attempt, repeat_connections_same_ip), aggregated into an
+# issue by the loop below like everything else. This repeat-connection check
+# is a second, independent computation of the same actor/technique pair,
+# straight off raw connection frequency per source IP in `sessions` rather
+# than classifier_runs -- it's the more precise, purpose-built signal for
+# this behavior. Both share the same deterministic issue ID (see
+# _issue_id_for_pair), so running this after the loop lets it win and
+# consolidates them into one issue instead of two duplicates.
 _REPEAT_CONNECTION_ACTOR_LABEL = "brute_force_bot"
 _REPEAT_CONNECTION_MITRE_TAG = "T1110"
 _REPEAT_CONNECTION_WINDOW_SECONDS = 86_400

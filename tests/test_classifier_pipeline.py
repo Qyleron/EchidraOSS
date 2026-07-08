@@ -108,8 +108,22 @@ def test_active_classification_is_always_marked_partial():
     assert summary.matched_rule_ids == ["automated_discovery_burst"]
 
 
-def test_authentication_attempt_rule_handles_partial_protocol_data():
+def test_authentication_attempt_rule_ignores_unfinished_username_only():
+    """A single unfinished username line (no password yet) must not match --
+    the rule requires a completed USER+PASS submission (auth_attempt_count >= 2)."""
     session = make_session([("USER admin", 1.0)], duration_seconds=2.0)
+    record = json.loads(session.json())
+    record["protocol"] = "ftp"
+
+    summary = classify_session(SessionRecord.parse_obj(record), active=True)
+
+    assert "authentication_attempt" not in summary.matched_rule_ids
+
+
+def test_authentication_attempt_rule_matches_completed_credential_submission():
+    session = make_session(
+        [("USER admin", 1.0), ("PASS hunter2", 1.5)], duration_seconds=2.0
+    )
     record = json.loads(session.json())
     record["protocol"] = "ftp"
 

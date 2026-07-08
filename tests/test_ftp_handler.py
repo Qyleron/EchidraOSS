@@ -51,11 +51,17 @@ class FakeReader:
 
 
 class OverrunReader:
-    """Reader that simulates a too-long line arriving from the client."""
+    """Reader that simulates a too-long line arriving from the client.
+
+    Real asyncio.StreamReader.readline() catches its own internal
+    LimitOverrunError and re-raises it as a plain ValueError -- that's the
+    exception callers actually see, so this fake matches that contract
+    instead of leaking the internal LimitOverrunError type.
+    """
 
     async def readline(self):
         await asyncio.sleep(0)
-        raise asyncio.LimitOverrunError("line too long", 0)
+        raise ValueError("line too long")
 
 
 class RawLineReader:

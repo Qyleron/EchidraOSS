@@ -28,7 +28,7 @@ OUTPUT_PATH = (
 
 
 def fetch_bundle(url: str) -> dict:
-    with urllib.request.urlopen(url) as response:
+    with urllib.request.urlopen(url, timeout=30) as response:
         return json.load(response)
 
 
