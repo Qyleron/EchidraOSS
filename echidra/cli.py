@@ -200,7 +200,10 @@ def _cmd_serve(args: argparse.Namespace) -> int:
                 proc.kill()
                 proc.wait()
 
-    return max((proc.returncode or 0) for proc in procs)
+    # A negative returncode means the child was killed by a signal (eg. our
+    # own SIGINT/SIGTERM forwarding, or the terminate() above) -- that's a
+    # clean shutdown, not a failure, so only positive exit codes propagate.
+    return max(max(proc.returncode or 0, 0) for proc in procs)
 
 
 # ---------------------------------------------------------------------------
