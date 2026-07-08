@@ -61,7 +61,7 @@ class LiveSessionClassifier:
                 if self.on_result is not None:
                     result = self.on_result(summary)
                     if result is not None:
-                        await result
+                        await asyncio.wait_for(result, timeout=5)
             except asyncio.CancelledError:
                 raise
             except Exception:
