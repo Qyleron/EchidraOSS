@@ -1,8 +1,10 @@
 import email.mime.multipart
 import email.mime.text
+import json
 import logging
 import smtplib
 import ssl
+import urllib.request
 
 from classifier.schemas.session import SessionRecord
 from classifier.scoring.session import ClassificationSummary
@@ -31,7 +33,7 @@ def _maybe_send_alert(
     session: SessionRecord | dict,
     summary: ClassificationSummary,
 ) -> None:
-    """Fire an email alert if the run meets the configured threshold."""
+    """Fire an alert (email and/or Slack) if the run meets the configured threshold."""
     if summary.alert_action is None:
         return
     try:
@@ -46,30 +48,71 @@ def _maybe_send_alert(
             return
 
         persona_config = repository.get_persona_config(session.persona_id)
-        if persona_config is None or persona_config.alert_routing_level not in ("email", "both"):
-            return
-        if not persona_config.contact_email:
+        if persona_config is None or persona_config.alert_routing_level == "none":
             return
 
         effective_threshold = persona_config.alert_min_risk_level or config.global_min_risk_level
         if not _risk_meets_threshold(summary.risk_level, effective_threshold):
             return
 
-        err = _dispatch_alert_email(config, persona_config.contact_email, run, session, summary)
-        repository.insert_alert_event(
-            AlertEventRecord(
-                run_id=run.id if run is not None else None,
-                session_id=session.session_id,
-                persona_id=session.persona_id,
-                risk_level=summary.risk_level,
-                actor_label=summary.actor_label,
-                contact_email=persona_config.contact_email,
-                success=err is None,
-                error_message=err,
+        # "both" fires each configured channel independently -- a persona
+        # missing one destination (e.g. routing is "both" but no Slack
+        # webhook is set yet) still gets the channel it does have configured,
+        # rather than silently getting nothing.
+        if persona_config.alert_routing_level in ("email", "both") and persona_config.contact_email:
+            err = _dispatch_alert_email(config, persona_config.contact_email, run, session, summary)
+            repository.insert_alert_event(
+                _build_alert_event(
+                    run, session, summary,
+                    channel="email",
+                    contact_email=persona_config.contact_email,
+                    error=err,
+                )
             )
-        )
+
+        if persona_config.alert_routing_level in ("slack", "both") and persona_config.slack_webhook:
+            err = _dispatch_alert_slack(persona_config.slack_webhook, run, session, summary)
+            repository.insert_alert_event(
+                _build_alert_event(
+                    run, session, summary,
+                    channel="slack",
+                    contact_email=None,
+                    error=err,
+                )
+            )
     except Exception:
         logger.exception("Alert dispatch failed — classifier run was saved normally")
+
+
+def _build_alert_event(
+    run: ClassifierRunRecord | None,
+    session: SessionRecord,
+    summary: ClassificationSummary,
+    *,
+    channel: str,
+    contact_email: str | None,
+    error: str | None,
+) -> AlertEventRecord:
+    return AlertEventRecord(
+        run_id=run.id if run is not None else None,
+        session_id=session.session_id,
+        persona_id=session.persona_id,
+        risk_level=summary.risk_level,
+        actor_label=summary.actor_label,
+        channel=channel,
+        contact_email=contact_email,
+        success=error is None,
+        error_message=error,
+    )
+
+
+def _alert_mitre_str(summary: ClassificationSummary) -> str:
+    return ", ".join(summary.mitre_tags) if summary.mitre_tags else "none"
+
+
+def _alert_evidence_lines(summary: ClassificationSummary, *, bullet: str) -> str:
+    lines = "\n".join(f"{bullet}{e.text}" for e in summary.evidence)
+    return lines or f"{bullet}(none)"
 
 
 def _dispatch_alert_email(
@@ -80,8 +123,6 @@ def _dispatch_alert_email(
     summary: ClassificationSummary,
 ) -> str | None:
     subject = f"[Echidra Alert] {summary.risk_level.upper()} risk session on {session.persona_id}"
-    mitre_str = ", ".join(summary.mitre_tags) if summary.mitre_tags else "none"
-    evidence_lines = "\n".join(f"  - {e.text}" for e in summary.evidence) or "  (none)"
     body = (
         f"ECHIDRA HONEYPOT ALERT\n"
         f"{'=' * 40}\n\n"
@@ -94,10 +135,49 @@ def _dispatch_alert_email(
         f"Peer IP:       {session.peer_ip or 'unknown'}\n"
         f"Session ID:    {session.session_id}\n"
         f"Run ID:        {run.id if run is not None else 'live-session'}\n\n"
-        f"MITRE: {mitre_str}\n\n"
-        f"Evidence:\n{evidence_lines}\n"
+        f"MITRE: {_alert_mitre_str(summary)}\n\n"
+        f"Evidence:\n{_alert_evidence_lines(summary, bullet='  - ')}\n"
     )
     return _smtp_send(config, recipient, subject, body)
+
+
+def _dispatch_alert_slack(
+    webhook_url: str,
+    run: ClassifierRunRecord | None,
+    session: SessionRecord,
+    summary: ClassificationSummary,
+) -> str | None:
+    text = (
+        f"*[Echidra Alert] {summary.risk_level.upper()} risk session on {session.persona_id}*\n"
+        f"Risk Score: {summary.risk_score}/100\n"
+        f"Actor: {summary.actor_label or 'unknown'}\n"
+        f"Behavior: {summary.behavior_stage}\n"
+        f"Intent: {summary.intent}\n"
+        f"Peer IP: {session.peer_ip or 'unknown'}\n"
+        f"Session ID: {session.session_id}\n"
+        f"Run ID: {run.id if run is not None else 'live-session'}\n"
+        f"MITRE: {_alert_mitre_str(summary)}\n"
+        f"Evidence:\n{_alert_evidence_lines(summary, bullet='- ')}"
+    )
+    return _slack_post(webhook_url, text)
+
+
+def _slack_post(webhook_url: str, text: str) -> str | None:
+    if not webhook_url.startswith("https://"):
+        return "slack_webhook must be an https:// URL"
+    request = urllib.request.Request(
+        webhook_url,
+        data=json.dumps({"text": text}).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=10) as response:
+            if response.status >= 300:
+                return f"slack webhook returned HTTP {response.status}"
+        return None
+    except Exception as exc:
+        return str(exc)
 
 
 def _smtp_send(

@@ -142,6 +142,7 @@
                 <th>Persona</th>
                 <th>Risk</th>
                 <th>Actor</th>
+                <th>Channel</th>
                 <th>Recipient</th>
                 <th>Status</th>
               </tr>
@@ -252,7 +253,7 @@
         }
         renderSummary(events, total);
         if (!events.length) {
-          tbody.innerHTML = '<tr><td colspan="6" class="empty-state">No alerts dispatched yet.</td></tr>';
+          tbody.innerHTML = '<tr><td colspan="7" class="empty-state">No alerts dispatched yet.</td></tr>';
           return;
         }
         tbody.innerHTML = events.map(function(ev) {
@@ -274,12 +275,13 @@
             + '<td>' + escHtml(ev.persona_id) + '</td>'
             + '<td><span class="risk-badge" style="min-width:60px;background:rgba(0,0,0,0.3);color:' + riskClass + ';">' + escHtml(ev.risk_level) + '</span></td>'
             + '<td>' + escHtml(ev.actor_label || "—") + '</td>'
+            + '<td>' + escHtml(ev.channel === "slack" ? "Slack" : "Email") + '</td>'
             + '<td class="mono-cell" style="font-size:12px;">' + escHtml(ev.contact_email || "—") + '</td>'
             + '<td>' + statusHtml + '</td>'
             + '</tr>';
         }).join("");
       } catch (err) {
-        tbody.innerHTML = '<tr><td colspan="6" class="empty-state">Could not load alert history. Is the database configured?</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="7" class="empty-state">Could not load alert history. Is the database configured?</td></tr>';
         ["metricTotal","metricLast24h","metricSuccess","metricFailed"].forEach(function(id) {
           var el = document.getElementById(id);
           if (el) el.textContent = "N/A";

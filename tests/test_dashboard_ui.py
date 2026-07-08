@@ -145,3 +145,12 @@ def test_analytics_page_is_backed_by_live_api_calls():
     assert "mulberry32" not in html
     assert "Persistence Setup" not in html
     assert "Scanner Validation" not in html
+
+
+def test_alerts_page_history_table_distinguishes_channel():
+    """A persona routed to Slack (or both) must be visibly distinguishable
+    from an email alert in the dispatch history, not just silently absent."""
+    html = (DASHBOARD_PUBLIC_PATH / "alerts.html").read_text(encoding="utf-8")
+
+    assert ">Channel<" in html
+    assert 'ev.channel === "slack" ? "Slack" : "Email"' in html
