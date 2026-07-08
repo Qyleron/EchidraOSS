@@ -25,6 +25,7 @@ from classifier.storage.repository import (
     DatabaseDriverMissingError,
     DatabaseNotConfiguredError,
     PostgresClassifierRepository,
+    _decrypt_alert_password,
     _encrypt_alert_password,
     classifier_run_insert_params,
     classifier_run_statements,
@@ -88,11 +89,13 @@ def test_repository_requires_database_url(monkeypatch):
         PostgresClassifierRepository()
 
 
-def test_alert_password_encryption_round_trips_plaintext():
+def test_alert_password_encryption_round_trips_plaintext(monkeypatch):
+    monkeypatch.setenv("ECHIDRA_ALERT_SECRET", "test-alert-secret")
     encrypted = _encrypt_alert_password("secret-password")
 
     assert encrypted is not None
     assert encrypted != "secret-password"
+    assert _decrypt_alert_password(encrypted) == "secret-password"
 
 
 def test_classifier_run_record_captures_searchable_summary_fields():

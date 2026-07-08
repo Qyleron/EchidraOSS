@@ -11,7 +11,7 @@ from uuid import UUID, uuid4
 from cryptography.fernet import Fernet
 try:
     from classifier.rules.issue_playbook import load_mitre_technique_catalog
-except Exception:
+except ImportError:
     load_mitre_technique_catalog = None
 
 from classifier.schemas.session import SessionRecord
@@ -502,6 +502,7 @@ UPDATE persona_configs SET
     interaction_depth = %(interaction_depth)s,
     updated_at = %(updated_at)s
 WHERE id = %(id)s
+RETURNING
 """
     + SELECT_PERSONA_CONFIG_COLS
 )
@@ -679,6 +680,10 @@ SELECT enabled, smtp_host, smtp_port, smtp_username,
 FROM alert_config WHERE id = 1
 """
 
+SELECT_ALERT_CONFIG_SMTP_PASSWORD_SQL = """
+SELECT smtp_password FROM alert_config WHERE id = 1
+"""
+
 INSERT_ALERT_EVENT_SQL = """
 INSERT INTO alert_events (
     id, run_id, session_id, persona_id, risk_level, actor_label,
@@ -711,14 +716,40 @@ class DatabaseDriverMissingError(RuntimeError):
     """Raised when psycopg is unavailable for PostgreSQL storage."""
 
 
+class DashboardSignupNotAllowedError(RuntimeError):
+    """Raised when signup is gated to the first account and one already exists."""
+
+
+class DashboardEmailAlreadyRegisteredError(RuntimeError):
+    """Raised when a dashboard signup targets an email that's already registered."""
+
+
+# Arbitrary constant advisory-lock key scoping the signup bootstrap check below
+# to a single serialized critical section — see create_dashboard_user_if_eligible.
+_DASHBOARD_SIGNUP_LOCK_KEY = 78_234_916
+
+
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+
 def _alert_password_key() -> bytes:
-    """Return a stable encryption key from environment or a local fallback."""
-    key = os.environ.get("ECHIDRA_ALERT_SECRET")
+    """Return a stable encryption key derived from an environment secret.
+
+    Raises RuntimeError if neither ECHIDRA_ALERT_SECRET nor ECHIDRA_SECRET_KEY
+    is set.
+    """
+    key = os.environ.get("ECHIDRA_ALERT_SECRET") or os.environ.get("ECHIDRA_SECRET_KEY")
     if not key:
-        key = os.environ.get("ECHIDRA_SECRET_KEY", "echidra-alert-secret-key")
-    if not key:
-        key = "echidra-alert-secret-key"
-    return base64.urlsafe_b64encode(key.encode("utf-8").ljust(32, b"0")[:32])
+        raise RuntimeError(
+            "ECHIDRA_ALERT_SECRET or ECHIDRA_SECRET_KEY must be set to store SMTP passwords"
+        )
+    kdf = PBKDF2HMAC(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=b"echidra-alert-config-v1",
+        iterations=480_000,
+    )
+    return base64.urlsafe_b64encode(kdf.derive(key.encode("utf-8")))
 
 
 def _encrypt_alert_password(value: str | None) -> str | None:
@@ -875,25 +906,6 @@ class PostgresClassifierRepository:
             for row in _fetch_all(self.database_url, sql, params)
         ]
 
-    def create_dashboard_user(
-        self,
-        *,
-        email: str,
-        password_hash: str,
-    ) -> DashboardUserRecord:
-        """Persist one dashboard user for UI authentication."""
-        record = DashboardUserRecord(
-            id=uuid4(),
-            email=email,
-            password_hash=password_hash,
-        )
-        _execute_insert(
-            self.database_url,
-            INSERT_DASHBOARD_USER_SQL,
-            dashboard_user_insert_params(record),
-        )
-        return record
-
     def get_dashboard_user_by_email(self, email: str) -> DashboardUserRecord | None:
         """Fetch one dashboard user by normalized email."""
         row = _fetch_one(
@@ -918,6 +930,48 @@ class PostgresClassifierRepository:
         """Count all dashboard users — used to gate signup to first-run bootstrap."""
         row = _fetch_one(self.database_url, COUNT_DASHBOARD_USERS_SQL, {})
         return int(row["total"]) if row else 0
+
+    def create_dashboard_user_if_eligible(
+        self,
+        *,
+        email: str,
+        password_hash: str,
+        allow_multiple: bool,
+    ) -> DashboardUserRecord:
+        """Atomically check signup eligibility and create the user in one transaction.
+
+        Holds a transaction-scoped advisory lock around the eligibility checks
+        and the insert so two concurrent signup requests can't both observe
+        "no account yet" before either has committed — without it, the
+        count-then-insert done as separate calls is a TOCTOU race that could
+        create more than one first-run account.
+
+        Raises DashboardSignupNotAllowedError if allow_multiple is False and an
+        account already exists, or DashboardEmailAlreadyRegisteredError if the
+        email is already registered.
+        """
+        psycopg = _load_psycopg()
+        with psycopg.connect(self.database_url) as conn:
+            with conn.transaction():
+                with conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
+                    cur.execute("SELECT pg_advisory_xact_lock(%s)", (_DASHBOARD_SIGNUP_LOCK_KEY,))
+
+                    if not allow_multiple:
+                        cur.execute(COUNT_DASHBOARD_USERS_SQL)
+                        if int(cur.fetchone()["total"]) > 0:
+                            raise DashboardSignupNotAllowedError()
+
+                    cur.execute(SELECT_DASHBOARD_USER_BY_EMAIL_SQL, {"email": email})
+                    if cur.fetchone() is not None:
+                        raise DashboardEmailAlreadyRegisteredError()
+
+                    record = DashboardUserRecord(
+                        id=uuid4(),
+                        email=email,
+                        password_hash=password_hash,
+                    )
+                    cur.execute(INSERT_DASHBOARD_USER_SQL, dashboard_user_insert_params(record))
+        return record
 
     def get_dashboard_report_summary(self) -> DashboardReportSummary:
         """Fetch database-wide aggregate values for dashboard reporting."""
@@ -1305,6 +1359,18 @@ class PostgresClassifierRepository:
             global_min_risk_level=config.global_min_risk_level,
         )
 
+    def get_alert_smtp_password(self) -> str | None:
+        """Return the decrypted SMTP password for the global alert config, if set.
+
+        AlertConfigRecord deliberately never carries the password (see
+        smtp_password_configured) — this is the one place that needs the
+        real plaintext value, to authenticate outgoing alert/test emails.
+        """
+        row = _fetch_one(self.database_url, SELECT_ALERT_CONFIG_SMTP_PASSWORD_SQL, {})
+        if row is None:
+            return None
+        return _decrypt_alert_password(row["smtp_password"])
+
     def insert_alert_event(self, event: "AlertEventRecord") -> "AlertEventRecord":
         """Persist one alert dispatch record."""
         _execute_insert(
@@ -1328,6 +1394,8 @@ class PostgresClassifierRepository:
     def list_alert_events(self, *, limit: int = 100) -> "list[AlertEventRecord]":
         """Return recent alert dispatch records, newest first."""
         from classifier.storage.models import AlertEventRecord
+        if not isinstance(limit, int) or limit < 1:
+            raise ValueError(f"limit must be a positive integer, got {limit}")
         rows = _fetch_all(
             self.database_url,
             SELECT_ALERT_EVENTS_SQL,
