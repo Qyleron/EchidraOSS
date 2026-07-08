@@ -251,3 +251,26 @@ def test_cmd_serve_stops_both_processes_when_one_exits(monkeypatch):
     assert exit_code == 0
     # The still-running process must have been terminated once the other exited.
     assert processes[1]._terminated is True
+
+
+def test_cmd_serve_returns_zero_for_signal_interrupts(monkeypatch):
+    processes = [_FakeProcess(pid=100), _FakeProcess(pid=200)]
+    popen_calls = []
+
+    def fake_popen(cmd, **kwargs):
+        popen_calls.append(cmd)
+        return processes[len(popen_calls) - 1]
+
+    monkeypatch.setattr(cli.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(cli.time, "sleep", lambda seconds: processes[0].__setattr__("returncode", -2))
+    monkeypatch.setattr(cli.signal, "signal", lambda *args, **kwargs: None)
+
+    def fake_terminate(self):
+        self._terminated = True
+
+    monkeypatch.setattr(cli.subprocess.Popen, "terminate", fake_terminate, raising=False)
+
+    args = cli._build_parser().parse_args(["serve", "--api-port", "8123"])
+    exit_code = cli._cmd_serve(args)
+
+    assert exit_code == 0
