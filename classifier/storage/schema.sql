@@ -22,6 +22,10 @@ CREATE TABLE IF NOT EXISTS sessions (
     end_reason TEXT NOT NULL
 );
 
+ALTER TABLE sessions ADD COLUMN IF NOT EXISTS latitude DOUBLE PRECISION
+    CHECK (latitude IS NULL OR (latitude >= -90 AND latitude <= 90));
+ALTER TABLE sessions ADD COLUMN IF NOT EXISTS longitude DOUBLE PRECISION
+    CHECK (longitude IS NULL OR (longitude >= -180 AND longitude <= 180));
 ALTER TABLE sessions ADD COLUMN IF NOT EXISTS country TEXT;
 
 CREATE INDEX IF NOT EXISTS sessions_persona_id_idx

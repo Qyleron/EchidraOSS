@@ -45,7 +45,7 @@ class IssuePlaybook(BaseModel):
 def load_issue_playbook(path: str | Path) -> IssuePlaybook:
     """Load and validate the issue playbook YAML document."""
     with open(path, encoding="utf-8") as handle:
-        raw = yaml.safe_load(handle)
+        raw = yaml.safe_load(handle) or {}
     return IssuePlaybook.parse_obj(raw)
 
 

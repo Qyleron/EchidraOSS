@@ -12,6 +12,7 @@ from pathlib import Path
 import yaml
 from pydantic import BaseModel, Field
 
+from classifier.rules.issue_playbook import load_mitre_technique_catalog
 
 DEFAULT_MITRE_PLAYBOOK_PATH = Path(__file__).with_name("mitre_playbook.yaml")
 
@@ -69,9 +70,10 @@ def get_playbook_entry(technique_id: str) -> PlaybookEntry:
     """
     entry = load_technique_playbook().get(technique_id)
     if entry is None:
+        technique_name = load_mitre_technique_catalog().get(technique_id, technique_id)
         return PlaybookEntry(
             technique_id=technique_id,
-            name=technique_id,
+            name=technique_name,
             recommended_fix=_GENERIC_FALLBACK_FIX,
             impact=_GENERIC_FALLBACK_IMPACT,
             is_fallback=True,
