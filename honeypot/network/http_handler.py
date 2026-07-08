@@ -135,7 +135,7 @@ class HttpHandler:
                 return
 
             text = raw.decode(errors="ignore")
-            lines = text.split("\r\n")
+            lines = text.replace("\r\n", "\n").split("\n")
             request_line = lines[0] if lines else ""
 
             if request_line:

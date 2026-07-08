@@ -66,7 +66,15 @@ class ConnectionHandler:
                     await self._send("Session timed out.\n")
                     end_reason = "timeout"
                     break
-                except asyncio.LimitOverrunError as exc:
+                except (asyncio.LimitOverrunError, ValueError) as exc:
+                    # StreamReader.readline() documents that it catches its
+                    # own internal LimitOverrunError and re-raises it as a
+                    # plain ValueError -- only readuntil() raises
+                    # LimitOverrunError directly. Catching only the former
+                    # meant this branch never actually fired against a real
+                    # socket; caught here so an oversized line still gets a
+                    # clear message instead of silently falling through to
+                    # the generic error handler below.
                     logger.warning("Input too long from %s: %s", self.peer, exc)
                     await self._send("Input too long. Connection closed.\n")
                     end_reason = "error"
@@ -140,7 +148,18 @@ class ConnectionHandler:
 
         # SMTP and PostgreSQL calls are blocking; keep them off the connection loop.
 
-        await asyncio.to_thread(_maybe_send_alert, None, self.session.active_record(), summary)
+        try:
+            await asyncio.to_thread(
+                _maybe_send_alert,
+                None,
+                self.session.active_record(),
+                summary,
+            )
+        except Exception:
+            logger.exception(
+                "Live alert dispatch failed for session %s",
+                self.session.session_id,
+            )
 
     async def _send(self, text: str):
         """Send text to the connected client."""

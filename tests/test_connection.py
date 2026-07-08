@@ -71,10 +71,19 @@ class SlowReader:
 
 
 class LongReader:
-    """Reader that simulates a too-long line arriving from the client."""
+    """Reader that simulates a too-long line arriving from the client.
+
+    Real asyncio.StreamReader.readline() documents that it catches its own
+    internal LimitOverrunError and re-raises it as a plain ValueError -- only
+    readuntil() raises LimitOverrunError directly. Raising ValueError here
+    (not LimitOverrunError) matches that real contract; a version of this
+    mock that raised LimitOverrunError directly let a real bug (the handler
+    only caught LimitOverrunError, never actually triggered via readline())
+    go undetected.
+    """
 
     async def readline(self):
-        raise asyncio.LimitOverrunError("line too long", 0)
+        raise ValueError("Separator is not found, and chunk exceed the limit")
 
 
 def read_records(log_path):
