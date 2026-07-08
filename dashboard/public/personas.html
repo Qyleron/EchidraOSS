@@ -264,17 +264,22 @@
       var isNew = !allConfigs[personaId];
       modalTitle.textContent = (isNew ? "Configure" : "Edit") + " — " + personaId;
 
+      // Only fall back to preset defaults for a brand-new config -- an existing
+      // saved config is shown as-is, so an intentionally cleared field doesn't
+      // get silently replaced by the preset value (and then re-saved as such).
+      var identitySource = isNew ? preset : config;
+
       var html = '<form class="persona-config-form" id="form_' + escAttr(personaId) + '" autocomplete="off">'
         + '<div class="config-form-sections">'
 
         + '<div class="config-section">'
         + '<h3 class="config-section-title">Identity</h3>'
         + '<div class="config-fields-grid">'
-        + formInput(personaId, "name", "Display Name", "text", config.name || preset.hostname || personaId, true)
-        + formInput(personaId, "hostname", "Hostname", "text", config.hostname || preset.hostname || "")
-        + formInput(personaId, "os_banner", "OS Banner", "text", config.os_banner || preset.os_banner || "")
-        + formInput(personaId, "ssh_banner", "SSH Banner", "text", config.ssh_banner || preset.ssh_banner || "")
-        + formInput(personaId, "timezone", "Timezone", "text", config.timezone || preset.timezone || "UTC")
+        + formInput(personaId, "name", "Display Name", "text", identitySource.name || (isNew ? (preset.hostname || personaId) : personaId), true)
+        + formInput(personaId, "hostname", "Hostname", "text", identitySource.hostname || "")
+        + formInput(personaId, "os_banner", "OS Banner", "text", identitySource.os_banner || "")
+        + formInput(personaId, "ssh_banner", "SSH Banner", "text", identitySource.ssh_banner || "")
+        + formInput(personaId, "timezone", "Timezone", "text", identitySource.timezone || "UTC")
         + '<div class="form-row" style="grid-column:1/-1;">'
         + '<label class="form-label">Internal Notes</label>'
         + '<textarea class="form-textarea" name="internal_notes" rows="2">' + escHtml(config.internal_notes || "") + '</textarea>'

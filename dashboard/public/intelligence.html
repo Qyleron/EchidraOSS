@@ -99,7 +99,7 @@
           <td><span class="risk-badge ${escHtml(issue.severity)}">${escHtml(SEVERITY_LABELS[issue.severity] ?? issue.severity ?? "Unknown")}</span></td>
           <td>
             <ul class="mitre-technique-list">
-              ${issue.mitre.map((technique) => `<li>${escHtml(technique.id)} - ${escHtml(technique.name)}</li>`).join("")}
+              ${(issue.mitre || []).map((technique) => `<li>${escHtml(technique.id)} - ${escHtml(technique.name)}</li>`).join("")}
             </ul>
           </td>
           <td>${escHtml(issue.session_count)}</td>
@@ -129,7 +129,7 @@
         return;
       }
 
-      const issue = currentIssues.find((item) => item.id === issueId);
+      const issue = currentIssues.find((item) => String(item.id) === issueId);
       row.classList.add("selected");
       row.setAttribute("aria-expanded", "true");
       row.insertAdjacentHTML("afterend", `

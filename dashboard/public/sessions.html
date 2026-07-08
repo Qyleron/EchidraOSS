@@ -196,12 +196,12 @@
         risk: run.risk_level,
         intent: INTENT_LABELS[run.intent] || run.intent,
         duration: formatDuration(run.started_at, run.ended_at),
-        evidence: run.signals
+        evidence: (run.signals || [])
           .filter((signal) => signal.signal_type === "evidence")
           .map((signal) => signal.signal_value)
           .join(" "),
         analystRecommendationAction: (
-          run.signals.find((signal) => signal.signal_type === "analyst_recommendation") || {}
+          (run.signals || []).find((signal) => signal.signal_type === "analyst_recommendation") || {}
         ).signal_key
       };
     }
@@ -307,8 +307,18 @@
         : `<li>No commands were captured in this session.</li>`;
     }
 
+    // Neutralizes CSV/formula injection: a cell starting with =, +, -, @ (or
+    // tab/CR) is interpreted as a live formula by Excel/Sheets/LibreOffice
+    // when the exported file is opened. Session fields here are attacker-
+    // influenced (peer IP, persona/actor labels), so every exported cell is
+    // sanitized here rather than trusting individual call sites to do it.
+    function sanitizeCsvCell(value) {
+      const stringValue = String(value == null ? "" : value);
+      return /^[=+\-@\t\r]/.test(stringValue) ? `'${stringValue}` : stringValue;
+    }
+
     function downloadCsv(filename, rows) {
-      const csv = rows.map((row) => row.map((value) => `"${String(value).replaceAll('"', '""')}"`).join(",")).join("\n");
+      const csv = rows.map((row) => row.map((value) => `"${sanitizeCsvCell(value).replaceAll('"', '""')}"`).join(",")).join("\n");
       const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
