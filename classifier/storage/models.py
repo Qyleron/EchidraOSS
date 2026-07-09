@@ -23,6 +23,14 @@ def _model_dict(model: BaseModel) -> dict[str, Any]:
     return json.loads(model.json())
 
 
+# Mirrors classifier.scoring.session.ClassificationStatus (a Literal there,
+# enforced by pydantic on ClassificationSummary already) -- classification_status
+# is a plain str on the storage models below since ClassifierRunRecord and
+# StoredClassifierRun are also built from raw DB rows / direct construction,
+# not only from an already-validated ClassificationSummary.
+CLASSIFICATION_STATUSES = {"complete", "partial", "insufficient_data"}
+
+
 class ClassifierRunRecord(BaseModel):
     """One persisted classifier run with searchable summary columns."""
 
@@ -45,6 +53,12 @@ class ClassifierRunRecord(BaseModel):
     session_record: dict[str, Any]
     summary: dict[str, Any]
     created_at: datetime = Field(default_factory=_utc_now)
+
+    @validator("classification_status")
+    def validate_classification_status(cls, value: str) -> str:
+        if value not in CLASSIFICATION_STATUSES:
+            raise ValueError(f"classification_status must be one of {sorted(CLASSIFICATION_STATUSES)}")
+        return value
 
     @classmethod
     def from_session_summary(
@@ -162,6 +176,12 @@ class StoredClassifierRun(BaseModel):
     classification_status: str = "complete"
     insufficient_data_reason: str | None = None
     signals: list[StoredClassifierSignal] = Field(default_factory=list)
+
+    @validator("classification_status")
+    def validate_classification_status(cls, value: str) -> str:
+        if value not in CLASSIFICATION_STATUSES:
+            raise ValueError(f"classification_status must be one of {sorted(CLASSIFICATION_STATUSES)}")
+        return value
 
     class Config:
         extra = "forbid"

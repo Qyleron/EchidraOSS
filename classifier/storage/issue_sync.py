@@ -94,7 +94,7 @@ def _build_issue(
     return IssueRecord(
         id=_issue_id_for_pair(actor_label, mitre_tag),
         title=fix.title if fix else f"{actor_display} are exhibiting {technique_name} behavior.",
-        severity=_RISK_RANK_SEVERITIES[aggregate["max_risk_rank"]],
+        severity=_RISK_RANK_SEVERITIES.get(aggregate["max_risk_rank"], "low"),
         evidence=_build_evidence(aggregate, technique_name),
         recommended_fix=fix.recommended_fix if fix else technique_entry.recommended_fix,
         impact=fix.impact if fix else technique_entry.impact,

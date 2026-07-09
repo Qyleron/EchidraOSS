@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 from uuid import uuid4
 
 import pytest
+from pydantic import ValidationError
 
 from classifier.pipeline import classify_session, classify_session_record
 from classifier.schemas.session import SessionRecord
@@ -21,6 +22,7 @@ from classifier.storage.models import (
     ManualLabelRecord,
     MitreTechnique,
     PersonaConfigInput,
+    StoredClassifierRun,
     StoredSessionEvent,
 )
 from classifier.storage.repository import (
@@ -140,6 +142,29 @@ def test_alert_password_salt_is_per_installation_not_hardcoded(monkeypatch):
     key_b = _alert_password_key("postgresql://install-b/echidra")
 
     assert key_a != key_b
+
+
+def test_alert_password_key_is_cached_and_skips_redundant_salt_lookup(monkeypatch):
+    """PBKDF2 here is deliberately expensive (480k iterations) and the salt
+    lookup is a DB round trip -- both must only happen once per (secret,
+    database_url), not on every encrypt/decrypt call (eg. once per alert
+    email dispatched)."""
+    monkeypatch.setenv("ECHIDRA_ALERT_SECRET", "cache-test-secret")
+
+    calls = {"count": 0}
+
+    def counting_fetch_one(database_url, sql, params):
+        calls["count"] += 1
+        return {"smtp_password_salt": params["salt"]}
+
+    monkeypatch.setattr("classifier.storage.repository._fetch_one", counting_fetch_one)
+
+    database_url = "postgresql://cache-test/echidra"
+    first = _alert_password_key(database_url)
+    second = _alert_password_key(database_url)
+
+    assert first == second
+    assert calls["count"] == 1
 
 
 def test_count_alert_events_returns_total_regardless_of_list_limit(monkeypatch):
@@ -436,6 +461,34 @@ def test_stored_classifier_run_distinguishes_partial_from_complete_classificatio
     stored_run = stored_classifier_run_from_rows(run_row, [])
 
     assert stored_run.classification_status == "partial"
+
+
+def test_classifier_run_record_rejects_invalid_classification_status():
+    session = SessionRecord.parse_obj(make_record())
+    summary = classify_session_record(make_record())
+    valid = ClassifierRunRecord.from_session_summary(session, summary)
+
+    with pytest.raises(ValidationError, match="classification_status must be one of"):
+        ClassifierRunRecord(**{**valid.dict(), "classification_status": "bogus_status"})
+
+
+def test_stored_classifier_run_rejects_invalid_classification_status():
+    with pytest.raises(ValidationError, match="classification_status must be one of"):
+        StoredClassifierRun(
+            id=uuid4(),
+            session_id=uuid4(),
+            protocol="tcp_shell",
+            persona_id="generic_linux",
+            started_at=1.0,
+            ended_at=2.0,
+            end_reason="disconnect",
+            confidence=0.5,
+            risk_score=10,
+            risk_level="low",
+            behavior_stage="reconnaissance",
+            intent="unknown",
+            classification_status="bogus_status",
+        )
 
 
 def test_manual_label_from_row_returns_storage_model():

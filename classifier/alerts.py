@@ -12,11 +12,15 @@ from classifier.storage import (
     AlertConfigRecord,
     AlertEventRecord,
     ClassifierRunRecord,
+    DatabaseDriverMissingError,
+    DatabaseNotConfiguredError,
     PostgresClassifierRepository,
 )
 from classifier.storage.config import get_database_url
 
 logger = logging.getLogger(__name__)
+
+_SMTP_IMPLICIT_TLS_PORT = 465
 
 _RISK_LEVEL_ORDER = ("critical", "high", "medium", "low", "none")
 
@@ -186,6 +190,12 @@ def _smtp_send(
     subject: str,
     body: str,
 ) -> str | None:
+    """Low-level SMTP send. Returns error string on failure, None on success.
+
+    Shared by real alert dispatch (this module) and the dashboard's "Send
+    Test Email" button (classifier/api/app.py imports this function) so the
+    two paths can't drift out of sync again.
+    """
     if not config.smtp_host:
         return "smtp_host not configured"
     msg = email.mime.multipart.MIMEMultipart()
@@ -193,17 +203,36 @@ def _smtp_send(
     msg["To"] = recipient
     msg["Subject"] = subject
     msg.attach(email.mime.text.MIMEText(body, "plain"))
+
+    raw_password = None
+    if config.smtp_username:
+        # AlertConfigRecord deliberately never carries the password (it's
+        # redacted to smtp_password_configured) — fetch and decrypt it
+        # through the repository for sending only.
+        try:
+            repository = PostgresClassifierRepository()
+            raw_password = repository.get_alert_smtp_password()
+        except (DatabaseDriverMissingError, DatabaseNotConfiguredError) as exc:
+            return f"could not load SMTP credentials: {exc}"
+        if not raw_password:
+            return "smtp_username is set but no SMTP password is configured"
+
+    # Port 465 servers expect TLS from the first byte of the connection
+    # (implicit TLS) -- STARTTLS on a plaintext SMTP connection is a
+    # different, incompatible protocol and would fail against them.
+    use_implicit_tls = config.smtp_use_tls and config.smtp_port == _SMTP_IMPLICIT_TLS_PORT
+
     try:
         context = ssl.create_default_context() if config.smtp_use_tls else None
-        with smtplib.SMTP(config.smtp_host, config.smtp_port, timeout=10) as server:
-            if config.smtp_use_tls:
+        if use_implicit_tls:
+            server_cm = smtplib.SMTP_SSL(config.smtp_host, config.smtp_port, timeout=10, context=context)
+        else:
+            server_cm = smtplib.SMTP(config.smtp_host, config.smtp_port, timeout=10)
+        with server_cm as server:
+            if config.smtp_use_tls and not use_implicit_tls:
                 server.starttls(context=context)
-            if config.smtp_username:
-                raw_password = None
-                if hasattr(config, "smtp_password"):
-                    raw_password = config.smtp_password
-                if raw_password:
-                    server.login(config.smtp_username, raw_password)
+            if raw_password:
+                server.login(config.smtp_username, raw_password)
             server.sendmail(msg["From"], [recipient], msg.as_string())
         return None
     except Exception as exc:

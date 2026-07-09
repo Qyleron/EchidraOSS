@@ -86,6 +86,11 @@ class TelnetHandler:
             end_reason = "timeout"
         except asyncio.CancelledError:
             end_reason = "shutdown"
+        except ConnectionError:
+            # Client disconnected mid-conversation (RST, closed socket,
+            # broken pipe, etc.) -- normal for an internet-facing listener,
+            # not a protocol/input error worth logging as one.
+            end_reason = "disconnect"
         except Exception:
             logger.exception("Telnet handler error from %s", self.peer)
             end_reason = "error"
@@ -137,9 +142,13 @@ class TelnetHandler:
         while i < len(data):
             byte = data[i]
             if byte == 0xFF:
-                # Skip a full IAC negotiation sequence if present, else just the marker
-                i += 3 if i + 2 < len(data) else 1
-                continue
+                # Skip a full IAC negotiation sequence if present; a truncated
+                # sequence at the buffer tail is unrecoverable, so stop here
+                # rather than risk appending its command/option byte to `line`.
+                if i + 2 < len(data):
+                    i += 3
+                    continue
+                break
             if byte in (0x08, 0x7F):
                 line = line[:-1]
                 i += 1

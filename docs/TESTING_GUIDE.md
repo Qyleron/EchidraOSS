@@ -139,9 +139,12 @@ Note: each preset persona also declares `suid_binaries` (e.g.
 interactive shell (`honeypot/core/engine.py`) has no `find`/`sudo` command
 that surfaces it yet, so there's nothing to test interactively here today.
 
-**A saved persona config now reaches the live honeypot.** To confirm:
+**A saved persona config now reaches the live honeypot.** This endpoint
+requires a logged-in dashboard session — run section 7's signup call first
+to create `cookies.txt` (on a fresh database, that signup must be the first
+one you run, since it's first-account-only). Then create the persona config:
 ```bash
-curl -s -b cookies.txt -X POST "http://127.0.0.1:8000/persona-configs?persona_id=custom_demo" \
+curl -s -b cookies.txt -X POST "http://127.0.0.1:8000/persona-configs/custom_demo" \
   -H "Content-Type: application/json" \
   -d '{
     "name": "Custom demo",

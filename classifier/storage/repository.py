@@ -790,24 +790,44 @@ def _get_or_create_alert_password_salt(database_url: str) -> bytes:
     return base64.urlsafe_b64decode(row["smtp_password_salt"])
 
 
+_alert_password_key_cache: dict[tuple[str, str], bytes] = {}
+
+
 def _alert_password_key(database_url: str) -> bytes:
     """Return a stable encryption key derived from an environment secret.
 
     Raises RuntimeError if neither ECHIDRA_ALERT_SECRET nor ECHIDRA_SECRET_KEY
     is set.
+
+    Cached in-process per (secret, database_url) pair: PBKDF2 here is
+    deliberately expensive (480k iterations) to resist brute-forcing the
+    secret, and the salt lookup is a DB round trip -- recomputing both on
+    every encrypt/decrypt call (eg. once per alert email dispatched) is
+    wasted work, since the derived key is fully determined by the secret and
+    the installation's persisted salt, neither of which changes within a
+    process's lifetime. Keying on the secret (not just database_url) avoids
+    serving a stale key if it's ever rotated without a process restart.
     """
     key = os.environ.get("ECHIDRA_ALERT_SECRET") or os.environ.get("ECHIDRA_SECRET_KEY")
     if not key:
         raise RuntimeError(
             "ECHIDRA_ALERT_SECRET or ECHIDRA_SECRET_KEY must be set to store SMTP passwords"
         )
+
+    cache_key = (key, database_url)
+    cached = _alert_password_key_cache.get(cache_key)
+    if cached is not None:
+        return cached
+
     kdf = PBKDF2HMAC(
         algorithm=hashes.SHA256(),
         length=32,
         salt=_get_or_create_alert_password_salt(database_url),
         iterations=480_000,
     )
-    return base64.urlsafe_b64encode(kdf.derive(key.encode("utf-8")))
+    derived_key = base64.urlsafe_b64encode(kdf.derive(key.encode("utf-8")))
+    _alert_password_key_cache[cache_key] = derived_key
+    return derived_key
 
 
 def _encrypt_alert_password(database_url: str, value: str | None) -> str | None:

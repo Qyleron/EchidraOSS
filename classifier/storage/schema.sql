@@ -90,7 +90,8 @@ CREATE INDEX IF NOT EXISTS classifier_runs_actor_label_idx
 -- one (real-time partial classification) -- without this, a stored run with
 -- an elevated risk_level can't be told apart from one whose classification
 -- may still change once the session actually ends.
-ALTER TABLE classifier_runs ADD COLUMN IF NOT EXISTS classification_status TEXT NOT NULL DEFAULT 'complete';
+ALTER TABLE classifier_runs ADD COLUMN IF NOT EXISTS classification_status TEXT NOT NULL DEFAULT 'complete'
+    CHECK (classification_status IN ('complete', 'partial', 'insufficient_data'));
 ALTER TABLE classifier_runs ADD COLUMN IF NOT EXISTS insufficient_data_reason TEXT;
 
 CREATE TABLE IF NOT EXISTS classifier_signals (

@@ -162,6 +162,27 @@ def test_shell_command_containing_get_does_not_trigger_http_sensitive_check():
     assert features.sensitive_file_read_count == 0
 
 
+def test_dotgithub_path_does_not_count_as_sensitive():
+    """Bare substring matching on ".git" previously also matched ".github",
+    an ordinary, non-sensitive directory name that merely shares a prefix."""
+    session = create_http_session([("GET /.github/workflows/ci.yml HTTP/1.1", 1.0)])
+
+    features = extract_session_features(session)
+
+    assert features.sensitive_file_read_count == 0
+
+
+def test_read_of_pluralized_marker_path_still_counts_as_sensitive():
+    """A path extending a marker with a simple plural (eg. a "backups"
+    directory) must still be flagged -- only unrelated-word extensions like
+    ".git" -> ".github" should be excluded, not legitimate plurals."""
+    session = create_session([("cat /srv/backups/customer_dump.sql", 1.0)])
+
+    features = extract_session_features(session)
+
+    assert features.sensitive_file_read_count == 1
+
+
 def test_http_post_with_credential_fields_counts_as_auth_attempt():
     """A POST body to a fake login form (log=admin&pwd=hunter2) previously
     never incremented auth_attempt_count at all, unlike Telnet/FTP's
@@ -178,6 +199,16 @@ def test_http_post_with_credential_fields_counts_as_auth_attempt():
 
 def test_http_post_without_credential_fields_does_not_count_as_auth_attempt():
     session = create_http_session([("POST /api/contact: message=hello", 1.0)])
+
+    features = extract_session_features(session)
+
+    assert features.auth_attempt_count == 0
+
+
+def test_http_post_with_catalog_field_does_not_count_as_auth_attempt():
+    """Bare substring matching on "log=" previously also matched "catalog=",
+    an ordinary product-search field that merely ends with those letters."""
+    session = create_http_session([("POST /search: catalog=electronics&sort=price", 1.0)])
 
     features = extract_session_features(session)
 

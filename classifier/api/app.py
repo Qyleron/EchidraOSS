@@ -2,16 +2,12 @@
 
 from __future__ import annotations
 
-import email.mime.multipart
-import email.mime.text
 import hashlib
 import hmac
 import logging
 import os
 import re
 import secrets
-import smtplib
-import ssl
 import time
 from pathlib import Path
 from uuid import UUID
@@ -24,7 +20,7 @@ from pydantic import BaseModel, validator
 from classifier.pipeline import classify_session
 from classifier.schemas.session import SessionRecord
 from classifier.scoring.session import ClassificationSummary
-from classifier.alerts import _maybe_send_alert
+from classifier.alerts import _maybe_send_alert, _smtp_send
 from classifier.storage import (
     AlertConfigInput,
     AlertConfigRecord,
@@ -881,7 +877,6 @@ def _classify_or_http_error(
 
 
 _RISK_LEVEL_ORDER = ("critical", "high", "medium", "low", "none")
-_SMTP_IMPLICIT_TLS_PORT = 465
 
 
 def _risk_meets_threshold(risk_level: str, min_risk_level: str) -> bool:
@@ -900,56 +895,6 @@ def _dispatch_test_email(config: AlertConfigRecord) -> str | None:
     subject = "[Echidra] SMTP alert test"
     body = "This is a test alert from your Echidra OSS honeypot. SMTP is configured correctly."
     return _smtp_send(config, recipient, subject, body)
-
-
-def _smtp_send(
-    config: AlertConfigRecord,
-    recipient: str,
-    subject: str,
-    body: str,
-) -> str | None:
-    """Low-level SMTP send. Returns error string on failure, None on success."""
-    if not config.smtp_host:
-        return "smtp_host not configured"
-    msg = email.mime.multipart.MIMEMultipart()
-    msg["From"] = config.smtp_from_email or config.smtp_host
-    msg["To"] = recipient
-    msg["Subject"] = subject
-    msg.attach(email.mime.text.MIMEText(body, "plain"))
-
-    raw_password = None
-    if config.smtp_username:
-        # AlertConfigRecord deliberately never carries the password (it's
-        # redacted to smtp_password_configured) — fetch and decrypt it
-        # through the repository for sending only.
-        try:
-            repository = PostgresClassifierRepository()
-            raw_password = repository.get_alert_smtp_password()
-        except (DatabaseDriverMissingError, DatabaseNotConfiguredError) as exc:
-            return f"could not load SMTP credentials: {exc}"
-        if not raw_password:
-            return "smtp_username is set but no SMTP password is configured"
-
-    # Port 465 servers expect TLS from the first byte of the connection
-    # (implicit TLS) -- STARTTLS on a plaintext SMTP connection is a
-    # different, incompatible protocol and would fail against them.
-    use_implicit_tls = config.smtp_use_tls and config.smtp_port == _SMTP_IMPLICIT_TLS_PORT
-
-    try:
-        context = ssl.create_default_context() if config.smtp_use_tls else None
-        if use_implicit_tls:
-            server_cm = smtplib.SMTP_SSL(config.smtp_host, config.smtp_port, timeout=10, context=context)
-        else:
-            server_cm = smtplib.SMTP(config.smtp_host, config.smtp_port, timeout=10)
-        with server_cm as server:
-            if config.smtp_use_tls and not use_implicit_tls:
-                server.starttls(context=context)
-            if raw_password:
-                server.login(config.smtp_username, raw_password)
-            server.sendmail(msg["From"], [recipient], msg.as_string())
-        return None
-    except Exception as exc:
-        return str(exc)
 
 
 def _dashboard_persona_from_preset(persona: Persona) -> DashboardPersonaPreset:
