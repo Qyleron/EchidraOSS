@@ -94,6 +94,21 @@ def test_handles_empty_sessions_without_division_errors():
     assert features.command_names == []
 
 
+def test_zero_duration_burst_with_commands_reads_as_high_rate_not_idle():
+    """Several commands landing on the same timestamp (duration_seconds == 0)
+    is a maximally fast burst -- it must not be reported as a 0.0 rate, which
+    would let it silently evade any commands_per_minute >= N rule."""
+    session = create_session(
+        [("whoami", 0.0), ("id", 0.0), ("uname -a", 0.0)],
+        duration_seconds=0.0,
+    )
+
+    features = extract_session_features(session)
+
+    assert features.command_count == 3
+    assert features.commands_per_minute == 180.0
+
+
 def test_handles_malformed_shell_input_as_observed_command():
     """Malformed input should remain measurable without crashing extraction."""
     session = create_session([

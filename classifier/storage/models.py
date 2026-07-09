@@ -34,6 +34,8 @@ class ClassifierRunRecord(BaseModel):
     risk_level: str
     behavior_stage: str
     intent: str
+    classification_status: str
+    insufficient_data_reason: str | None
     classifier_version: str
     rules_version: str
     matched_rule_ids: list[str]
@@ -61,6 +63,8 @@ class ClassifierRunRecord(BaseModel):
             risk_level=summary.risk_level,
             behavior_stage=summary.behavior_stage,
             intent=summary.intent,
+            classification_status=summary.classification_status,
+            insufficient_data_reason=summary.insufficient_data_reason,
             classifier_version=summary.classifier_version,
             rules_version=summary.rules_version,
             matched_rule_ids=list(summary.matched_rule_ids),
@@ -153,6 +157,8 @@ class StoredClassifierRun(BaseModel):
     risk_level: str
     behavior_stage: str
     intent: str
+    classification_status: str = "complete"
+    insufficient_data_reason: str | None = None
     signals: list[StoredClassifierSignal] = Field(default_factory=list)
 
     class Config:
