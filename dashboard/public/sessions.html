@@ -68,6 +68,10 @@
           </div>
         </div>
 
+        <p id="rangeTruncatedNotice" style="display:none;padding:0 22px 12px;font-size:12px;color:var(--muted);">
+          Showing the most recent 500 sessions in this range — narrow the date range to see the rest.
+        </p>
+
         <div class="table-shell">
           <table class="data-table" aria-describedby="sessionsTitle">
             <thead>
@@ -282,7 +286,7 @@
         return;
       }
 
-      const session = allSessions.find((item) => item.id === sessionId);
+      const session = allSessions.find((item) => String(item.id) === String(sessionId));
       row.classList.add("selected");
       row.setAttribute("aria-expanded", "true");
       row.insertAdjacentHTML("afterend", `
@@ -441,11 +445,15 @@
       return { from, to };
     }
 
-    function applyRange() {
+    // Sessions for the selected range are fetched from the server (from_ts/
+    // to_ts), not filtered client-side out of a flat, most-recent-500 fetch
+    // -- a client-side filter over a capped list would silently drop older
+    // in-range sessions once the honeypot has more than 500 total, with no
+    // indication anything was missing.
+    async function applyRange() {
       const { from, to } = readRange();
-      visibleSessions = allSessions.filter((session) => session.timestamp >= from && session.timestamp <= to);
-      renderSessions(visibleSessions);
       document.getElementById("timeRangeButton").textContent = formatRangeLabel(from, to);
+      await loadSessions(from, to);
     }
 
     function initTimeRangeControl() {
@@ -504,20 +512,34 @@
       }
     }
 
-    async function loadSessions() {
+    const SESSIONS_FETCH_LIMIT = 500;
+
+    async function loadSessions(from, to) {
+      const truncatedNotice = document.getElementById("rangeTruncatedNotice");
       try {
-        const runs = await fetchJSON("/classifier/runs?limit=500");
+        const fromTs = from.getTime() / 1000;
+        const toTs = to.getTime() / 1000;
+        const runs = await fetchJSON(
+          `/classifier/runs?from_ts=${fromTs}&to_ts=${toTs}&limit=${SESSIONS_FETCH_LIMIT}`
+        );
         allSessions = runs.map(mapRun);
+        sessionsLoadFailed = false;
+        // The server filters by range server-side now, so a full page means
+        // there may be more matching sessions beyond the cap -- say so
+        // rather than silently showing an incomplete result as if complete.
+        truncatedNotice.style.display = runs.length >= SESSIONS_FETCH_LIMIT ? "" : "none";
       } catch (error) {
         console.error(error);
         allSessions = [];
         sessionsLoadFailed = true;
+        truncatedNotice.style.display = "none";
       }
-      initTimeRangeControl();
+      visibleSessions = allSessions;
+      renderSessions(visibleSessions);
     }
 
     document.getElementById("logoutButton").addEventListener("click", logoutDashboard);
-    loadSessions();
+    initTimeRangeControl();
   </script>
 </body>
 </html>

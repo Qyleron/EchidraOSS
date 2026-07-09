@@ -157,21 +157,28 @@ def _ensure_env_var(key: str, value_factory) -> None:
 
 
 def _cmd_serve(args: argparse.Namespace) -> int:
-    honeypot_proc = subprocess.Popen([sys.executable, "-m", "honeypot.main"])
-    api_proc = subprocess.Popen(
-        [
-            sys.executable,
-            "-m",
-            "uvicorn",
-            "classifier.api.app:create_app",
-            "--factory",
-            "--host",
-            args.api_host,
-            "--port",
-            str(args.api_port),
-        ]
-    )
-    procs = [honeypot_proc, api_proc]
+    procs: list[subprocess.Popen] = []
+    try:
+        honeypot_proc = subprocess.Popen([sys.executable, "-m", "honeypot.main"])
+        procs.append(honeypot_proc)
+        api_proc = subprocess.Popen(
+            [
+                sys.executable,
+                "-m",
+                "uvicorn",
+                "classifier.api.app:create_app",
+                "--factory",
+                "--host",
+                args.api_host,
+                "--port",
+                str(args.api_port),
+            ]
+        )
+        procs.append(api_proc)
+    except OSError:
+        for proc in procs:
+            proc.terminate()
+        raise
     print(f"Honeypot listeners: PID {honeypot_proc.pid}")
     print(f"API/dashboard:      PID {api_proc.pid} (http://{args.api_host}:{args.api_port})")
     print("Press Ctrl+C to stop both.")

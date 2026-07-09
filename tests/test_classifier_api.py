@@ -814,12 +814,16 @@ def test_list_classifier_runs_endpoint_passes_filters(monkeypatch):
             risk_level,
             actor_label,
             persona_id,
+            from_ts,
+            to_ts,
             limit,
         ):
             assert session_id == session.session_id
             assert risk_level == "medium"
             assert actor_label == "commodity_bot"
             assert persona_id == "generic_linux"
+            assert from_ts is None
+            assert to_ts is None
             assert limit == 25
             return [stored_run]
 
@@ -835,6 +839,24 @@ def test_list_classifier_runs_endpoint_passes_filters(monkeypatch):
     )
 
     assert response == [stored_run]
+
+
+def test_list_classifier_runs_endpoint_passes_date_range_to_repository(monkeypatch):
+    route = route_for("/classifier/runs", "GET")
+
+    class FakeRepository:
+        def list_classifier_runs(self, **kwargs):
+            assert kwargs["from_ts"] == 1000.0
+            assert kwargs["to_ts"] == 2000.0
+            return []
+
+    monkeypatch.setattr(app_module, "PostgresClassifierRepository", FakeRepository)
+
+    response = route.endpoint(
+        dashboard_request(), from_ts=1000.0, to_ts=2000.0, limit=100
+    )
+
+    assert response == []
 
 
 def test_list_classifier_runs_endpoint_reports_missing_database(monkeypatch):
