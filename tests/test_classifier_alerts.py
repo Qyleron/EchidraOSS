@@ -60,7 +60,7 @@ def _alert_config(**overrides):
     return AlertConfigRecord(**values)
 
 
-def _persona_config(**overrides):
+def _persona_config(*, validate=True, **overrides):
     values = dict(
         id="generic_linux",
         name="Generic Linux",
@@ -70,6 +70,13 @@ def _persona_config(**overrides):
         slack_webhook="https://hooks.slack.com/services/T000/B000/XXXX",
     )
     values.update(overrides)
+    if not validate:
+        # PersonaConfigRecord now requires slack_webhook/contact_email to
+        # match alert_routing_level at save time -- .construct() bypasses
+        # that to simulate a row saved before this validation existed
+        # (eg. its webhook was cleared out-of-band), so _maybe_send_alert's
+        # own per-channel defense-in-depth check is still exercised.
+        return PersonaConfigRecord.construct(**values)
     return PersonaConfigRecord(**values)
 
 
@@ -202,7 +209,12 @@ def test_maybe_send_alert_skips_slack_channel_when_webhook_not_configured(monkey
     repository = _patch_repository(
         monkeypatch,
         _alert_config(),
-        _persona_config(alert_routing_level="both", contact_email="analyst@example.com", slack_webhook=None),
+        _persona_config(
+            validate=False,
+            alert_routing_level="both",
+            contact_email="analyst@example.com",
+            slack_webhook=None,
+        ),
     )
     monkeypatch.setattr(alerts_module, "_smtp_send", lambda config, recipient, subject, body: None)
 

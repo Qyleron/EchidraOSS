@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime, timezone
+from pathlib import PurePosixPath
 from typing import Any
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, root_validator, validator
 
 from classifier.schemas.session import SessionRecord
 from classifier.scoring.session import ClassificationSummary
@@ -255,12 +257,25 @@ PERSONA_ALERT_ROUTING_LEVELS = {"none", "email", "slack", "both"}
 PERSONA_INTERACTION_DEPTHS = {"minimal", "standard", "deep"}
 RISK_LEVELS_ORDERED = ("critical", "high", "medium", "low")
 
+# Same pattern as classifier/api/app.py's _EMAIL_RE -- duplicated rather than
+# imported since models.py sits below app.py in the dependency direction.
+_EMAIL_RE = re.compile(
+    r"^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@"
+    r"[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$"
+)
+
 
 class DecoyFile(BaseModel):
     """One fake file path and content stored in a persona config."""
 
-    path: str
-    content: str
+    path: str = Field(min_length=1, max_length=256)
+    content: str = Field(max_length=65_536)
+
+    @validator("path")
+    def validate_path(cls, value: str) -> str:
+        if not value.startswith("/") or ".." in PurePosixPath(value).parts:
+            raise ValueError("decoy file path must be a safe absolute path")
+        return value
 
     class Config:
         extra = "forbid"
@@ -269,12 +284,12 @@ class DecoyFile(BaseModel):
 class PersonaConfigInput(BaseModel):
     """Analyst-submitted configuration for one honeypot persona."""
 
-    name: str
-    os_banner: str = ""
-    ssh_banner: str = ""
-    hostname: str = ""
-    timezone: str = "UTC"
-    internal_notes: str = ""
+    name: str = Field(min_length=1, max_length=100)
+    os_banner: str = Field(default="", max_length=256)
+    ssh_banner: str = Field(default="", max_length=256)
+    hostname: str = Field(default="", max_length=253)
+    timezone: str = Field(default="UTC", max_length=64)
+    internal_notes: str = Field(default="", max_length=4_000)
     ssh_enabled: bool = False
     ssh_port: int | None = Field(default=None, ge=1, le=65535)
     http_enabled: bool = False
@@ -283,14 +298,30 @@ class PersonaConfigInput(BaseModel):
     ftp_port: int | None = Field(default=None, ge=1, le=65535)
     telnet_enabled: bool = False
     telnet_port: int | None = Field(default=None, ge=1, le=65535)
-    fake_users: list[str] = Field(default_factory=list)
-    running_processes: list[str] = Field(default_factory=list)
-    decoy_files: list[DecoyFile] = Field(default_factory=list)
+    fake_users: list[str] = Field(default_factory=list, max_items=100)
+    running_processes: list[str] = Field(default_factory=list, max_items=100)
+    decoy_files: list[DecoyFile] = Field(default_factory=list, max_items=50)
     alert_routing_level: str = "none"
     alert_min_risk_level: str | None = None
-    contact_email: str | None = None
-    slack_webhook: str | None = None
+    contact_email: str | None = Field(default=None, max_length=254)
+    slack_webhook: str | None = Field(default=None, max_length=512)
     interaction_depth: str = "minimal"
+
+    @validator("fake_users", "running_processes", each_item=True)
+    def validate_list_item_length(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("entries cannot be blank")
+        if len(value) > 128:
+            raise ValueError("entries must be 128 characters or fewer")
+        return value
+
+    @validator("decoy_files")
+    def validate_decoy_files_unique(cls, value: list[DecoyFile]) -> list[DecoyFile]:
+        paths = [f.path for f in value]
+        if len(paths) != len(set(paths)):
+            raise ValueError("decoy_files cannot contain duplicate paths")
+        return value
+
     @validator("alert_routing_level")
     def validate_routing(cls, value: str) -> str:
         if value not in PERSONA_ALERT_ROUTING_LEVELS:
@@ -307,6 +338,18 @@ class PersonaConfigInput(BaseModel):
             )
         return value
 
+    @validator("contact_email")
+    def validate_contact_email(cls, value: str | None) -> str | None:
+        if value is not None and not _EMAIL_RE.match(value):
+            raise ValueError("contact_email must be a valid email address")
+        return value
+
+    @validator("slack_webhook")
+    def validate_slack_webhook(cls, value: str | None) -> str | None:
+        if value is not None and not value.startswith("https://"):
+            raise ValueError("slack_webhook must be an https:// URL")
+        return value
+
     @validator("interaction_depth")
     def validate_depth(cls, value: str) -> str:
         if value not in PERSONA_INTERACTION_DEPTHS:
@@ -314,6 +357,20 @@ class PersonaConfigInput(BaseModel):
                 f"interaction_depth must be one of {sorted(PERSONA_INTERACTION_DEPTHS)}"
             )
         return value
+
+    @root_validator
+    def validate_cross_field_requirements(cls, values):
+        for service in ("ssh", "http", "ftp", "telnet"):
+            if values.get(f"{service}_enabled") and values.get(f"{service}_port") is None:
+                raise ValueError(f"{service}_port is required when {service}_enabled is true")
+
+        routing = values.get("alert_routing_level")
+        if routing in ("email", "both") and not values.get("contact_email"):
+            raise ValueError("contact_email is required when alert_routing_level includes email")
+        if routing in ("slack", "both") and not values.get("slack_webhook"):
+            raise ValueError("slack_webhook is required when alert_routing_level includes slack")
+
+        return values
 
     class Config:
         extra = "forbid"

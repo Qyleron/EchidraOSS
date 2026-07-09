@@ -40,7 +40,7 @@ def test_active_persona_defaults_when_env_is_unset(monkeypatch):
     config.clear_active_persona_cache()
 
 
-def make_persona_config_record(**overrides):
+def make_persona_config_record(*, validate=True, **overrides):
     from classifier.storage import DecoyFile, PersonaConfigRecord
 
     fields = {
@@ -60,6 +60,13 @@ def make_persona_config_record(**overrides):
         "decoy_files": [DecoyFile(path="/home/admin/notes.txt", content="todo: rotate keys")],
     }
     fields.update(overrides)
+    if not validate:
+        # PersonaConfigRecord now rejects some of these shapes itself (eg.
+        # duplicate decoy_files paths) -- .construct() bypasses that so
+        # tests can still simulate a row that reached the DB before this
+        # validation existed, or was edited directly, to exercise the
+        # separate validate_persona() defense downstream.
+        return PersonaConfigRecord.construct(**fields)
     return PersonaConfigRecord(**fields)
 
 
@@ -158,14 +165,16 @@ def test_active_persona_falls_back_to_preset_when_db_lookup_fails(monkeypatch):
 
 def test_active_persona_falls_back_to_preset_when_db_record_fails_validation(monkeypatch):
     """A saved config that fails validate_persona() (eg. duplicate decoy file
-    paths, which the schema doesn't reject) must fall back to the preset
-    instead of crashing every new session."""
+    paths -- built via .construct() to simulate a row saved before
+    PersonaConfigRecord itself started rejecting duplicates) must fall back
+    to the preset instead of crashing every new session."""
     from classifier.storage import DecoyFile
 
     config.clear_active_persona_cache()
     monkeypatch.setenv("ECHIDRA_PERSONA", "generic_linux")
     monkeypatch.setenv("ECHIDRA_DATABASE_URL", "postgresql://fake/fake")
     record = make_persona_config_record(
+        validate=False,
         id="generic_linux",
         decoy_files=[
             DecoyFile(path="/home/admin/notes.txt", content="a"),
