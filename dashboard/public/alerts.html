@@ -275,7 +275,7 @@
             + '<td>' + escHtml(ev.persona_id) + '</td>'
             + '<td><span class="risk-badge" style="min-width:60px;background:rgba(0,0,0,0.3);color:' + riskClass + ';">' + escHtml(ev.risk_level) + '</span></td>'
             + '<td>' + escHtml(ev.actor_label || "—") + '</td>'
-            + '<td>' + escHtml(ev.channel === "slack" ? "Slack" : "Email") + '</td>'
+            + '<td>' + escHtml({slack: "Slack", both: "Slack + Email"}[ev.channel] || "Email") + '</td>'
             + '<td class="mono-cell" style="font-size:12px;">' + escHtml(ev.contact_email || "—") + '</td>'
             + '<td>' + statusHtml + '</td>'
             + '</tr>';

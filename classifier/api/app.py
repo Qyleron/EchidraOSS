@@ -17,6 +17,7 @@ from pathlib import Path
 from uuid import UUID
 
 from fastapi import FastAPI, HTTPException, Query, Request, Response
+from fastapi import Path as PathParam
 from fastapi.responses import FileResponse, RedirectResponse
 from pydantic import BaseModel, validator
 
@@ -80,6 +81,12 @@ _FALLBACK_SESSION_SECRET_PATH = (
 _fallback_session_secret: str | None = None
 LOGIN_RATE_LIMIT_MAX_ATTEMPTS = 5
 LOGIN_RATE_LIMIT_WINDOW_SECONDS = 15 * 60
+
+# Persona IDs are slugs used as a Postgres primary key, a URL path segment,
+# and the ECHIDRA_PERSONA env var value the honeypot looks up by -- lowercase
+# snake_case, matching every built-in preset (see honeypot/core/persona.py),
+# keeps them predictable across all three and rules out an empty string.
+_PERSONA_ID_PATTERN = r"^[a-z][a-z0-9_]{0,63}$"
 _EMAIL_RE = re.compile(
     r"^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@"
     r"[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$"
@@ -623,9 +630,9 @@ def create_app() -> FastAPI:
         tags=["personas"],
     )
     def create_persona_config_endpoint(
-        persona_id: str,
-        payload: PersonaConfigInput,
         request: Request,
+        payload: PersonaConfigInput,
+        persona_id: str = PathParam(..., regex=_PERSONA_ID_PATTERN),
     ) -> PersonaConfigRecord:
         """Create a new persona configuration. Returns 409 if the slug already exists."""
         _require_dashboard_auth(request)
@@ -646,8 +653,8 @@ def create_app() -> FastAPI:
         tags=["personas"],
     )
     def get_persona_config_endpoint(
-        persona_id: str,
         request: Request,
+        persona_id: str = PathParam(..., regex=_PERSONA_ID_PATTERN),
     ) -> PersonaConfigRecord:
         """Return one persona configuration by slug ID."""
         _require_dashboard_auth(request)
@@ -670,9 +677,9 @@ def create_app() -> FastAPI:
         tags=["personas"],
     )
     def update_persona_config_endpoint(
-        persona_id: str,
-        payload: PersonaConfigInput,
         request: Request,
+        payload: PersonaConfigInput,
+        persona_id: str = PathParam(..., regex=_PERSONA_ID_PATTERN),
     ) -> PersonaConfigRecord:
         """Update one persona configuration by slug ID."""
         _require_dashboard_auth(request)
@@ -696,8 +703,8 @@ def create_app() -> FastAPI:
         tags=["personas"],
     )
     def delete_persona_config_endpoint(
-        persona_id: str,
         request: Request,
+        persona_id: str = PathParam(..., regex=_PERSONA_ID_PATTERN),
     ) -> None:
         """Delete one persona configuration by slug ID."""
         _require_dashboard_auth(request)
@@ -719,8 +726,8 @@ def create_app() -> FastAPI:
         tags=["personas"],
     )
     def get_persona_analytics_endpoint(
-        persona_id: str,
         request: Request,
+        persona_id: str = PathParam(..., regex=_PERSONA_ID_PATTERN),
     ) -> PersonaAnalytics:
         """Return aggregated session analytics for one persona ID."""
         _require_dashboard_auth(request)

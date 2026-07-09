@@ -56,6 +56,13 @@ class FakeReader:
         chunk, self._body = self._body[:n], self._body[n:]
         return chunk
 
+    async def readexactly(self, n):
+        await asyncio.sleep(0)
+        chunk, self._body = self._body[:n], self._body[n:]
+        if len(chunk) < n:
+            raise asyncio.IncompleteReadError(chunk, n)
+        return chunk
+
 
 class OverrunReader:
     """Reader that simulates a too-long header line arriving from the client.
