@@ -153,34 +153,34 @@ async def test_1000_connection_flood_is_handled_without_crashing(monkeypatch):
             pass
         return "served" if data else "refused"
 
-    flood_task = asyncio.gather(
-        *(attempt_connection() for _ in range(1000)), return_exceptions=True
-    )
-
-    observed_peak = 0
-    while not flood_task.done():
-        observed_peak = max(observed_peak, len(server.tasks))
-        await asyncio.sleep(0.005)
-    results = await asyncio.wait_for(flood_task, timeout=60)
-
-    errors = [r for r in results if isinstance(r, BaseException)]
-    assert not errors, f"connection attempts raised: {errors[:5]}"
-    # The real invariant: the server never runs more than MAX_CONNECTIONS
-    # sessions concurrently, no matter how many attempts pile up.
-    assert observed_peak == 50
-
-    # Every flood client has closed its own socket by now (results is in),
-    # but the server only notices a closed client -- and removes its task --
-    # via a done-callback scheduled on a later event loop iteration, not
-    # synchronously. Wait for that cleanup to actually land before checking
-    # the server can serve a fresh client, or this races and sees the server
-    # still reporting full capacity from sessions that are already gone.
-    for _ in range(200):
-        if len(server.tasks) == 0:
-            break
-        await asyncio.sleep(0.01)
-
     try:
+        flood_task = asyncio.gather(
+            *(attempt_connection() for _ in range(1000)), return_exceptions=True
+        )
+
+        observed_peak = 0
+        while not flood_task.done():
+            observed_peak = max(observed_peak, len(server.tasks))
+            await asyncio.sleep(0.005)
+        results = await asyncio.wait_for(flood_task, timeout=60)
+
+        errors = [r for r in results if isinstance(r, BaseException)]
+        assert not errors, f"connection attempts raised: {errors[:5]}"
+        # The real invariant: the server never runs more than MAX_CONNECTIONS
+        # sessions concurrently, no matter how many attempts pile up.
+        assert observed_peak == 50
+
+        # Every flood client has closed its own socket by now (results is in),
+        # but the server only notices a closed client -- and removes its task --
+        # via a done-callback scheduled on a later event loop iteration, not
+        # synchronously. Wait for that cleanup to actually land before checking
+        # the server can serve a fresh client, or this races and sees the server
+        # still reporting full capacity from sessions that are already gone.
+        for _ in range(200):
+            if len(server.tasks) == 0:
+                break
+            await asyncio.sleep(0.01)
+
         # The server must still be able to serve a fresh client after the
         # flood -- a prior slot must have freed up since every flood client
         # above already closed its connection. Retried a few times: right

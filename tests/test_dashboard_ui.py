@@ -94,11 +94,24 @@ def test_sessions_page_uses_shared_styles_and_session_table_columns():
 def test_sessions_page_is_backed_by_live_api_calls():
     html = (DASHBOARD_PUBLIC_PATH / "sessions.html").read_text(encoding="utf-8")
 
-    assert 'fetchJSON("/classifier/runs?limit=500")' in html
+    assert "/classifier/runs?from_ts=" in html
+    assert "to_ts=" in html
     assert "fetchJSON(`/sessions/${sessionId}/events`)" in html
     # The old static mock dataset must be gone.
     assert "sess-1048" not in html
     assert "185.234.219.x" not in html
+
+
+def test_sessions_page_server_side_filters_by_date_range_not_client_side():
+    """A flat limit=500 fetch filtered client-side would silently drop
+    older in-range sessions once the honeypot has more than 500 total --
+    the range must be sent to the server, and truncation must be visible
+    rather than presenting a capped result as if it were complete."""
+    html = (DASHBOARD_PUBLIC_PATH / "sessions.html").read_text(encoding="utf-8")
+
+    assert "async function loadSessions(from, to)" in html
+    assert 'id="rangeTruncatedNotice"' in html
+    assert "runs.length >= SESSIONS_FETCH_LIMIT" in html
 
 
 def test_sessions_page_flags_partial_classifications():

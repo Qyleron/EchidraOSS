@@ -428,6 +428,8 @@ def create_app() -> FastAPI:
         risk_level: str | None = None,
         actor_label: str | None = None,
         persona_id: str | None = None,
+        from_ts: float | None = None,
+        to_ts: float | None = None,
         limit: int = Query(default=100, ge=1, le=500),
     ) -> list[StoredClassifierRun]:
         """Return stored classifier runs matching optional exact filters."""
@@ -439,6 +441,8 @@ def create_app() -> FastAPI:
                 risk_level=risk_level,
                 actor_label=actor_label,
                 persona_id=persona_id,
+                from_ts=from_ts,
+                to_ts=to_ts,
                 limit=limit,
             )
         except (DatabaseDriverMissingError, DatabaseNotConfiguredError) as exc:

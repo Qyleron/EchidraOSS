@@ -920,6 +920,8 @@ class PostgresClassifierRepository:
         risk_level: str | None = None,
         actor_label: str | None = None,
         persona_id: str | None = None,
+        from_ts: float | None = None,
+        to_ts: float | None = None,
         limit: int = 100,
     ) -> list[StoredClassifierRun]:
         """Fetch stored classifier runs matching optional exact filters."""
@@ -928,6 +930,8 @@ class PostgresClassifierRepository:
             risk_level=risk_level,
             actor_label=actor_label,
             persona_id=persona_id,
+            from_ts=from_ts,
+            to_ts=to_ts,
             limit=limit,
         )
         rows = _fetch_all(self.database_url, sql, params)
@@ -1820,6 +1824,8 @@ def classifier_run_list_query(
     risk_level: str | None = None,
     actor_label: str | None = None,
     persona_id: str | None = None,
+    from_ts: float | None = None,
+    to_ts: float | None = None,
     limit: int = 100,
 ) -> tuple[str, dict[str, Any]]:
     """Return SQL and parameters for listing stored classifier runs."""
@@ -1827,7 +1833,7 @@ def classifier_run_list_query(
     if not isinstance(limit, int) or limit < 1:
         raise ValueError(f"limit must be a positive integer, got {limit}")
     limit = min(limit, MAX_LIMIT)
-    
+
     filters: list[str] = []
     params: dict[str, Any] = {"limit": limit}
     if session_id is not None:
@@ -1842,6 +1848,12 @@ def classifier_run_list_query(
     if persona_id is not None:
         filters.append("sessions.persona_id = %(persona_id)s")
         params["persona_id"] = persona_id
+    if from_ts is not None:
+        filters.append("sessions.started_at >= %(from_ts)s")
+        params["from_ts"] = from_ts
+    if to_ts is not None:
+        filters.append("sessions.started_at <= %(to_ts)s")
+        params["to_ts"] = to_ts
 
     return _list_query(
         SELECT_CLASSIFIER_RUN_BASE_SQL,

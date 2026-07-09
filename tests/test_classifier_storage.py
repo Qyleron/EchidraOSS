@@ -1054,6 +1054,26 @@ def test_classifier_run_list_query_applies_supported_filters():
     }
 
 
+def test_classifier_run_list_query_applies_date_range_filter():
+    """sessions.html previously fetched a flat limit=500 (most-recent-first)
+    and filtered by date range only client-side -- a range older than the
+    500th-most-recent session would silently lose matching data. This must
+    filter server-side against sessions.started_at instead."""
+    sql, params = classifier_run_list_query(from_ts=1000.0, to_ts=2000.0, limit=25)
+
+    assert "sessions.started_at >= %(from_ts)s" in sql
+    assert "sessions.started_at <= %(to_ts)s" in sql
+    assert params == {"from_ts": 1000.0, "to_ts": 2000.0, "limit": 25}
+
+
+def test_classifier_run_list_query_omits_range_filter_when_not_given():
+    sql, params = classifier_run_list_query(limit=25)
+
+    assert "from_ts" not in sql
+    assert "to_ts" not in sql
+    assert params == {"limit": 25}
+
+
 def test_manual_label_list_query_applies_supported_filters():
     session_id = uuid4()
     classifier_run_id = uuid4()
