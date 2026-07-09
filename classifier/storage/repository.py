@@ -66,7 +66,9 @@ INSERT INTO classifier_runs (
     risk_score,
     risk_level,
     behavior_stage,
-    intent
+    intent,
+    classification_status,
+    insufficient_data_reason
 ) VALUES (
     %(id)s,
     %(session_id)s,
@@ -75,7 +77,9 @@ INSERT INTO classifier_runs (
     %(risk_score)s,
     %(risk_level)s,
     %(behavior_stage)s,
-    %(intent)s
+    %(intent)s,
+    %(classification_status)s,
+    %(insufficient_data_reason)s
 )
 """
 
@@ -179,7 +183,9 @@ SELECT
     classifier_runs.risk_score,
     classifier_runs.risk_level,
     classifier_runs.behavior_stage,
-    classifier_runs.intent
+    classifier_runs.intent,
+    classifier_runs.classification_status,
+    classifier_runs.insufficient_data_reason
 FROM classifier_runs
 JOIN sessions ON sessions.id = classifier_runs.session_id
 WHERE classifier_runs.id = %(id)s
@@ -231,7 +237,9 @@ SELECT
     classifier_runs.risk_score,
     classifier_runs.risk_level,
     classifier_runs.behavior_stage,
-    classifier_runs.intent
+    classifier_runs.intent,
+    classifier_runs.classification_status,
+    classifier_runs.insufficient_data_reason
 FROM classifier_runs
 JOIN sessions ON sessions.id = classifier_runs.session_id
 """
@@ -1468,6 +1476,8 @@ def classifier_run_insert_params(record: ClassifierRunRecord) -> dict[str, Any]:
         "risk_level": record.risk_level,
         "behavior_stage": record.behavior_stage,
         "intent": record.intent,
+        "classification_status": record.classification_status,
+        "insufficient_data_reason": record.insufficient_data_reason,
     }
 
 

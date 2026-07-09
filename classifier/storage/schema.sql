@@ -86,6 +86,13 @@ CREATE INDEX IF NOT EXISTS classifier_runs_risk_level_idx
 CREATE INDEX IF NOT EXISTS classifier_runs_actor_label_idx
     ON classifier_runs (actor_label);
 
+-- Whether this run classified a fully closed session or a still-in-progress
+-- one (real-time partial classification) -- without this, a stored run with
+-- an elevated risk_level can't be told apart from one whose classification
+-- may still change once the session actually ends.
+ALTER TABLE classifier_runs ADD COLUMN IF NOT EXISTS classification_status TEXT NOT NULL DEFAULT 'complete';
+ALTER TABLE classifier_runs ADD COLUMN IF NOT EXISTS insufficient_data_reason TEXT;
+
 CREATE TABLE IF NOT EXISTS classifier_signals (
     id BIGSERIAL PRIMARY KEY,
     classifier_run_id UUID NOT NULL REFERENCES classifier_runs(id) ON DELETE CASCADE,

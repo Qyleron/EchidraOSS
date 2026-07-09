@@ -201,6 +201,7 @@
         protocol: PROTOCOL_LABELS[run.protocol] || (run.protocol ? run.protocol.toUpperCase() : "Unknown"),
         actor: run.actor_label,
         risk: run.risk_level,
+        classificationStatus: run.classification_status || "complete",
         intent: INTENT_LABELS[run.intent] || run.intent,
         duration: formatDuration(run.started_at, run.ended_at),
         evidence: (run.signals || [])
@@ -243,7 +244,12 @@
               ${escHtml(session.actor ? (ACTOR_LABELS[session.actor] || session.actor) : "Unclassified")}
             </span>
           </td>
-          <td><span class="risk-badge ${badgeTier(session.risk)}">${escHtml(session.risk)}</span></td>
+          <td>
+            <span class="risk-badge ${badgeTier(session.risk)}">${escHtml(session.risk)}</span>
+            ${session.classificationStatus !== "complete"
+              ? `<span class="risk-badge" style="margin-left:4px;background:rgba(0,0,0,0.3);" title="This session was still in progress when classified; the result may change once it ends.">Partial</span>`
+              : ""}
+          </td>
           <td>${escHtml(session.intent)}</td>
         </tr>
       `).join("");
@@ -357,7 +363,7 @@
 
     document.getElementById("downloadVisibleButton").addEventListener("click", () => {
       const rows = [
-        ["Time", "Source IP", "Country", "Persona", "Protocol", "Actor", "Risk", "Intent"],
+        ["Time", "Source IP", "Country", "Persona", "Protocol", "Actor", "Risk", "Intent", "Status"],
         ...visibleSessions.map((session) => [
           formatSessionTime(session.timestamp),
           session.sourceIp,
@@ -366,7 +372,8 @@
           session.protocol,
           session.actor ? (ACTOR_LABELS[session.actor] || session.actor) : "Unclassified",
           session.risk,
-          session.intent
+          session.intent,
+          session.classificationStatus === "complete" ? "Complete" : "Partial"
         ])
       ];
       downloadCsv("echidra-sessions-visible.csv", rows);

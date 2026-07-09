@@ -149,8 +149,16 @@ def _is_sensitive_path(path: str) -> bool:
 
 
 def _commands_per_minute(command_count: int, duration_seconds: float) -> float:
-    """Calculate a stable command rate for sessions of any duration."""
-    if duration_seconds == 0:
-        return 0.0
+    """Calculate a stable command rate for sessions of any duration.
 
-    return command_count * 60 / duration_seconds
+    A session with commands but a measured duration of exactly zero (e.g.
+    several commands landing on the same timestamp in a fast automated
+    burst) is maximally fast activity, not idle -- returning 0.0 let it
+    evade any rate-based rule entirely. There's no true instantaneous rate
+    to report (and +inf isn't JSON-safe, since it isn't valid JSON and
+    JS's JSON.parse rejects it), so treat duration as a 1-second floor
+    here: a large, finite, clearly-elevated rate instead of a wrong zero.
+    """
+    if duration_seconds > 0:
+        return command_count * 60 / duration_seconds
+    return command_count * 60.0

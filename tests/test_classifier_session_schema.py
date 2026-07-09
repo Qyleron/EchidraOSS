@@ -133,3 +133,48 @@ def test_schema_rejects_unsafe_surfaced_decoy_paths():
 
     with pytest.raises(ValidationError, match="safe absolute paths"):
         SessionRecord.parse_obj(record)
+
+
+@pytest.mark.parametrize("field", ["started_at", "ended_at"])
+@pytest.mark.parametrize("bad_value", [float("nan"), float("inf"), float("-inf")])
+def test_schema_rejects_non_finite_timestamps(field, bad_value):
+    """started_at/ended_at carry no ge/le Field constraint at all, so nothing
+    else would catch a NaN/Infinity value here -- it would reach scoring and
+    JSON-serialize as a token the dashboard's JS can't parse."""
+    record = valid_record()
+    record[field] = bad_value
+
+    with pytest.raises(ValidationError, match="finite"):
+        SessionRecord.parse_obj(record)
+
+
+@pytest.mark.parametrize("bad_value", [float("nan"), float("inf"), float("-inf")])
+def test_schema_rejects_non_finite_duration_seconds(bad_value):
+    """duration_seconds' ge=0 constraint already happens to reject NaN/Infinity
+    in this Pydantic version, but the explicit finiteness check is kept as a
+    documented, version-independent guarantee rather than relying on that."""
+    record = valid_record()
+    record["duration_seconds"] = bad_value
+
+    with pytest.raises(ValidationError):
+        SessionRecord.parse_obj(record)
+
+
+@pytest.mark.parametrize("bad_value", [float("nan"), float("inf"), float("-inf")])
+def test_schema_rejects_non_finite_coordinates(bad_value):
+    """latitude/longitude's ge/le bounds already happen to reject NaN/Infinity
+    in this Pydantic version; same reasoning as duration_seconds above."""
+    record = valid_record()
+    record.update({"latitude": bad_value, "longitude": 77.5946})
+
+    with pytest.raises(ValidationError):
+        SessionRecord.parse_obj(record)
+
+
+@pytest.mark.parametrize("bad_value", [float("nan"), float("inf"), float("-inf")])
+def test_schema_rejects_non_finite_command_timestamp(bad_value):
+    record = valid_record()
+    record["commands"][0]["timestamp"] = bad_value
+
+    with pytest.raises(ValidationError, match="finite"):
+        SessionRecord.parse_obj(record)

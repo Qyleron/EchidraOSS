@@ -3,7 +3,7 @@ from uuid import uuid4
 
 import pytest
 
-from classifier.pipeline import classify_session_record
+from classifier.pipeline import classify_session, classify_session_record
 from classifier.schemas.session import SessionRecord
 from classifier.storage import cli as storage_cli
 from classifier.storage.config import (
@@ -239,7 +239,9 @@ def test_classifier_run_insert_params_match_storage_columns():
     assert params["session_id"] == session.session_id
     assert params["risk_score"] == summary.risk_score
     assert params["risk_level"] == "medium"
-    assert len(params) == 8
+    assert params["classification_status"] == summary.classification_status
+    assert params["insufficient_data_reason"] == summary.insufficient_data_reason
+    assert len(params) == 10
 
 
 def test_session_insert_params_match_storage_columns():
@@ -401,6 +403,39 @@ def test_stored_classifier_run_from_rows_includes_session_and_signals():
     assert stored_run.longitude == 77.5946
     assert stored_run.actor_label == "commodity_bot"
     assert stored_run.signals[1].signal_value == "sensitive_file_probe"
+    assert stored_run.classification_status == summary.classification_status
+    assert stored_run.insufficient_data_reason == summary.insufficient_data_reason
+
+
+def test_stored_classifier_run_distinguishes_partial_from_complete_classification():
+    """A run stored mid-session (real-time partial classification) must be
+    told apart from a fully closed session once read back -- previously
+    classification_status/insufficient_data_reason were computed but never
+    made it into classifier_runs at all."""
+    session = SessionRecord.parse_obj(make_record())
+    active_summary = classify_session(session, active=True)
+    assert active_summary.classification_status == "partial"
+
+    record = ClassifierRunRecord.from_session_summary(session, active_summary)
+    run_row = classifier_run_insert_params(record)
+    session_params = session_insert_params(record)
+    run_row.update(
+        {
+            "protocol": session_params["protocol"],
+            "peer_ip": session_params["peer_ip"],
+            "peer_port": session_params["peer_port"],
+            "latitude": session_params["latitude"],
+            "longitude": session_params["longitude"],
+            "persona_id": session_params["persona_id"],
+            "started_at": session_params["started_at"],
+            "ended_at": session_params["ended_at"],
+            "end_reason": session_params["end_reason"],
+        }
+    )
+
+    stored_run = stored_classifier_run_from_rows(run_row, [])
+
+    assert stored_run.classification_status == "partial"
 
 
 def test_manual_label_from_row_returns_storage_model():

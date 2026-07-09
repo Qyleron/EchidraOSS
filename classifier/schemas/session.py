@@ -1,8 +1,21 @@
+import math
 from pathlib import PurePosixPath
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field, IPvAnyAddress, root_validator
+from pydantic import BaseModel, Field, IPvAnyAddress, root_validator, validator
+
+
+def _reject_non_finite(value: float | None) -> float | None:
+    """NaN/Infinity silently pass Pydantic v1's ge/le Field constraints
+    (comparisons against NaN are always False, and +/-inf satisfies most
+    bounds), so every timing/coordinate float needs this explicit check --
+    a NaN risk_score or an infinite timestamp would otherwise reach scoring
+    and JSON-serialize as a token (`NaN`/`Infinity`) that isn't valid JSON
+    and that JS's JSON.parse rejects on the dashboard side."""
+    if value is not None and not math.isfinite(value):
+        raise ValueError("must be a finite number")
+    return value
 
 
 class CommandEvent(BaseModel):
@@ -10,6 +23,8 @@ class CommandEvent(BaseModel):
 
     cmd: str = Field(min_length=1)
     timestamp: float
+
+    _validate_timestamp = validator("timestamp", allow_reuse=True)(_reject_non_finite)
 
     class Config:
         extra = "forbid"
@@ -33,6 +48,11 @@ class SessionRecord(BaseModel):
     command_count: int = Field(ge=0)
     commands: list[CommandEvent]
     decoy_files_surfaced: list[str] = Field(default_factory=list)
+
+    _validate_finite = validator(
+        "latitude", "longitude", "started_at", "ended_at", "duration_seconds",
+        allow_reuse=True,
+    )(_reject_non_finite)
 
     @root_validator
     def validate_session_consistency(cls, values):
