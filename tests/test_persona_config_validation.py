@@ -103,10 +103,26 @@ def test_accepts_well_formed_contact_email():
     assert config.contact_email == "analyst@example.com"
 
 
-@pytest.mark.parametrize("bad_webhook", ["http://hooks.slack.com/services/x", "hooks.slack.com/services/x", "ftp://example.com"])
-def test_rejects_non_https_slack_webhook(bad_webhook):
-    with pytest.raises(ValidationError, match="https://"):
+@pytest.mark.parametrize(
+    "bad_webhook",
+    [
+        "http://hooks.slack.com/services/x",
+        "hooks.slack.com/services/x",
+        "ftp://example.com",
+        "https://example.com/not-slack",  # https, but not hooks.slack.com
+        "https://evil.com/?u=https://hooks.slack.com/services/x",  # domain check must anchor at the start
+    ],
+)
+def test_rejects_non_slack_webhook(bad_webhook):
+    with pytest.raises(ValidationError, match="hooks.slack.com"):
         PersonaConfigInput(**valid_fields(slack_webhook=bad_webhook))
+
+
+def test_accepts_hooks_slack_com_webhook():
+    config = PersonaConfigInput(
+        **valid_fields(slack_webhook="https://hooks.slack.com/services/T000/B000/XXXX")
+    )
+    assert config.slack_webhook == "https://hooks.slack.com/services/T000/B000/XXXX"
 
 
 def test_rejects_email_routing_without_contact_email():

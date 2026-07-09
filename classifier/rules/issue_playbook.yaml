@@ -44,6 +44,10 @@ fixes:
       title: Automated scanners are fingerprinting the system before staging payloads.
       recommended_fix: Trim shell banner detail, randomize first-command response timing, and alert on rapid fingerprinting sequences with no clean exit.
       impact: Shortens attacker dwell time before detection.
+    T1595:
+      title: Automated scanners are touching FTP/Telnet ports without submitting real credentials, consistent with a banner-grab or port sweep.
+      recommended_fix: Rate-limit connections per source IP across these ports and correlate banner-grab activity with later credential-stuffing attempts from the same IP.
+      impact: Surfaces the reconnaissance sweep that typically precedes a targeted credential-stuffing run, before it arrives.
 
   commodity_bot:
     T1005:
