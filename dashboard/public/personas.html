@@ -217,13 +217,16 @@
 
       presets.forEach(function(preset) {
         seenIds[preset.persona_id] = true;
-        var hasConfig = Boolean(configsMap[preset.persona_id]);
-        rows.push(buildPersonaRow(preset.persona_id, preset.hostname, preset.open_ports_visible, "Preset", hasConfig));
+        var cfg = configsMap[preset.persona_id];
+        var hasConfig = Boolean(cfg);
+        var hostname = hasConfig ? (cfg.hostname || preset.hostname) : preset.hostname;
+        var ports = hasConfig ? enabledPorts(cfg) : preset.open_ports_visible;
+        rows.push(buildPersonaRow(preset.persona_id, hostname, ports, "Preset", hasConfig));
       });
 
       Object.values(configsMap).forEach(function(cfg) {
         if (seenIds[cfg.id]) return;
-        rows.push(buildPersonaRow(cfg.id, cfg.hostname || "—", [], "Custom", true));
+        rows.push(buildPersonaRow(cfg.id, cfg.hostname || "—", enabledPorts(cfg), "Custom", true));
       });
 
       tbody.innerHTML = rows.join("");
@@ -242,6 +245,11 @@
         + '<td class="mono-cell">' + escHtml(portStr) + '</td>'
         + '<td><button type="button" class="text-button customize-btn" data-id="' + escAttr(id) + '">' + actionLabel + '</button>' + deleteBtn + '</td>'
         + '</tr>';
+    }
+
+    function enabledPorts(cfg) {
+      var pairs = [["ssh", cfg.ssh_port], ["http", cfg.http_port], ["ftp", cfg.ftp_port], ["telnet", cfg.telnet_port]];
+      return pairs.filter(function(p) { return cfg[p[0] + "_enabled"] && p[1] != null; }).map(function(p) { return p[1]; });
     }
 
     // ── Modal config form ──────────────────────────────────────────────────────

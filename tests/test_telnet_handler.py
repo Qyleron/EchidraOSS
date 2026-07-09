@@ -159,6 +159,33 @@ async def test_telnet_malformed_iac_negotiation_does_not_crash(tmp_path):
     assert records[0]["command_count"] == 0
 
 
+class ResetReader:
+    """Reader that simulates the peer resetting the connection mid-read."""
+
+    async def read(self, n):
+        await asyncio.sleep(0)
+        return b""
+
+    async def readline(self):
+        await asyncio.sleep(0)
+        raise ConnectionResetError("Connection reset by peer")
+
+
+@pytest.mark.asyncio
+async def test_telnet_connection_reset_mid_session_logs_as_disconnect(tmp_path):
+    """A client that resets the connection mid-conversation is a normal
+    disconnect for an internet-facing listener, not a protocol/input error."""
+    writer = FakeWriter()
+    log_path = tmp_path / "sessions.jsonl"
+    handler = TelnetHandler(ResetReader(), writer, session_logger=SessionLogger(str(log_path)))
+
+    await handler.handle()
+
+    records = read_records(log_path)
+    assert len(records) == 1
+    assert records[0]["end_reason"] == "disconnect"
+
+
 @pytest.mark.asyncio
 async def test_telnet_username_sent_in_same_burst_as_iac_negotiation_is_not_lost(tmp_path):
     """Regression test: a fast client (most real Mirai-style bots) that sends

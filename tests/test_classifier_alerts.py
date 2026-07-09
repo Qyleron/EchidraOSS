@@ -170,6 +170,127 @@ def test_slack_post_returns_error_on_network_exception(monkeypatch):
     assert err == "connection refused"
 
 
+def test_smtp_send_fails_closed_when_repository_has_no_password(monkeypatch):
+    class FakeRepository:
+        def get_alert_smtp_password(self):
+            return None
+
+    monkeypatch.setattr(alerts_module, "PostgresClassifierRepository", FakeRepository)
+
+    err = alerts_module._smtp_send(
+        _alert_config(smtp_username="alerts@example.com"), "dest@example.com", "subject", "body"
+    )
+
+    assert err == "smtp_username is set but no SMTP password is configured"
+
+
+def test_smtp_send_logs_in_with_repository_returned_password(monkeypatch):
+    class FakeRepository:
+        def get_alert_smtp_password(self):
+            return "the-real-password"
+
+    monkeypatch.setattr(alerts_module, "PostgresClassifierRepository", FakeRepository)
+
+    logins = []
+    sent = []
+
+    class FakeSMTP:
+        def __init__(self, host, port, timeout=10):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc_info):
+            return False
+
+        def starttls(self, context=None):
+            pass
+
+        def login(self, username, password):
+            logins.append((username, password))
+
+        def sendmail(self, from_addr, to_addrs, message):
+            sent.append((from_addr, to_addrs))
+
+    monkeypatch.setattr(alerts_module.smtplib, "SMTP", FakeSMTP)
+
+    err = alerts_module._smtp_send(
+        _alert_config(smtp_username="alerts@example.com"), "dest@example.com", "subject", "body"
+    )
+
+    assert err is None
+    assert logins == [("alerts@example.com", "the-real-password")]
+    assert sent == [("alerts@example.com", ["dest@example.com"])]
+
+
+def test_smtp_send_uses_implicit_tls_on_port_465(monkeypatch):
+    """Port 465 servers expect TLS from the first byte -- STARTTLS on a
+    plaintext smtplib.SMTP connection is a different, incompatible protocol,
+    so this must use smtplib.SMTP_SSL instead."""
+    class FakeRepository:
+        def get_alert_smtp_password(self):
+            return "the-real-password"
+
+    monkeypatch.setattr(alerts_module, "PostgresClassifierRepository", FakeRepository)
+
+    logins = []
+    sent = []
+    ssl_calls = []
+    plain_smtp_calls = []
+
+    class FakeSMTP_SSL:
+        def __init__(self, host, port, timeout=10, context=None):
+            ssl_calls.append((host, port))
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc_info):
+            return False
+
+        def login(self, username, password):
+            logins.append((username, password))
+
+        def sendmail(self, from_addr, to_addrs, message):
+            sent.append((from_addr, to_addrs))
+
+    class FakeSMTP:
+        def __init__(self, host, port, timeout=10):
+            plain_smtp_calls.append((host, port))
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc_info):
+            return False
+
+        def starttls(self, context=None):
+            raise AssertionError("starttls() must not be called on an implicit-TLS connection")
+
+        def login(self, username, password):
+            logins.append((username, password))
+
+        def sendmail(self, from_addr, to_addrs, message):
+            sent.append((from_addr, to_addrs))
+
+    monkeypatch.setattr(alerts_module.smtplib, "SMTP_SSL", FakeSMTP_SSL)
+    monkeypatch.setattr(alerts_module.smtplib, "SMTP", FakeSMTP)
+
+    err = alerts_module._smtp_send(
+        _alert_config(smtp_username="alerts@example.com", smtp_port=465),
+        "dest@example.com",
+        "subject",
+        "body",
+    )
+
+    assert err is None
+    assert ssl_calls == [("smtp.example.com", 465)]
+    assert plain_smtp_calls == []
+    assert logins == [("alerts@example.com", "the-real-password")]
+    assert sent == [("alerts@example.com", ["dest@example.com"])]
+
+
 def test_maybe_send_alert_dispatches_to_slack_only_when_routing_is_slack(monkeypatch):
     session, summary = _session_and_summary()
     repository = _patch_repository(

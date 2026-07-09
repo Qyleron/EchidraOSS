@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import shlex
 from uuid import UUID
 
@@ -32,6 +33,16 @@ SENSITIVE_PATH_MARKERS = {
     "shadow",
     "wp-config",
 }
+# Bare "marker in path" substring matching misclassifies benign paths that
+# happen to extend a marker into an unrelated name (".git" inside
+# ".github/workflows", "shadow" inside "shadowsocks"). Require the marker not
+# be immediately followed by another alphanumeric character -- an optional
+# trailing "s" is still allowed so simple plurals (backup/backups,
+# credential/credentials) keep matching, since "wp-config.php" and
+# "/srv/backups/..." (an actual bundled persona decoy path) must still match.
+_SENSITIVE_PATH_MARKER_PATTERN = re.compile(
+    "|".join(re.escape(marker) + r"s?(?![A-Za-z0-9])" for marker in SENSITIVE_PATH_MARKERS)
+)
 # HttpHandler logs a request line ("GET /wp-login.php HTTP/1.1") as one
 # command -- the path lands in args, so the same sensitive-path check that
 # already covers `cat <path>` also applies to these HTTP verbs.
@@ -41,6 +52,14 @@ _HTTP_REQUEST_COMMANDS = {"get", "post", "head", "put", "delete"}
 # USER/PASS exchange, there's no fixed field name to match on, so this
 # looks for common login-form field names in the body text instead.
 _HTTP_CREDENTIAL_BODY_MARKERS = ("pwd=", "passwd=", "password=", "log=", "user=", "username=")
+# Bare substring matching misclassifies benign fields whose name merely ends
+# with a marker ("catalog=" containing "log=", "browser=" never actually
+# containing "user=" but e.g. "poweruser=" would). Form fields are delimited
+# by "&"/"?"/start-of-body, so require the marker not be immediately preceded
+# by another alphanumeric character -- i.e. it must start a field name.
+_HTTP_CREDENTIAL_BODY_PATTERN = re.compile(
+    "|".join(r"(?<![A-Za-z0-9])" + re.escape(marker) for marker in _HTTP_CREDENTIAL_BODY_MARKERS)
+)
 
 
 class SessionFeatures(BaseModel):
@@ -98,7 +117,7 @@ def extract_session_features(
         elif (
             session.protocol == "http"
             and command_name == "post"
-            and any(marker in normalized for marker in _HTTP_CREDENTIAL_BODY_MARKERS)
+            and _HTTP_CREDENTIAL_BODY_PATTERN.search(normalized)
         ):
             auth_attempt_count += 1
 
@@ -168,8 +187,7 @@ def _parse_command(raw_command: str) -> tuple[str, list[str]]:
 
 def _is_sensitive_path(path: str) -> bool:
     """Identify reads of paths likely to contain credentials or useful secrets."""
-    normalized_path = path.lower()
-    return any(marker in normalized_path for marker in SENSITIVE_PATH_MARKERS)
+    return _SENSITIVE_PATH_MARKER_PATTERN.search(path.lower()) is not None
 
 
 def _commands_per_minute(command_count: int, duration_seconds: float) -> float:

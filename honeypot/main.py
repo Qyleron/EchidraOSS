@@ -51,16 +51,20 @@ async def main():
     stop_task = asyncio.create_task(stop_event.wait())
 
     try:
-        done, _ = await asyncio.wait(
-            [stop_task, *tasks],
-            return_when=asyncio.FIRST_COMPLETED,
-        )
-        for task in done:
-            if task is not stop_task:
+        remaining = list(tasks)
+        while remaining:
+            done, _ = await asyncio.wait(
+                [stop_task, *remaining],
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            if stop_task in done:
+                break
+            for task in done:
                 try:
                     task.result()
                 except Exception:
                     logger.exception("A protocol listener terminated unexpectedly")
+            remaining = [t for t in remaining if t not in done]
     finally:
         logger.info("Shutting down gracefully...")
         await ssh_server.shutdown()

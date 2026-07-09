@@ -75,6 +75,14 @@
         .replace(/>/g, "&gt;");
     }
 
+    function escAttr(str) {
+      return String(str == null ? "" : str)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    }
+
     function statusLabel(status) {
       return status === "open" ? "Open" : "Closed";
     }
@@ -94,9 +102,9 @@
         return;
       }
       tableBody.innerHTML = issues.map((issue) => `
-        <tr data-issue-row="${escHtml(issue.id)}" tabindex="0" aria-expanded="false">
+        <tr data-issue-row="${escAttr(issue.id)}" tabindex="0" aria-expanded="false">
           <td><div class="cell-primary"><strong>${escHtml(issue.title)}</strong></div></td>
-          <td><span class="risk-badge ${escHtml(issue.severity)}">${escHtml(SEVERITY_LABELS[issue.severity] ?? issue.severity ?? "Unknown")}</span></td>
+          <td><span class="risk-badge ${escAttr(issue.severity)}">${escHtml(SEVERITY_LABELS[issue.severity] ?? issue.severity ?? "Unknown")}</span></td>
           <td>
             <ul class="mitre-technique-list">
               ${(issue.mitre || []).map((technique) => `<li>${escHtml(technique.id)} - ${escHtml(technique.name)}</li>`).join("")}
@@ -107,8 +115,8 @@
           <td>
             <button
               type="button"
-              class="status-toggle ${escHtml(issue.status)}"
-              data-issue-id="${escHtml(issue.id)}"
+              class="status-toggle ${escAttr(issue.status)}"
+              data-issue-id="${escAttr(issue.id)}"
               aria-pressed="${issue.status === "closed"}"
             >${escHtml(statusLabel(issue.status))}</button>
           </td>
@@ -133,7 +141,7 @@
       row.classList.add("selected");
       row.setAttribute("aria-expanded", "true");
       row.insertAdjacentHTML("afterend", `
-        <tr id="${escHtml(issue.id)}-detail" class="issue-detail-row">
+        <tr id="${escAttr(issue.id)}-detail" class="issue-detail-row">
           <td colspan="6">
             <div class="issue-detail">
               <section class="detail-block" aria-label="Evidence">
