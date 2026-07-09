@@ -22,13 +22,25 @@ DISCOVERY_COMMANDS = {
 EXIT_COMMANDS = {"exit", "logout", "quit"}
 SENSITIVE_PATH_MARKERS = {
     ".env",
+    ".git",
+    ".htaccess",
     "auth.log",
     "backup",
+    "config.php",
     "credential",
     "passwd",
     "shadow",
     "wp-config",
 }
+# HttpHandler logs a request line ("GET /wp-login.php HTTP/1.1") as one
+# command -- the path lands in args, so the same sensitive-path check that
+# already covers `cat <path>` also applies to these HTTP verbs.
+_HTTP_REQUEST_COMMANDS = {"get", "post", "head", "put", "delete"}
+# HttpHandler logs a credential-bearing POST body as one command
+# ("POST /wp-login.php: log=admin&pwd=hunter2") -- unlike Telnet/FTP's
+# USER/PASS exchange, there's no fixed field name to match on, so this
+# looks for common login-form field names in the body text instead.
+_HTTP_CREDENTIAL_BODY_MARKERS = ("pwd=", "passwd=", "password=", "log=", "user=", "username=")
 
 
 class SessionFeatures(BaseModel):
@@ -83,6 +95,12 @@ def extract_session_features(
             ("login:", "password:", "authorization:")
         ):
             auth_attempt_count += 1
+        elif (
+            session.protocol == "http"
+            and command_name == "post"
+            and any(marker in normalized for marker in _HTTP_CREDENTIAL_BODY_MARKERS)
+        ):
+            auth_attempt_count += 1
 
         if command_name in DISCOVERY_COMMANDS:
             discovery_command_count += 1
@@ -91,6 +109,12 @@ def extract_session_features(
             file_read_count += 1
             if any(_is_sensitive_path(arg) for arg in args):
                 sensitive_file_read_count += 1
+        elif (
+            session.protocol == "http"
+            and command_name in _HTTP_REQUEST_COMMANDS
+            and any(_is_sensitive_path(arg) for arg in args)
+        ):
+            sensitive_file_read_count += 1
 
         if command_name in EXIT_COMMANDS:
             exit_command_present = True

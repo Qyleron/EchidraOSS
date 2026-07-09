@@ -346,8 +346,8 @@ class PersonaConfigInput(BaseModel):
 
     @validator("slack_webhook")
     def validate_slack_webhook(cls, value: str | None) -> str | None:
-        if value is not None and not value.startswith("https://"):
-            raise ValueError("slack_webhook must be an https:// URL")
+        if value is not None and not value.startswith("https://hooks.slack.com/"):
+            raise ValueError("slack_webhook must be an https://hooks.slack.com/ URL")
         return value
 
     @validator("interaction_depth")
@@ -358,7 +358,7 @@ class PersonaConfigInput(BaseModel):
             )
         return value
 
-    @root_validator
+    @root_validator(skip_on_failure=True)
     def validate_cross_field_requirements(cls, values):
         for service in ("ssh", "http", "ftp", "telnet"):
             if values.get(f"{service}_enabled") and values.get(f"{service}_port") is None:

@@ -156,3 +156,124 @@ rules:
       - field: command_count
         operator: gte
         value: 4
+
+  # FtpHandler and TelnetHandler each accept exactly one USER/PASS exchange
+  # per connection (see their docstrings), so the same two behaviors show up
+  # identically on both protocols: a connection that never sends a
+  # recognizable credential line at all (banner-grab/port-scan, not actual
+  # credential testing), and a completed USER+PASS pair submitted at
+  # bot speed. commands_per_minute >= 120 means both lines arrived within
+  # about half a second of each other -- not achievable by a human typing.
+  - id: ftp_banner_probe_no_credentials
+    name: FTP connection with no credential attempt
+    actor_label: automated_scanner
+    confidence: 0.55
+    risk_score: 20
+    mitre_tags:
+      - T1595
+    evidence:
+      - Connected to the FTP service but never submitted a recognizable USER command.
+    conditions:
+      - field: protocol
+        operator: equals
+        value: ftp
+      - field: auth_attempt_count
+        operator: equals
+        value: 0
+      - field: command_count
+        operator: gte
+        value: 1
+
+  - id: ftp_automated_credential_burst
+    name: Automated FTP credential submission
+    actor_label: brute_force_bot
+    confidence: 0.75
+    risk_score: 50
+    mitre_tags:
+      - T1110
+    evidence:
+      - Username and password arrived within roughly half a second of each other, consistent with scripted credential testing rather than a manual attempt.
+    conditions:
+      - field: protocol
+        operator: equals
+        value: ftp
+      - field: auth_attempt_count
+        operator: gte
+        value: 2
+      - field: commands_per_minute
+        operator: gte
+        value: 120
+
+  - id: telnet_banner_probe_no_credentials
+    name: Telnet connection with no credential attempt
+    actor_label: automated_scanner
+    confidence: 0.55
+    risk_score: 20
+    mitre_tags:
+      - T1595
+    evidence:
+      - Connected to the Telnet service but never submitted a recognizable login line.
+    conditions:
+      - field: protocol
+        operator: equals
+        value: telnet
+      - field: auth_attempt_count
+        operator: equals
+        value: 0
+      - field: command_count
+        operator: gte
+        value: 1
+
+  - id: telnet_automated_credential_burst
+    name: Automated Telnet credential submission
+    actor_label: brute_force_bot
+    confidence: 0.8
+    risk_score: 55
+    mitre_tags:
+      - T1110
+    evidence:
+      - Username and password arrived within roughly half a second of each other, consistent with Mirai-family IoT botnet credential stuffing.
+    conditions:
+      - field: protocol
+        operator: equals
+        value: telnet
+      - field: auth_attempt_count
+        operator: gte
+        value: 2
+      - field: commands_per_minute
+        operator: gte
+        value: 120
+
+  - id: http_sensitive_path_probe
+    name: HTTP request for a sensitive-looking path
+    actor_label: commodity_bot
+    confidence: 0.7
+    risk_score: 45
+    mitre_tags:
+      - T1552.001
+    evidence:
+      - Requested a path commonly used to store credentials or configuration secrets (eg. .env, wp-config.php, .git).
+    conditions:
+      - field: protocol
+        operator: equals
+        value: http
+      - field: sensitive_file_read_count
+        operator: gte
+        value: 1
+
+  - id: http_credential_harvest_attempt
+    name: HTTP login form credential submission
+    actor_label: brute_force_bot
+    confidence: 0.72
+    risk_score: 50
+    mitre_tags:
+      - T1110
+    evidence:
+      - Submitted a POST body containing login-form-shaped credential fields.
+    conditions:
+      - field: protocol
+        operator: equals
+        value: http
+      - field: auth_attempt_count
+        operator: gte
+        value: 1
