@@ -204,9 +204,20 @@ class HttpHandler:
             content_length = int(header_map.get("content-length", "0"))
         except (ValueError, TypeError):
             content_length = 0
-        if content_length > 0:
-            return await self.reader.read(min(content_length, 65536))
-        return b""
+        if content_length <= 0:
+            return b""
+        # A single reader.read(n) call may return fewer than n bytes if the
+        # body arrives split across TCP segments (e.g. credentials in a
+        # slow/chunked POST) -- it returns whatever's buffered at that
+        # instant rather than waiting for the rest. readexactly() blocks
+        # until the full declared length has arrived (or EOF); a client
+        # that closes early having sent less than it declared still gets
+        # its partial body captured via IncompleteReadError.partial instead
+        # of losing everything.
+        try:
+            return await self.reader.readexactly(min(content_length, 65536))
+        except asyncio.IncompleteReadError as exc:
+            return exc.partial
 
     def _build_response(self, method: str, path: str) -> bytes:
         persona = self.session.persona

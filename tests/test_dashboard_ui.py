@@ -101,6 +101,19 @@ def test_sessions_page_is_backed_by_live_api_calls():
     assert "185.234.219.x" not in html
 
 
+def test_sessions_page_flags_partial_classifications():
+    """A session classified mid-flight (real-time partial classification)
+    must be visibly distinguishable from a fully closed one, both on screen
+    and in the CSV export -- previously classification_status wasn't even
+    persisted, so there was nothing to show here at all."""
+    html = (DASHBOARD_PUBLIC_PATH / "sessions.html").read_text(encoding="utf-8")
+
+    assert "run.classification_status" in html
+    assert 'session.classificationStatus !== "complete"' in html
+    assert ">Partial<" in html
+    assert '"Status"' in html
+
+
 def test_sessions_and_analytics_range_pickers_cannot_produce_an_inverted_range():
     for page in ("sessions.html", "analytics.html"):
         html = (DASHBOARD_PUBLIC_PATH / page).read_text(encoding="utf-8")
@@ -153,4 +166,4 @@ def test_alerts_page_history_table_distinguishes_channel():
     html = (DASHBOARD_PUBLIC_PATH / "alerts.html").read_text(encoding="utf-8")
 
     assert ">Channel<" in html
-    assert 'ev.channel === "slack" ? "Slack" : "Email"' in html
+    assert '{slack: "Slack", both: "Slack + Email"}[ev.channel] || "Email"' in html

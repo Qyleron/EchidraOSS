@@ -1,6 +1,7 @@
 import hashlib
 import hmac
 import importlib
+import re
 from datetime import datetime, timezone
 
 import pytest
@@ -1180,7 +1181,7 @@ def test_create_persona_config_endpoint_binds_persona_id_as_path_param(monkeypat
 
     monkeypatch.setattr(app_module, "PostgresClassifierRepository", FakeRepository)
 
-    result = route.endpoint("custom_demo_box", payload, dashboard_request())
+    result = route.endpoint(dashboard_request(), payload, persona_id="custom_demo_box")
 
     assert result.id == "custom_demo_box"
     assert result.name == "Custom demo box"
@@ -1199,10 +1200,54 @@ def test_create_persona_config_endpoint_reports_conflict_on_duplicate_id(monkeyp
     monkeypatch.setattr(app_module, "PostgresClassifierRepository", FakeRepository)
 
     with pytest.raises(HTTPException) as exc_info:
-        route.endpoint("custom_demo_box", payload, dashboard_request())
+        route.endpoint(dashboard_request(), payload, persona_id="custom_demo_box")
 
     assert exc_info.value.status_code == 409
     assert exc_info.value.detail == "persona config already exists"
+
+
+def test_persona_id_path_param_is_constrained_to_a_slug_on_every_route():
+    """persona_id ends up as a Postgres primary key, a URL path segment, and
+    the ECHIDRA_PERSONA env var lookup key -- constrain it the same way on
+    every route so an empty/oversized/exotic-charset value 422s before ever
+    reaching the repository, instead of only being caught (or not) once it
+    gets there."""
+    routes = [
+        ("/persona-configs/{persona_id}", "POST"),
+        ("/persona-configs/{persona_id}", "GET"),
+        ("/persona-configs/{persona_id}", "PUT"),
+        ("/persona-configs/{persona_id}", "DELETE"),
+        ("/persona-configs/{persona_id}/analytics", "GET"),
+    ]
+    for path, method in routes:
+        route = route_for(path, method)
+        [persona_id_param] = [f for f in route.dependant.path_params if f.name == "persona_id"]
+        assert persona_id_param.field_info.regex == app_module._PERSONA_ID_PATTERN, (path, method)
+
+
+@pytest.mark.parametrize(
+    "persona_id",
+    [
+        "",
+        "Ubuntu_Web_Server",  # uppercase
+        "1generic_linux",  # leading digit
+        "_generic_linux",  # leading underscore
+        "generic linux",  # space
+        "generic-linux",  # hyphen (existing presets use underscores only)
+        "../etc/passwd",
+        "a" * 65,  # one over the 64-char cap
+    ],
+)
+def test_persona_id_pattern_rejects_non_slug_values(persona_id):
+    assert re.fullmatch(app_module._PERSONA_ID_PATTERN, persona_id) is None
+
+
+@pytest.mark.parametrize(
+    "persona_id",
+    ["generic_linux", "ubuntu_web_server", "a", "a1", "a" * 64],
+)
+def test_persona_id_pattern_accepts_valid_slugs(persona_id):
+    assert re.fullmatch(app_module._PERSONA_ID_PATTERN, persona_id) is not None
 
 
 def _alert_config(**overrides):
