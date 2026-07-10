@@ -184,6 +184,29 @@ def test_smtp_send_fails_closed_when_repository_has_no_password(monkeypatch):
     assert err == "smtp_username is set but no SMTP password is configured"
 
 
+def test_smtp_send_hides_raw_exception_when_credential_load_fails(monkeypatch, caplog):
+    """An unexpected error while loading the SMTP password (eg. a raw DB
+    driver error) must not leak into the returned message -- it ends up in
+    the dashboard's test-email response and the persisted alert_events log,
+    neither of which should show internals."""
+
+    class FakeRepository:
+        def get_alert_smtp_password(self):
+            raise RuntimeError("connection to server at 10.0.0.5 failed: password authentication failed")
+
+    monkeypatch.setattr(alerts_module, "PostgresClassifierRepository", FakeRepository)
+
+    with caplog.at_level("ERROR"):
+        err = alerts_module._smtp_send(
+            _alert_config(smtp_username="alerts@example.com"), "dest@example.com", "subject", "body"
+        )
+
+    assert err == "could not load SMTP credentials"
+    assert "10.0.0.5" not in err
+    assert "password authentication failed" not in err
+    assert any("Could not load SMTP credentials" in record.message for record in caplog.records)
+
+
 def test_smtp_send_logs_in_with_repository_returned_password(monkeypatch):
     class FakeRepository:
         def get_alert_smtp_password(self):

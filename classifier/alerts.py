@@ -214,8 +214,14 @@ def _smtp_send(
             raw_password = repository.get_alert_smtp_password()
         except (DatabaseDriverMissingError, DatabaseNotConfiguredError) as exc:
             return f"could not load SMTP credentials: {exc}"
-        except Exception as exc:
-            return f"could not load SMTP credentials: {exc}"
+        except Exception:
+            # Unlike the two errors above (curated, safe operator-facing
+            # text), an arbitrary exception here could be a raw psycopg
+            # error containing connection/internal details -- log it for
+            # the operator instead of embedding it in a message that
+            # reaches the dashboard (test-email response, alert_events log).
+            logger.exception("Could not load SMTP credentials for alert dispatch")
+            return "could not load SMTP credentials"
         if not raw_password:
             return "smtp_username is set but no SMTP password is configured"
     # Port 465 servers expect TLS from the first byte of the connection
