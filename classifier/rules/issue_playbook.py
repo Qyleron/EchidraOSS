@@ -59,5 +59,5 @@ def load_mitre_technique_catalog(path: str | Path = DEFAULT_MITRE_CATALOG_PATH) 
     try:
         with open(path, encoding="utf-8") as handle:
             return json.load(handle)
-    except FileNotFoundError:
+    except (FileNotFoundError, json.JSONDecodeError):
         return {}

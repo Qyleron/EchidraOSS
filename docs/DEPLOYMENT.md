@@ -1,8 +1,10 @@
 # Deployment
 
 Two supported paths beyond the local dev Quick Start in [README.md](../README.md):
-a Docker Compose stack, and systemd units for a bare VM. Both need the same
-two secrets first.
+a Docker Compose stack, and systemd units for a bare VM. Both require
+`ECHIDRA_INGEST_API_KEY`; `ECHIDRA_SESSION_SECRET` can also be set explicitly
+if you run more than one API process, so they all sign/verify the same
+dashboard session cookies (see below).
 
 ## Secrets you need either way
 

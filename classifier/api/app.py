@@ -256,8 +256,24 @@ def create_app() -> FastAPI:
         return {"authenticated": True, "email": user.email}
 
     @api.post("/auth/logout", tags=["dashboard"])
-    def logout_dashboard(response: Response) -> dict[str, bool]:
-        """Clear the dashboard auth cookie."""
+    def logout_dashboard(request: Request, response: Response) -> dict[str, bool]:
+        """Revoke the current session and clear the dashboard auth cookie.
+
+        Rotates the user's session_version so this (and every other
+        outstanding) copy of the cookie is rejected by verification from
+        this point on -- clearing the browser cookie alone would leave a
+        captured/copied cookie valid until it expires on its own.
+        """
+        cookie_value = request.cookies.get(DASHBOARD_AUTH_COOKIE)
+        user_id = _dashboard_session_cookie_user_id(cookie_value) if cookie_value else None
+        if user_id is not None:
+            try:
+                repository = PostgresClassifierRepository()
+                repository.rotate_dashboard_user_session(user_id)
+            except (DatabaseDriverMissingError, DatabaseNotConfiguredError):
+                pass
+            except Exception:
+                logger.exception("Could not rotate session_version during logout")
         response.delete_cookie(DASHBOARD_AUTH_COOKIE)
         return {"authenticated": False}
 
@@ -632,7 +648,7 @@ def create_app() -> FastAPI:
     def create_persona_config_endpoint(
         request: Request,
         payload: PersonaConfigInput,
-        persona_id: str = PathParam(..., regex=_PERSONA_ID_PATTERN),
+        persona_id: str = PathParam(..., pattern=_PERSONA_ID_PATTERN),
     ) -> PersonaConfigRecord:
         """Create a new persona configuration. Returns 409 if the slug already exists."""
         _require_dashboard_auth(request)
@@ -654,7 +670,7 @@ def create_app() -> FastAPI:
     )
     def get_persona_config_endpoint(
         request: Request,
-        persona_id: str = PathParam(..., regex=_PERSONA_ID_PATTERN),
+        persona_id: str = PathParam(..., pattern=_PERSONA_ID_PATTERN),
     ) -> PersonaConfigRecord:
         """Return one persona configuration by slug ID."""
         _require_dashboard_auth(request)
@@ -679,7 +695,7 @@ def create_app() -> FastAPI:
     def update_persona_config_endpoint(
         request: Request,
         payload: PersonaConfigInput,
-        persona_id: str = PathParam(..., regex=_PERSONA_ID_PATTERN),
+        persona_id: str = PathParam(..., pattern=_PERSONA_ID_PATTERN),
     ) -> PersonaConfigRecord:
         """Update one persona configuration by slug ID."""
         _require_dashboard_auth(request)
@@ -704,7 +720,7 @@ def create_app() -> FastAPI:
     )
     def delete_persona_config_endpoint(
         request: Request,
-        persona_id: str = PathParam(..., regex=_PERSONA_ID_PATTERN),
+        persona_id: str = PathParam(..., pattern=_PERSONA_ID_PATTERN),
     ) -> None:
         """Delete one persona configuration by slug ID."""
         _require_dashboard_auth(request)
@@ -727,7 +743,7 @@ def create_app() -> FastAPI:
     )
     def get_persona_analytics_endpoint(
         request: Request,
-        persona_id: str = PathParam(..., regex=_PERSONA_ID_PATTERN),
+        persona_id: str = PathParam(..., pattern=_PERSONA_ID_PATTERN),
     ) -> PersonaAnalytics:
         """Return aggregated session analytics for one persona ID."""
         _require_dashboard_auth(request)
@@ -1133,33 +1149,84 @@ def _set_dashboard_session_cookie(
     )
 
 
-def _dashboard_session_cookie_value(user: DashboardUserRecord) -> str:
-    payload = f"{user.id}:{int(time.time())}"
-    signature = hmac.new(
+def _dashboard_session_cookie_signature(
+    user_id: UUID, session_version: int, issued_at: int
+) -> str:
+    payload = f"{user_id}:{session_version}:{issued_at}"
+    return hmac.new(
         _dashboard_session_secret().encode("utf-8"),
         payload.encode("utf-8"),
         hashlib.sha256,
     ).hexdigest()
-    return f"{payload}:{signature}"
+
+
+def _dashboard_session_cookie_value(user: DashboardUserRecord) -> str:
+    issued_at = int(time.time())
+    signature = _dashboard_session_cookie_signature(user.id, user.session_version, issued_at)
+    return f"{user.id}:{user.session_version}:{issued_at}:{signature}"
+
+
+def _parse_dashboard_session_cookie(
+    value: str,
+) -> tuple[UUID, int, int, str] | None:
+    """Split a cookie into (user_id, session_version, issued_at, signature).
+
+    Structural parsing only -- callers must still check the signature before
+    trusting any of the parsed fields.
+    """
+    try:
+        payload, signature = value.rsplit(":", 1)
+        user_id_str, version_str, issued_at_str = payload.split(":", 2)
+        return UUID(user_id_str), int(version_str), int(issued_at_str), signature
+    except (TypeError, ValueError):
+        return None
+
+
+def _dashboard_session_cookie_user_id(value: str) -> UUID | None:
+    """Return the user id embedded in a cookie once its signature checks out.
+
+    Ignores age and session_version so a stale-but-genuine cookie can still
+    be used to log out. Rejecting on a bad signature first stops an attacker
+    from forging an arbitrary user id to force-invalidate someone else's
+    session via /auth/logout, which takes no other auth.
+    """
+    parsed = _parse_dashboard_session_cookie(value)
+    if parsed is None:
+        return None
+    user_id, session_version, issued_at, signature = parsed
+    expected = _dashboard_session_cookie_signature(user_id, session_version, issued_at)
+    if not hmac.compare_digest(signature, expected):
+        return None
+    return user_id
 
 
 def _verify_dashboard_session_cookie(value: str) -> bool:
-    try:
-        payload, signature = value.rsplit(":", 1)
-        UUID(payload.split(":", 1)[0])
-        issued_at = int(payload.rsplit(":", 1)[1])
-    except (TypeError, ValueError, IndexError):
+    parsed = _parse_dashboard_session_cookie(value)
+    if parsed is None:
         return False
-    expected_signature = hmac.new(
-        _dashboard_session_secret().encode("utf-8"),
-        payload.encode("utf-8"),
-        hashlib.sha256,
-    ).hexdigest()
+    user_id, session_version, issued_at, signature = parsed
+    expected_signature = _dashboard_session_cookie_signature(user_id, session_version, issued_at)
     age = int(time.time()) - issued_at
-    return (
+    if not (
         0 <= age <= SESSION_MAX_AGE_SECONDS
         and hmac.compare_digest(signature, expected_signature)
-    )
+    ):
+        return False
+
+    # Revocation check: logout (and, in future, password change or account
+    # deletion) bumps session_version in the database, which invalidates
+    # every cookie issued before that point even though its signature and
+    # age are still otherwise valid.
+    try:
+        repository = PostgresClassifierRepository()
+        current_version = repository.get_dashboard_user_session_version(user_id)
+    except (DatabaseDriverMissingError, DatabaseNotConfiguredError):
+        logger.warning("Dashboard DB not configured; rejecting session cookie")
+        return False
+    except Exception:
+        logger.exception("Could not verify dashboard session revocation status")
+        return False
+    return current_version is not None and current_version == session_version
 
 
 def _dashboard_cookie_secure() -> bool:
