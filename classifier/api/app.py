@@ -270,10 +270,12 @@ def create_app() -> FastAPI:
             try:
                 repository = PostgresClassifierRepository()
                 repository.rotate_dashboard_user_session(user_id)
-            except (DatabaseDriverMissingError, DatabaseNotConfiguredError):
-                pass
+            except (DatabaseDriverMissingError, DatabaseNotConfiguredError) as exc:
+                logger.warning("Could not rotate session_version during logout: %s", exc)
+                raise HTTPException(status_code=503, detail="could not revoke dashboard session")
             except Exception:
                 logger.exception("Could not rotate session_version during logout")
+                raise HTTPException(status_code=503, detail="could not revoke dashboard session")
         response.delete_cookie(DASHBOARD_AUTH_COOKIE)
         return {"authenticated": False}
 
