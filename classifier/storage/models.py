@@ -123,6 +123,7 @@ class DashboardUserRecord(BaseModel):
     email: str
     password_hash: str
     created_at: datetime = Field(default_factory=_utc_now)
+    session_version: int = 1
 
     class Config:
         extra = "forbid"

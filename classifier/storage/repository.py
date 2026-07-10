@@ -278,9 +278,18 @@ SELECT
     id,
     email,
     password_hash,
-    created_at
+    created_at,
+    session_version
 FROM dashboard_users
 WHERE email = %(email)s
+"""
+
+SELECT_DASHBOARD_USER_SESSION_VERSION_SQL = """
+SELECT session_version FROM dashboard_users WHERE id = %(id)s
+"""
+
+INCREMENT_DASHBOARD_USER_SESSION_VERSION_SQL = """
+UPDATE dashboard_users SET session_version = session_version + 1 WHERE id = %(id)s
 """
 
 COUNT_DASHBOARD_USERS_SQL = """
@@ -998,6 +1007,26 @@ class PostgresClassifierRepository:
         if row is None:
             return None
         return dashboard_user_from_row(row)
+
+    def get_dashboard_user_session_version(self, user_id: UUID) -> int | None:
+        """Fetch one dashboard user's current session_version, or None if the
+        user no longer exists. Backs cookie verification's revocation check."""
+        row = _fetch_one(
+            self.database_url,
+            SELECT_DASHBOARD_USER_SESSION_VERSION_SQL,
+            {"id": user_id},
+        )
+        return int(row["session_version"]) if row else None
+
+    def rotate_dashboard_user_session(self, user_id: UUID) -> None:
+        """Bump one dashboard user's session_version, invalidating every
+        cookie issued before this call (logout, future password
+        change/account deletion flows)."""
+        _execute_insert(
+            self.database_url,
+            INCREMENT_DASHBOARD_USER_SESSION_VERSION_SQL,
+            {"id": user_id},
+        )
 
     def list_session_events(self, session_id: UUID) -> list[StoredSessionEvent]:
         """Fetch one session's command/decoy-access timeline, in order."""

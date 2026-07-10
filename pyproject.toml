@@ -31,3 +31,12 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 include = ["classifier*", "honeypot*", "echidra*"]
+
+[tool.setuptools.package-data]
+"classifier.rules" = ["*.yaml", "*.json"]
+
+# dashboard/public and assets/ live outside these packages and are located at
+# runtime via paths relative to the source file (see classifier/api/app.py),
+# which only resolves correctly in a source checkout. Only `pip install -e .`
+# (per README's Quick Start) is supported; a non-editable wheel install won't
+# find them regardless of package-data config.

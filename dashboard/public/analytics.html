@@ -193,6 +193,13 @@
 
     let currentSummary = null;
 
+    function escHtml(str) {
+      return String(str == null ? "" : str)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+    }
+
     // Neutralizes CSV/formula injection: a cell starting with =, +, -, @ (or
     // tab/CR) is interpreted as a live formula by Excel/Sheets/LibreOffice
     // when the exported file is opened. top_commands/top_personas below can
@@ -222,7 +229,7 @@
         <div class="bar-column">
           <span class="bar-value">${value}</span>
           <span class="bar-fill" style="height: ${Math.max(8, (value / max) * 170)}px;"></span>
-          <span class="bar-label">${label}</span>
+          <span class="bar-label">${escHtml(label)}</span>
         </div>
       `).join("");
     }
@@ -245,7 +252,7 @@
               <span class="bar-segment medium-risk" style="height: ${segmentHeight(point.medium)}%;"></span>
               <span class="bar-segment high-risk" style="height: ${segmentHeight(point.high)}%;"></span>
             </div>
-            <span class="bar-label">${point.label}</span>
+            <span class="bar-label">${escHtml(point.label)}</span>
           </div>
         `;
       }).join("");
@@ -261,7 +268,7 @@
       container.innerHTML = rows.map(([label, value]) => `
         <li class="rank-item">
           <div class="rank-row">
-            <span>${label}</span>
+            <span>${escHtml(label)}</span>
             <span>${value}</span>
           </div>
           <div class="rank-track">

@@ -383,9 +383,11 @@ the right place to confirm listener behavior alongside the broader suite.
 
 ## 9. persona.txt spec vs. what's built
 
-The current persona spec and implementation use two distinct fields in the
-Personas modal: **Alert Routing** (`none/email/slack/both`) and **Min Risk
-Level** (`critical/high/medium/low`). These values are stored in
-`persona_configs.alert_routing_level` and `persona_configs.alert_min_risk_level`.
-Use this section to verify that the modal, saved persona configuration, and the
-spec text all reflect those two fields consistently.
+The current persona spec and implementation use three distinct fields in the
+Personas modal: **Alert Routing** (`none/email/slack/both`), **Min Risk
+Level** (`critical/high/medium/low`), and **Interaction Depth**
+(`minimal/standard/deep`). These values are stored in
+`persona_configs.alert_routing_level`, `persona_configs.alert_min_risk_level`,
+and `persona_configs.interaction_depth`. Use this section to verify that the
+modal, saved persona configuration, and the spec text all reflect those three
+fields consistently.

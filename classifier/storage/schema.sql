@@ -8,6 +8,12 @@ CREATE TABLE IF NOT EXISTS dashboard_users (
 CREATE INDEX IF NOT EXISTS dashboard_users_email_idx
     ON dashboard_users (email);
 
+-- Bumped to invalidate every session cookie issued for this user (logout,
+-- future password changes, account deletion) without a server-side session
+-- store -- cookies carry the version they were issued with, and verification
+-- rejects any cookie whose version no longer matches this column.
+ALTER TABLE dashboard_users ADD COLUMN IF NOT EXISTS session_version INTEGER NOT NULL DEFAULT 1;
+
 -- Failed dashboard /auth/login attempts, keyed by client-ip:email. Backs the
 -- login rate limiter in classifier/api/app.py with a store shared across all
 -- API worker processes -- a process-local dict would let an attacker bypass
@@ -91,7 +97,18 @@ CREATE INDEX IF NOT EXISTS classifier_runs_actor_label_idx
 -- an elevated risk_level can't be told apart from one whose classification
 -- may still change once the session actually ends.
 ALTER TABLE classifier_runs ADD COLUMN IF NOT EXISTS classification_status TEXT NOT NULL DEFAULT 'complete'
-    CHECK (classification_status IN ('complete', 'partial', 'insufficient_data'));
+;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'classifier_runs_classification_status_check'
+    ) THEN
+        ALTER TABLE classifier_runs
+            ADD CONSTRAINT classifier_runs_classification_status_check
+            CHECK (classification_status IN ('complete', 'partial', 'insufficient_data'));
+    END IF;
+END $$;
 ALTER TABLE classifier_runs ADD COLUMN IF NOT EXISTS insufficient_data_reason TEXT;
 
 CREATE TABLE IF NOT EXISTS classifier_signals (

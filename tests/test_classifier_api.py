@@ -47,6 +47,29 @@ class FakeRequest:
         self.headers = headers or {}
 
 
+class _SessionVersionMixin:
+    """Shared by test FakeRepository doubles so a dashboard_request() cookie
+    still passes the session_version revocation check added for
+    /auth/logout, without every endpoint-specific double needing to
+    reimplement it. dashboard_cookie() always signs session_version=1
+    (DashboardUserRecord's default), so returning 1 here matches it."""
+
+    def get_dashboard_user_session_version(self, user_id):
+        return 1
+
+
+class _DefaultAuthOnlyRepository(_SessionVersionMixin):
+    """Autouse default repository so any test using dashboard_request()
+    authenticates successfully even if it never touches the database for
+    anything else. Individual tests that monkeypatch their own
+    PostgresClassifierRepository simply override this for their duration."""
+
+
+@pytest.fixture(autouse=True)
+def default_dashboard_repository(monkeypatch):
+    monkeypatch.setattr(app_module, "PostgresClassifierRepository", _DefaultAuthOnlyRepository)
+
+
 def dashboard_cookie(email="analyst@example.com"):
     user = DashboardUserRecord(email=email, password_hash="hash")
     return {
@@ -169,7 +192,7 @@ def test_signup_dashboard_user_hashes_password_and_sets_cookie(monkeypatch):
     route = route_for("/auth/signup", "POST")
     saved = {}
 
-    class FakeRepository:
+    class FakeRepository(_SessionVersionMixin):
         def create_dashboard_user_if_eligible(self, *, email, password_hash, allow_multiple):
             assert email == "analyst@example.com"
             assert allow_multiple is False
@@ -196,7 +219,7 @@ def test_signup_dashboard_user_hashes_password_and_sets_cookie(monkeypatch):
 def test_signup_dashboard_user_rejects_duplicate_email(monkeypatch):
     route = route_for("/auth/signup", "POST")
 
-    class FakeRepository:
+    class FakeRepository(_SessionVersionMixin):
         def create_dashboard_user_if_eligible(self, *, email, password_hash, allow_multiple):
             raise app_module.DashboardEmailAlreadyRegisteredError()
 
@@ -216,7 +239,7 @@ def test_signup_dashboard_user_rejects_duplicate_email(monkeypatch):
 def test_signup_dashboard_user_blocked_once_an_account_exists(monkeypatch):
     route = route_for("/auth/signup", "POST")
 
-    class FakeRepository:
+    class FakeRepository(_SessionVersionMixin):
         def create_dashboard_user_if_eligible(self, *, email, password_hash, allow_multiple):
             assert allow_multiple is False
             raise app_module.DashboardSignupNotAllowedError()
@@ -238,7 +261,7 @@ def test_signup_dashboard_user_allowed_when_env_override_set(monkeypatch):
     monkeypatch.setenv(app_module.ALLOW_SIGNUPS_ENV, "true")
     route = route_for("/auth/signup", "POST")
 
-    class FakeRepository:
+    class FakeRepository(_SessionVersionMixin):
         def create_dashboard_user_if_eligible(self, *, email, password_hash, allow_multiple):
             assert allow_multiple is True
             return DashboardUserRecord(email=email, password_hash=password_hash)
@@ -262,7 +285,7 @@ def test_login_dashboard_user_sets_cookie_for_valid_credentials(monkeypatch):
         password_hash=password_hash,
     )
 
-    class FakeRepository:
+    class FakeRepository(_SessionVersionMixin):
         def get_dashboard_user_by_email(self, email):
             assert email == "analyst@example.com"
             return user
@@ -295,7 +318,7 @@ def test_login_dashboard_user_rejects_invalid_credentials(monkeypatch):
         password_hash=password_hash,
     )
 
-    class FakeRepository:
+    class FakeRepository(_SessionVersionMixin):
         def get_dashboard_user_by_email(self, email):
             return user
 
@@ -329,7 +352,7 @@ def test_login_dashboard_user_locks_out_after_repeated_failures(monkeypatch):
     # constructed on every request.
     failures = []
 
-    class FakeRepository:
+    class FakeRepository(_SessionVersionMixin):
         def get_dashboard_user_by_email(self, email):
             return user
 
@@ -403,19 +426,118 @@ def test_dashboard_email_validation_rejects_invalid_format():
 def test_dashboard_session_cookie_rejects_expired_value(monkeypatch):
     issued_at = 1_000
     user = DashboardUserRecord(email="analyst@example.com", password_hash="hash")
-    payload = f"{user.id}:{user.email}:{issued_at}"
-    signature = hmac.new(
-        app_module._dashboard_session_secret().encode("utf-8"),
-        payload.encode("utf-8"),
-        hashlib.sha256,
-    ).hexdigest()
+    signature = app_module._dashboard_session_cookie_signature(
+        user.id, user.session_version, issued_at
+    )
+    cookie_value = f"{user.id}:{user.session_version}:{issued_at}:{signature}"
     monkeypatch.setattr(
         app_module.time,
         "time",
         lambda: issued_at + app_module.SESSION_MAX_AGE_SECONDS + 1,
     )
 
-    assert not app_module._verify_dashboard_session_cookie(f"{payload}:{signature}")
+    assert not app_module._verify_dashboard_session_cookie(cookie_value)
+
+
+def test_dashboard_session_cookie_rejects_stale_session_version(monkeypatch):
+    """A cookie signed with an outdated session_version must be rejected
+    even though its signature and age are still valid -- this is what makes
+    /auth/logout actually revoke a session instead of just clearing the
+    browser's copy of the cookie."""
+    user = DashboardUserRecord(email="analyst@example.com", password_hash="hash")
+    cookie_value = app_module._dashboard_session_cookie_value(user)
+
+    class FakeRepository:
+        def get_dashboard_user_session_version(self, user_id):
+            assert user_id == user.id
+            return user.session_version + 1  # rotated since this cookie was issued
+
+    monkeypatch.setattr(app_module, "PostgresClassifierRepository", FakeRepository)
+
+    assert not app_module._verify_dashboard_session_cookie(cookie_value)
+
+
+def test_dashboard_session_cookie_accepts_matching_session_version(monkeypatch):
+    user = DashboardUserRecord(email="analyst@example.com", password_hash="hash")
+    cookie_value = app_module._dashboard_session_cookie_value(user)
+
+    class FakeRepository:
+        def get_dashboard_user_session_version(self, user_id):
+            return user.session_version
+
+    monkeypatch.setattr(app_module, "PostgresClassifierRepository", FakeRepository)
+
+    assert app_module._verify_dashboard_session_cookie(cookie_value)
+
+
+def test_dashboard_session_cookie_rejects_deleted_user(monkeypatch):
+    user = DashboardUserRecord(email="analyst@example.com", password_hash="hash")
+    cookie_value = app_module._dashboard_session_cookie_value(user)
+
+    class FakeRepository:
+        def get_dashboard_user_session_version(self, user_id):
+            return None  # user no longer exists
+
+    monkeypatch.setattr(app_module, "PostgresClassifierRepository", FakeRepository)
+
+    assert not app_module._verify_dashboard_session_cookie(cookie_value)
+
+
+def test_dashboard_session_cookie_user_id_rejects_forged_signature():
+    """A cookie whose signature doesn't check out must not yield a trusted
+    user id -- otherwise an attacker could forge an arbitrary user id and
+    call /auth/logout to force-invalidate someone else's session, since
+    logout takes no other auth."""
+    real_user_id = DashboardUserRecord(email="a@example.com", password_hash="hash").id
+    forged = f"{real_user_id}:1:1000:not-a-real-signature"
+
+    assert app_module._dashboard_session_cookie_user_id(forged) is None
+
+
+def test_dashboard_session_cookie_user_id_accepts_valid_signature():
+    user = DashboardUserRecord(email="analyst@example.com", password_hash="hash")
+    cookie_value = app_module._dashboard_session_cookie_value(user)
+
+    assert app_module._dashboard_session_cookie_user_id(cookie_value) == user.id
+
+
+def test_logout_dashboard_rotates_session_version_and_clears_cookie(monkeypatch):
+    route = route_for("/auth/logout", "POST")
+    user = DashboardUserRecord(email="analyst@example.com", password_hash="hash")
+    cookie_value = app_module._dashboard_session_cookie_value(user)
+    rotated = []
+
+    class FakeRepository:
+        def rotate_dashboard_user_session(self, user_id):
+            rotated.append(user_id)
+
+    monkeypatch.setattr(app_module, "PostgresClassifierRepository", FakeRepository)
+    request = FakeRequest(cookies={app_module.DASHBOARD_AUTH_COOKIE: cookie_value})
+    response = Response()
+
+    body = route.endpoint(request, response)
+
+    assert body == {"authenticated": False}
+    assert rotated == [user.id]
+    assert f"{app_module.DASHBOARD_AUTH_COOKIE}=\"\"" in response.headers["set-cookie"]
+
+
+def test_logout_dashboard_without_cookie_still_clears_cookie(monkeypatch):
+    """No auth cookie present -- nothing to revoke, but logout must still
+    succeed and clear whatever cookie the browser may have."""
+    route = route_for("/auth/logout", "POST")
+
+    class FakeRepository:
+        def rotate_dashboard_user_session(self, user_id):
+            raise AssertionError("should not be called without a cookie")
+
+    monkeypatch.setattr(app_module, "PostgresClassifierRepository", FakeRepository)
+    request = FakeRequest(cookies={})
+    response = Response()
+
+    body = route.endpoint(request, response)
+
+    assert body == {"authenticated": False}
 
 
 def test_dashboard_cookie_secure_flag_reads_environment(monkeypatch):
@@ -561,7 +683,7 @@ def test_classify_and_store_endpoint_returns_run_id(monkeypatch):
     session = SessionRecord.parse_obj(make_record())
     saved_runs = []
 
-    class FakeRepository:
+    class FakeRepository(_SessionVersionMixin):
         def count_sessions_from_ip(self, peer_ip):
             return 0
 
@@ -678,7 +800,7 @@ def test_get_classifier_run_endpoint_returns_stored_run(monkeypatch):
         signals=[],
     )
 
-    class FakeRepository:
+    class FakeRepository(_SessionVersionMixin):
         def get_classifier_run(self, run_id):
             assert run_id == record.id
             return stored_run
@@ -694,7 +816,7 @@ def test_get_classifier_run_endpoint_reports_missing_run(monkeypatch):
     route = route_for("/classifier/runs/{run_id}", "GET")
     run_id = SessionRecord.parse_obj(make_record()).session_id
 
-    class FakeRepository:
+    class FakeRepository(_SessionVersionMixin):
         def get_classifier_run(self, requested_run_id):
             assert requested_run_id == run_id
             return None
@@ -708,7 +830,10 @@ def test_get_classifier_run_endpoint_reports_missing_run(monkeypatch):
     assert exc_info.value.detail == "classifier run not found"
 
 
-def test_get_classifier_run_endpoint_reports_missing_database(monkeypatch):
+def test_get_classifier_run_endpoint_fails_auth_when_database_missing(monkeypatch):
+    """A missing database now fails the dashboard auth check itself (the
+    session_version revocation lookup needs it), before the endpoint's own
+    DatabaseNotConfiguredError handling is ever reached."""
     route = route_for("/classifier/runs/{run_id}", "GET")
     run_id = SessionRecord.parse_obj(make_record()).session_id
 
@@ -725,8 +850,8 @@ def test_get_classifier_run_endpoint_reports_missing_database(monkeypatch):
     with pytest.raises(HTTPException) as exc_info:
         route.endpoint(run_id, dashboard_request())
 
-    assert exc_info.value.status_code == 503
-    assert exc_info.value.detail == "ECHIDRA_DATABASE_URL must be set"
+    assert exc_info.value.status_code == 401
+    assert exc_info.value.detail == "dashboard auth required"
 
 
 def test_list_session_events_endpoint_returns_ordered_timeline(monkeypatch):
@@ -739,7 +864,7 @@ def test_list_session_events_endpoint_returns_ordered_timeline(monkeypatch):
         StoredSessionEvent(event_index=1, event_type="decoy_file", event_value="/etc/passwd", observed_at=None),
     ]
 
-    class FakeRepository:
+    class FakeRepository(_SessionVersionMixin):
         def list_session_events(self, requested_session_id):
             assert requested_session_id == session_id
             return events
@@ -751,7 +876,10 @@ def test_list_session_events_endpoint_returns_ordered_timeline(monkeypatch):
     assert response == events
 
 
-def test_list_session_events_endpoint_reports_missing_database(monkeypatch):
+def test_list_session_events_endpoint_fails_auth_when_database_missing(monkeypatch):
+    """A missing database now fails the dashboard auth check itself (the
+    session_version revocation lookup needs it), before the endpoint's own
+    DatabaseNotConfiguredError handling is ever reached."""
     route = route_for("/sessions/{session_id}/events", "GET")
     session_id = SessionRecord.parse_obj(make_record()).session_id
 
@@ -768,8 +896,8 @@ def test_list_session_events_endpoint_reports_missing_database(monkeypatch):
     with pytest.raises(HTTPException) as exc_info:
         route.endpoint(session_id, dashboard_request())
 
-    assert exc_info.value.status_code == 503
-    assert exc_info.value.detail == "ECHIDRA_DATABASE_URL must be set"
+    assert exc_info.value.status_code == 401
+    assert exc_info.value.detail == "dashboard auth required"
 
 
 def test_list_session_events_endpoint_requires_dashboard_auth():
@@ -806,7 +934,7 @@ def test_list_classifier_runs_endpoint_passes_filters(monkeypatch):
         signals=[],
     )
 
-    class FakeRepository:
+    class FakeRepository(_SessionVersionMixin):
         def list_classifier_runs(
             self,
             *,
@@ -844,7 +972,7 @@ def test_list_classifier_runs_endpoint_passes_filters(monkeypatch):
 def test_list_classifier_runs_endpoint_passes_date_range_to_repository(monkeypatch):
     route = route_for("/classifier/runs", "GET")
 
-    class FakeRepository:
+    class FakeRepository(_SessionVersionMixin):
         def list_classifier_runs(self, **kwargs):
             assert kwargs["from_ts"] == 1000.0
             assert kwargs["to_ts"] == 2000.0
@@ -859,7 +987,10 @@ def test_list_classifier_runs_endpoint_passes_date_range_to_repository(monkeypat
     assert response == []
 
 
-def test_list_classifier_runs_endpoint_reports_missing_database(monkeypatch):
+def test_list_classifier_runs_endpoint_fails_auth_when_database_missing(monkeypatch):
+    """A missing database now fails the dashboard auth check itself (the
+    session_version revocation lookup needs it), before the endpoint's own
+    DatabaseNotConfiguredError handling is ever reached."""
     route = route_for("/classifier/runs", "GET")
 
     class MissingDatabaseRepository:
@@ -875,8 +1006,8 @@ def test_list_classifier_runs_endpoint_reports_missing_database(monkeypatch):
     with pytest.raises(HTTPException) as exc_info:
         route.endpoint(dashboard_request(), limit=100)
 
-    assert exc_info.value.status_code == 503
-    assert exc_info.value.detail == "ECHIDRA_DATABASE_URL must be set"
+    assert exc_info.value.status_code == 401
+    assert exc_info.value.detail == "dashboard auth required"
 
 
 def test_list_classifier_runs_endpoint_requires_dashboard_session():
@@ -902,7 +1033,7 @@ def test_dashboard_report_summary_endpoint_returns_aggregates(monkeypatch):
         intent_counts={"reconnaissance": 6},
     )
 
-    class FakeRepository:
+    class FakeRepository(_SessionVersionMixin):
         def get_dashboard_report_summary(self):
             return summary
 
@@ -935,7 +1066,7 @@ def test_analytics_summary_endpoint_returns_aggregates(monkeypatch):
         top_countries=[{"country": "United States", "count": 3}],
     )
 
-    class FakeRepository:
+    class FakeRepository(_SessionVersionMixin):
         def get_analytics_summary(self, from_ts, to_ts):
             assert from_ts == 1000.0
             assert to_ts == 2000.0
@@ -958,7 +1089,10 @@ def test_analytics_summary_endpoint_requires_dashboard_session():
     assert exc_info.value.status_code == 401
 
 
-def test_analytics_summary_endpoint_reports_missing_database(monkeypatch):
+def test_analytics_summary_endpoint_fails_auth_when_database_missing(monkeypatch):
+    """A missing database now fails the dashboard auth check itself (the
+    session_version revocation lookup needs it), before the endpoint's own
+    DatabaseNotConfiguredError handling is ever reached."""
     route = route_for("/analytics/summary", "GET")
 
     class MissingDatabaseRepository:
@@ -970,7 +1104,8 @@ def test_analytics_summary_endpoint_reports_missing_database(monkeypatch):
     with pytest.raises(HTTPException) as exc_info:
         route.endpoint(dashboard_request(), from_ts=1000.0, to_ts=2000.0)
 
-    assert exc_info.value.status_code == 503
+    assert exc_info.value.status_code == 401
+    assert exc_info.value.detail == "dashboard auth required"
 
 
 def test_get_manual_label_endpoint_returns_stored_label(monkeypatch):
@@ -983,7 +1118,7 @@ def test_get_manual_label_endpoint_returns_stored_label(monkeypatch):
         ).dict()
     )
 
-    class FakeRepository:
+    class FakeRepository(_SessionVersionMixin):
         def get_manual_label(self, label_id):
             assert label_id == label.id
             return label
@@ -999,7 +1134,7 @@ def test_get_manual_label_endpoint_reports_missing_label(monkeypatch):
     route = route_for("/manual-labels/{label_id}", "GET")
     label_id = SessionRecord.parse_obj(make_record()).session_id
 
-    class FakeRepository:
+    class FakeRepository(_SessionVersionMixin):
         def get_manual_label(self, requested_label_id):
             assert requested_label_id == label_id
             return None
@@ -1025,7 +1160,7 @@ def test_list_manual_labels_endpoint_passes_filters(monkeypatch):
         ).dict()
     )
 
-    class FakeRepository:
+    class FakeRepository(_SessionVersionMixin):
         def list_manual_labels(self, *, session_id, classifier_run_id, limit):
             assert session_id == label.session_id
             assert classifier_run_id == label.classifier_run_id
@@ -1044,7 +1179,10 @@ def test_list_manual_labels_endpoint_passes_filters(monkeypatch):
     assert response == [label]
 
 
-def test_list_manual_labels_endpoint_reports_missing_database(monkeypatch):
+def test_list_manual_labels_endpoint_fails_auth_when_database_missing(monkeypatch):
+    """A missing database now fails the dashboard auth check itself (the
+    session_version revocation lookup needs it), before the endpoint's own
+    DatabaseNotConfiguredError handling is ever reached."""
     route = route_for("/manual-labels", "GET")
 
     class MissingDatabaseRepository:
@@ -1060,8 +1198,8 @@ def test_list_manual_labels_endpoint_reports_missing_database(monkeypatch):
     with pytest.raises(HTTPException) as exc_info:
         route.endpoint(dashboard_request(), limit=100)
 
-    assert exc_info.value.status_code == 503
-    assert exc_info.value.detail == "ECHIDRA_DATABASE_URL must be set"
+    assert exc_info.value.status_code == 401
+    assert exc_info.value.detail == "dashboard auth required"
 
 
 def test_classify_session_route_accepts_session_record_body_model():
@@ -1090,7 +1228,7 @@ def test_list_issues_endpoint_returns_stored_issues(monkeypatch):
     route = route_for("/issues", "GET")
     issue = make_issue()
 
-    class FakeRepository:
+    class FakeRepository(_SessionVersionMixin):
         def list_issues(self, *, status, limit):
             assert status == "open"
             assert limit == 50
@@ -1113,7 +1251,10 @@ def test_list_issues_endpoint_requires_dashboard_session():
     assert exc_info.value.detail == "dashboard auth required"
 
 
-def test_list_issues_endpoint_reports_missing_database(monkeypatch):
+def test_list_issues_endpoint_fails_auth_when_database_missing(monkeypatch):
+    """A missing database now fails the dashboard auth check itself (the
+    session_version revocation lookup needs it), before the endpoint's own
+    DatabaseNotConfiguredError handling is ever reached."""
     route = route_for("/issues", "GET")
 
     class MissingDatabaseRepository:
@@ -1125,15 +1266,15 @@ def test_list_issues_endpoint_reports_missing_database(monkeypatch):
     with pytest.raises(HTTPException) as exc_info:
         route.endpoint(dashboard_request(), status=None, limit=100)
 
-    assert exc_info.value.status_code == 503
-    assert exc_info.value.detail == "ECHIDRA_DATABASE_URL must be set"
+    assert exc_info.value.status_code == 401
+    assert exc_info.value.detail == "dashboard auth required"
 
 
 def test_update_issue_status_endpoint_returns_updated_issue(monkeypatch):
     route = route_for("/issues/{issue_id}/status", "PATCH")
     issue = make_issue(status="closed")
 
-    class FakeRepository:
+    class FakeRepository(_SessionVersionMixin):
         def update_issue_status(self, issue_id, status):
             assert issue_id == issue.id
             assert status == "closed"
@@ -1150,7 +1291,7 @@ def test_update_issue_status_endpoint_reports_missing_issue(monkeypatch):
     route = route_for("/issues/{issue_id}/status", "PATCH")
     issue_id = make_issue().id
 
-    class FakeRepository:
+    class FakeRepository(_SessionVersionMixin):
         def update_issue_status(self, requested_issue_id, status):
             assert requested_issue_id == issue_id
             return None
@@ -1190,7 +1331,7 @@ def test_create_persona_config_endpoint_binds_persona_id_as_path_param(monkeypat
     route = route_for("/persona-configs/{persona_id}", "POST")
     payload = PersonaConfigInput(name="Custom demo box")
 
-    class FakeRepository:
+    class FakeRepository(_SessionVersionMixin):
         def create_persona_config(self, persona_id, config):
             assert persona_id == "custom_demo_box"
             assert config is payload
@@ -1215,7 +1356,7 @@ def test_create_persona_config_endpoint_reports_conflict_on_duplicate_id(monkeyp
     route = route_for("/persona-configs/{persona_id}", "POST")
     payload = PersonaConfigInput(name="Custom demo box")
 
-    class FakeRepository:
+    class FakeRepository(_SessionVersionMixin):
         def create_persona_config(self, persona_id, config):
             raise PersonaConfigAlreadyExistsError(persona_id)
 
@@ -1277,7 +1418,7 @@ def test_count_alert_events_endpoint_returns_authoritative_total(monkeypatch):
     since list_alert_events_endpoint is capped at 500 rows."""
     route = route_for("/alerts/events/count", "GET")
 
-    class FakeRepository:
+    class FakeRepository(_SessionVersionMixin):
         def count_alert_events(self):
             return 734
 

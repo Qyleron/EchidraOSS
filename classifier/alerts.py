@@ -214,9 +214,10 @@ def _smtp_send(
             raw_password = repository.get_alert_smtp_password()
         except (DatabaseDriverMissingError, DatabaseNotConfiguredError) as exc:
             return f"could not load SMTP credentials: {exc}"
+        except Exception as exc:
+            return f"could not load SMTP credentials: {exc}"
         if not raw_password:
             return "smtp_username is set but no SMTP password is configured"
-
     # Port 465 servers expect TLS from the first byte of the connection
     # (implicit TLS) -- STARTTLS on a plaintext SMTP connection is a
     # different, incompatible protocol and would fail against them.
