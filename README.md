@@ -119,6 +119,11 @@ per-service and per-page manual test commands.
 - `echidra status` shows a listener/API as unreachable — check the other
   shell running `echidra serve` for a traceback; a common cause is a port in
   the table above already being in use.
+- Working in a remote VS Code session (Remote-SSH, WSL, Codespaces, a dev
+  container)? This workspace turns off `remote.autoForwardPorts` (see
+  `.vscode/settings.json`), so port 8000 won't auto-forward to your local
+  machine. Forward it yourself: `Ctrl+Shift+P` → "Forward a Port" → `8000`,
+  then open the forwarded URL VS Code gives you in the Ports panel.
 
 ---
 
