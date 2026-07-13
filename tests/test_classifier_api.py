@@ -105,6 +105,16 @@ def test_health_endpoint_reports_ok():
     assert route.endpoint() == {"status": "ok"}
 
 
+def test_root_route_redirects_to_dashboard():
+    route = route_for("/", "GET")
+
+    response = route.endpoint()
+
+    assert isinstance(response, RedirectResponse)
+    assert response.headers["location"] == "/dashboard"
+    assert response.status_code == 307
+
+
 def test_dashboard_route_serves_dashboard_html():
     route = route_for("/dashboard", "GET")
 
