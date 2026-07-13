@@ -172,6 +172,20 @@ def _cmd_serve(args: argparse.Namespace) -> int:
                 args.api_host,
                 "--port",
                 str(args.api_port),
+                # Per-request access logs (every dashboard page/asset/css GET)
+                # are noise for an operator watching this terminal; attacker
+                # activity is what matters, and that's logged separately by
+                # the honeypot listeners.
+                "--no-access-log",
+                # The app registers no startup/shutdown handlers, so the ASGI
+                # lifespan handshake is dead weight -- and on this
+                # uvicorn/starlette pairing, cancelling it mid-shutdown is
+                # what prints the benign-but-noisy "CancelledError ... in
+                # lifespan / await receive()" traceback on Ctrl+C. Disabling
+                # it removes that code path entirely instead of just making
+                # it less likely to trigger.
+                "--lifespan",
+                "off",
             ]
         )
         procs.append(api_proc)
@@ -183,18 +197,25 @@ def _cmd_serve(args: argparse.Namespace) -> int:
     print(f"API/dashboard:      PID {api_proc.pid} (http://{args.api_host}:{args.api_port})")
     print("Press Ctrl+C to stop both.")
 
+    # Ctrl+C sends SIGINT to this whole foreground process group, so both
+    # children already receive it directly -- explicitly forwarding SIGINT
+    # here too would be a second delivery, which makes uvicorn abort its
+    # lifespan mid-shutdown instead of exiting cleanly (a benign but noisy
+    # CancelledError traceback). Only SIGTERM needs forwarding, since a
+    # `kill <pid>` targeting just this process wouldn't otherwise reach them.
     def _forward_signal(signum, _frame):
         for proc in procs:
             if proc.poll() is None:
                 proc.send_signal(signum)
 
-    signal.signal(signal.SIGINT, _forward_signal)
     if hasattr(signal, "SIGTERM"):
         signal.signal(signal.SIGTERM, _forward_signal)
 
     try:
         while all(proc.poll() is None for proc in procs):
             time.sleep(0.5)
+    except KeyboardInterrupt:
+        print("\nStopping...")
     finally:
         # Either a child exited on its own or we were signaled -- stop both.
         for proc in procs:

@@ -65,24 +65,27 @@ dashboard.
 
 ## Quick Start
 
-```bash
-cp .env.example .env                                    # optional local config
-python -m classifier.storage.cli init-db                # create PostgreSQL tables (requires ECHIDRA_DATABASE_URL)
-python -m honeypot.main                                  # start the honeypot listeners
-uvicorn classifier.api.app:create_app --factory --reload # start the API + dashboard, in a separate shell
-```
-
-Or the equivalent one-command form via the `echidra` CLI (`pip install -e .`
-first to get the `echidra` command on your PATH, or just run it as
-`python -m echidra`):
+Four commands, no need to know the underlying modules:
 
 ```bash
-echidra init    # creates .env, generates ECHIDRA_INGEST_API_KEY, initializes the schema
-echidra serve   # runs the honeypot listeners and the API/dashboard together until Ctrl+C
-echidra status  # confirms listeners/API/database are actually up and reports session counts
+pip install -e .   # installs Echidra + puts the `echidra` command on your PATH
+echidra init        # creates .env, generates ECHIDRA_INGEST_API_KEY, initializes the schema (if ECHIDRA_DATABASE_URL is set)
+echidra serve        # runs the honeypot listeners and the API/dashboard together until Ctrl+C
+echidra status       # in a second shell: confirms listeners/API/database are actually up and reports session counts
 ```
 
-For a Docker Compose stack or a systemd deployment on a VM, see
+Then open **http://localhost:8000** in your browser — it takes you straight
+to the dashboard (sign up on first visit).
+
+No PostgreSQL yet? `echidra init` skips the database step and tells you so;
+the honeypot still runs and logs to `logs/sessions.jsonl`, you just won't get
+the dashboard/API or live alerting until `ECHIDRA_DATABASE_URL` is set in
+`.env` and you re-run `echidra init`.
+
+Want to run each service manually (its own terminal, `--reload` for API
+development, only one listener at a time)? See the prereqs block at the top
+of [docs/TESTING_GUIDE.md](docs/TESTING_GUIDE.md#manual-testing-guide). For a
+Docker Compose stack or a systemd deployment on a VM, see
 [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
 Default listeners:
@@ -95,19 +98,27 @@ Default listeners:
 | Telnet | 2323 | `ECHIDRA_TELNET_PORT` |
 
 Set any protocol port to `0` to disable that listener. Pick a persona with
-`ECHIDRA_PERSONA=ubuntu_web_server python -m honeypot.main`.
+`ECHIDRA_PERSONA=ubuntu_web_server` set before `echidra serve` (or
+`python -m honeypot.main`).
 
-The dashboard is at `http://localhost:8000/dashboard` (sign up at `/auth` on
-first run). Signup is only open until that first account exists — after that
-it returns 403 unless you set `ECHIDRA_ALLOW_SIGNUPS=true`, so a self-hosted
+Signup is only open until the first dashboard account exists — after that it
+returns 403 unless you set `ECHIDRA_ALLOW_SIGNUPS=true`, so a self-hosted
 instance doesn't stay open to public registration forever. `POST
 /classify/session/store` (the only write-and-alert-capable classifier
 endpoint) similarly refuses all requests until you set
-`ECHIDRA_INGEST_API_KEY` and send it back as the `X-Api-Key` header — see
-`.env.example` for how to generate one. See [CONTEXT.md](CONTEXT.md) for
-current build status and architecture notes, and
-[docs/TESTING_GUIDE.md](docs/TESTING_GUIDE.md) for per-service and per-page
-manual test commands.
+`ECHIDRA_INGEST_API_KEY` and send it back as the `X-Api-Key` header —
+`echidra init` generates this for you; see `.env.example` if you're setting
+it up manually. See [CONTEXT.md](CONTEXT.md) for current build status and
+architecture notes, and [docs/TESTING_GUIDE.md](docs/TESTING_GUIDE.md) for
+per-service and per-page manual test commands.
+
+**Troubleshooting**
+- `echidra: command not found` — your PATH doesn't include the environment
+  `pip install -e .` installed into. Activate that virtualenv first, or run
+  the CLI as `python -m echidra` instead.
+- `echidra status` shows a listener/API as unreachable — check the other
+  shell running `echidra serve` for a traceback; a common cause is a port in
+  the table above already being in use.
 
 ---
 

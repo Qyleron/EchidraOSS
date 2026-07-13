@@ -172,6 +172,11 @@ def create_app() -> FastAPI:
         """Report whether the classifier API process is serving requests."""
         return {"status": "ok"}
 
+    @api.get("/", include_in_schema=False)
+    def root() -> RedirectResponse:
+        """Send visitors at the bare host straight to the dashboard."""
+        return RedirectResponse("/dashboard", status_code=307)
+
     @api.get("/assets/{filename}", response_class=FileResponse, tags=["dashboard"])
     def dashboard_asset(filename: str) -> FileResponse:
         """Serve whitelisted dashboard image assets."""
