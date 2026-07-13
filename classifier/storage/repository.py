@@ -966,9 +966,8 @@ class PostgresClassifierRepository:
         signals_by_run_id: dict[UUID, list[dict[str, Any]]] = {}
         for signal_row in signal_rows:
             run_id = signal_row["classifier_run_id"]
-            if run_id not in signals_by_run_id:
-                signals_by_run_id[run_id] = []
-            signals_by_run_id[run_id].append(signal_row)
+            signal_fields = {k: v for k, v in signal_row.items() if k != "classifier_run_id"}
+            signals_by_run_id.setdefault(run_id, []).append(signal_fields)
         
         # Build StoredClassifierRun objects with grouped signals
         return [
