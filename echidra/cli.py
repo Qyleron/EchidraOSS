@@ -203,7 +203,11 @@ def _cmd_serve(args: argparse.Namespace) -> int:
     # lifespan mid-shutdown instead of exiting cleanly (a benign but noisy
     # CancelledError traceback). Only SIGTERM needs forwarding, since a
     # `kill <pid>` targeting just this process wouldn't otherwise reach them.
+    shutdown_requested = False
+
     def _forward_signal(signum, _frame):
+        nonlocal shutdown_requested
+        shutdown_requested = True
         for proc in procs:
             if proc.poll() is None:
                 proc.send_signal(signum)
@@ -212,7 +216,7 @@ def _cmd_serve(args: argparse.Namespace) -> int:
         signal.signal(signal.SIGTERM, _forward_signal)
 
     try:
-        while all(proc.poll() is None for proc in procs):
+        while not shutdown_requested and all(proc.poll() is None for proc in procs):
             time.sleep(0.5)
     except KeyboardInterrupt:
         print("\nStopping...")
