@@ -186,40 +186,47 @@ PRESET_PERSONAS: dict[str, Persona] = {
         open_ports_visible=(25, 110, 143, 587, 993),
         fake_credentials=(_credential("mailadmin", "MailAdmin2024!"),),
     ),
-    # Linux host exposing Windows-style file shares through Samba.
-    "samba_file_server": Persona(
-        persona_id="samba_file_server",
-        os_banner="Linux filesrv-01 5.15.0-91-generic x86_64",
-        ssh_banner="SSH-2.0-OpenSSH_for_Windows_8.1",
-        hostname="filesrv-01",
-        uname_output="Linux filesrv-01 5.15.0-91-generic x86_64 GNU/Linux",
-        timezone="America/Los_Angeles",
-        username="svc_backup",
-        home_dir="/home/svc_backup",
+    # Consumer router/IoT device running BusyBox, exposed over Telnet.
+    # Attracts Mirai-family botnet scanning with its own distinct credential
+    # wordlist, rather than the server-style logins the other presets use.
+    "busybox_router": Persona(
+        persona_id="busybox_router",
+        os_banner="BusyBox v1.31.1 (2019-09-18 10:25:30 UTC) built-in shell (ash)",
+        ssh_banner="SSH-2.0-dropbear_2019.78",
+        hostname="DLink-Router",
+        uname_output="Linux DLink-Router 2.6.36 mips GNU/Linux",
+        timezone="UTC",
+        username="root",
+        home_dir="/root",
         fake_filesystem=(
-            _file("/home/svc_backup/readme.txt", "SMB maintenance shell.\n"),
-            _file("/srv/samba/Finance/Q4.xlsx", "binary workbook placeholder\n"),
-            _file("/srv/samba/HR/onboarding.docx", "binary document placeholder\n"),
-            _file("/var/log/samba/log.smbd", "smbd version 4.15 started.\n"),
-            _file("/var/log/windows/Security.evtx", "event log placeholder\n"),
+            _file("/root/.profile", "# BusyBox ash profile\n"),
             _file(
                 "/etc/passwd",
-                "root:x:0:0:root:/root:/bin/bash\n"
-                "svc_backup:x:1000:1000:svc_backup:/home/svc_backup:/bin/bash\n",
+                "root:x:0:0:root:/root:/bin/sh\n"
+                "admin:x:500:500:admin:/var/home/admin:/bin/sh\n",
             ),
+            _file("/etc/banner", "DLink Router\nModel: DIR-615\nFirmware: 2.09\n"),
+            _file("/proc/version", "Linux version 2.6.36 (gcc version 4.5.1)\n"),
+            _file(
+                "/etc/config/passwd",
+                "admin:$1$Mnz.L8fP$ZjWs8YhcA:0:0:root:/root:/bin/sh\n",
+            ),
+            _file("/var/etc/passwd", "root:Zte521:0:0:root:/root:/bin/sh\n"),
         ),
-        running_processes=("smbd", "nmbd", "winbindd", "sshd"),
-        fake_users=("svc_backup", "administrator", "guest"),
-        suid_binaries=("/usr/bin/sudo", "/bin/su"),
-        open_ports_visible=(139, 445, 3389),
-        fake_credentials=(_credential("svc_backup", "BackupSvc2024!"),),
+        running_processes=("busybox", "udhcpd", "dnsmasq", "httpd", "telnetd"),
+        fake_users=("root", "admin", "guest", "support", "user"),
+        suid_binaries=(),
+        open_ports_visible=(23, 80),
+        # One advertised bait pair, same convention as every other preset --
+        # the actual Mirai default-credential wordlist used for
+        # classification matching lives in default_rules.yaml's
+        # mirai_iot_credential_burst rule, not here.
+        fake_credentials=(_credential("root", "xc3511"),),
     ),
 }
 
 
-PERSONA_ALIASES: dict[str, str] = {
-    "windows_smb_server": "samba_file_server",
-}
+PERSONA_ALIASES: dict[str, str] = {}
 
 
 def get_persona(persona_id: str = "generic_linux") -> Persona:

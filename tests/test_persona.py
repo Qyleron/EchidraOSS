@@ -25,8 +25,23 @@ def test_oss_persona_presets_are_available():
         "centos_database",
         "debian_mail_server",
         "generic_linux",
-        "samba_file_server",
+        "busybox_router",
     }
+
+
+@pytest.mark.parametrize("persona_id", sorted(PRESET_PERSONAS))
+def test_every_preset_persona_passes_validation(persona_id):
+    """Every hardcoded preset must satisfy the same rules a UI-submitted config would."""
+    validate_persona(PRESET_PERSONAS[persona_id])
+
+
+def test_busybox_router_presents_iot_identity_over_telnet():
+    """The IoT preset should look like a router, not another Linux server."""
+    persona = get_persona("busybox_router")
+
+    assert persona.hostname == "DLink-Router"
+    assert "BusyBox" in persona.os_banner
+    assert 23 in persona.open_ports_visible
 
 
 def test_session_uses_selected_persona_filesystem_and_identity():
@@ -44,11 +59,6 @@ def test_unknown_persona_is_rejected_with_valid_options():
     """Selecting a typo or missing persona should fail clearly."""
     with pytest.raises(ValueError, match="Unknown persona"):
         get_persona("does_not_exist")
-
-
-def test_legacy_windows_smb_persona_id_maps_to_samba_file_server():
-    """Old configs should still load after the persona was renamed for clarity."""
-    assert get_persona("windows_smb_server") == get_persona("samba_file_server")
 
 
 def test_persona_validation_rejects_invalid_file_paths():

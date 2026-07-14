@@ -159,9 +159,9 @@ echidra_oss/
 ├── honeypot/
 │   ├── main.py                  # starts all four listeners
 │   ├── network/
-│   │   ├── server.py            # SSH-style shell listener
+│   │   ├── ssh_server.py        # real SSH listener (asyncssh)
+│   │   ├── ssh_keys.py          # persistent SSH host key
 │   │   ├── protocol_server.py   # generic listener used by http/ftp/telnet
-│   │   ├── connection.py
 │   │   ├── http_handler.py
 │   │   ├── ftp_handler.py
 │   │   ├── telnet_handler.py

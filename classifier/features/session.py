@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import shlex
+from urllib.parse import parse_qsl
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -60,6 +61,11 @@ _HTTP_CREDENTIAL_BODY_MARKERS = ("pwd=", "passwd=", "password=", "log=", "user="
 _HTTP_CREDENTIAL_BODY_PATTERN = re.compile(
     "|".join(r"(?<![A-Za-z0-9])" + re.escape(marker) for marker in _HTTP_CREDENTIAL_BODY_MARKERS)
 )
+# Login forms don't agree on field names ("log"/"pwd" is WordPress; "username"/
+# "password" is generic; "email"/"pass" shows up too) -- check each known
+# alias rather than assuming one fixed pair of field names.
+_HTTP_USERNAME_FIELD_NAMES = {"log", "user", "username", "email", "uname"}
+_HTTP_PASSWORD_FIELD_NAMES = {"pwd", "pass", "passwd", "password"}
 
 
 class SessionFeatures(BaseModel):
@@ -84,6 +90,18 @@ class SessionFeatures(BaseModel):
     average_inter_command_interval_seconds: float | None
     command_names: list[str]
     auth_attempt_count: int = Field(default=0, ge=0)
+    # "username:password" pairs submitted over Telnet, lowercased. Distinct
+    # from auth_attempt_count (which only counts attempts) -- this is what
+    # lets a rule match specific known credential wordlists (e.g. Mirai
+    # defaults) instead of just detecting that *a* login was attempted.
+    telnet_credentials_tried: list[str] = Field(default_factory=list)
+    # Same idea, for the login/password gate on the primary "tcp_shell"
+    # listener (the real SSH port -- see honeypot/network/ssh_server.py).
+    ssh_credentials_tried: list[str] = Field(default_factory=list)
+    # Same idea as telnet_credentials_tried, for FTP's USER/PASS exchange.
+    ftp_credentials_tried: list[str] = Field(default_factory=list)
+    # Same idea again, for credentials found in an HTTP POST body.
+    http_credentials_tried: list[str] = Field(default_factory=list)
     # Cross-session feature — only populated by the store-time path when the DB
     # is available; None in the stateless /classify/session endpoint by design.
     connection_count_from_same_ip: int | None = None
@@ -104,6 +122,13 @@ def extract_session_features(
     sensitive_file_read_count = 0
     exit_command_present = False
     auth_attempt_count = 0
+    telnet_credentials_tried: list[str] = []
+    ssh_credentials_tried: list[str] = []
+    ftp_credentials_tried: list[str] = []
+    http_credentials_tried: list[str] = []
+    _pending_telnet_username: str | None = None
+    _pending_ssh_username: str | None = None
+    _pending_ftp_username: str | None = None
 
     for event in session.commands:
         command_name, args = _parse_command(event.cmd)
@@ -114,12 +139,37 @@ def extract_session_features(
             ("login:", "password:", "authorization:")
         ):
             auth_attempt_count += 1
+
+        if session.protocol == "telnet":
+            if normalized.startswith("login:"):
+                _pending_telnet_username = event.cmd.split(":", 1)[1].strip().lower()
+            elif normalized.startswith("password:") and _pending_telnet_username is not None:
+                password = event.cmd.split(":", 1)[1].strip().lower()
+                telnet_credentials_tried.append(f"{_pending_telnet_username}:{password}")
+                _pending_telnet_username = None
+        elif session.protocol == "tcp_shell":
+            if normalized.startswith("login:"):
+                _pending_ssh_username = event.cmd.split(":", 1)[1].strip().lower()
+            elif normalized.startswith("password:") and _pending_ssh_username is not None:
+                password = event.cmd.split(":", 1)[1].strip().lower()
+                ssh_credentials_tried.append(f"{_pending_ssh_username}:{password}")
+                _pending_ssh_username = None
+        elif session.protocol == "ftp":
+            if command_name == "user" and args:
+                _pending_ftp_username = args[0].strip().lower()
+            elif command_name == "pass" and args and _pending_ftp_username is not None:
+                ftp_credentials_tried.append(f"{_pending_ftp_username}:{args[0].strip().lower()}")
+                _pending_ftp_username = None
         elif (
             session.protocol == "http"
             and command_name == "post"
             and _HTTP_CREDENTIAL_BODY_PATTERN.search(normalized)
         ):
             auth_attempt_count += 1
+            _, _, body = event.cmd.partition(": ")
+            pair = _extract_http_credential_pair(body)
+            if pair:
+                http_credentials_tried.append(pair)
 
         if command_name in DISCOVERY_COMMANDS:
             discovery_command_count += 1
@@ -168,6 +218,10 @@ def extract_session_features(
         average_inter_command_interval_seconds=average_interval,
         command_names=command_names,
         auth_attempt_count=auth_attempt_count,
+        telnet_credentials_tried=telnet_credentials_tried,
+        ssh_credentials_tried=ssh_credentials_tried,
+        ftp_credentials_tried=ftp_credentials_tried,
+        http_credentials_tried=http_credentials_tried,
         connection_count_from_same_ip=connection_count_from_same_ip,
     )
 
@@ -183,6 +237,20 @@ def _parse_command(raw_command: str) -> tuple[str, list[str]]:
         return "", []
 
     return tokens[0].lower(), tokens[1:]
+
+
+def _extract_http_credential_pair(body: str) -> str | None:
+    """Pull a lowercased "user:pass" pair out of a POST body, if one is present.
+
+    Returns None rather than fabricating a pair when either field is absent
+    or blank -- mirrors how Telnet/FTP never pair up an incomplete exchange.
+    """
+    fields = {key.lower(): value for key, value in parse_qsl(body, keep_blank_values=True)}
+    user = next((fields[name] for name in _HTTP_USERNAME_FIELD_NAMES if fields.get(name)), None)
+    password = next((fields[name] for name in _HTTP_PASSWORD_FIELD_NAMES if fields.get(name)), None)
+    if not user or not password:
+        return None
+    return f"{user.lower()}:{password.lower()}"
 
 
 def _is_sensitive_path(path: str) -> bool:

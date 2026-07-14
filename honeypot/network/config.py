@@ -47,8 +47,11 @@ def _port_from_env(name: str, default: int) -> int:
 # Bind to all interfaces by default so the honeypot can accept remote traffic
 HOST = os.getenv("ECHIDRA_HOST", "0.0.0.0")
 
-# Non-privileged SSH-like test port
+# Non-privileged SSH port
 PORT = _port_from_env("ECHIDRA_PORT", 2222)
+
+# Where the persistent SSH host key lives -- generated on first run if missing
+SSH_HOST_KEY_PATH = os.getenv("ECHIDRA_SSH_HOST_KEY_PATH", "data/ssh_host_key")
 
 def _optional_port_from_env(name: str, default: int) -> int:
     value = _int_from_env(name, default)

@@ -133,6 +133,135 @@ def create_http_session(commands, duration_seconds=10.0, end_reason="disconnect"
     })
 
 
+def create_telnet_session(commands, duration_seconds=10.0, end_reason="disconnect"):
+    """Build a validated Telnet session with predictable timestamps."""
+    started_at = 100.0
+    command_events = [
+        {"cmd": command, "timestamp": started_at + offset}
+        for command, offset in commands
+    ]
+    return SessionRecord.parse_obj({
+        "schema_version": 1,
+        "session_id": str(uuid.uuid4()),
+        "protocol": "telnet",
+        "peer_ip": "127.0.0.1",
+        "peer_port": 4444,
+        "persona_id": "busybox_router",
+        "started_at": started_at,
+        "ended_at": started_at + duration_seconds,
+        "duration_seconds": duration_seconds,
+        "end_reason": end_reason,
+        "command_count": len(command_events),
+        "commands": command_events,
+        "decoy_files_surfaced": [],
+    })
+
+
+def test_ssh_login_password_pair_becomes_lowercased_credential():
+    """The real SSH server logs "login:"/"password:" lines the same way
+    Telnet does -- these should pair up identically."""
+    session = create_session([("login: Root", 0.0), ("password: XC3511", 0.1)])
+
+    features = extract_session_features(session)
+
+    assert features.ssh_credentials_tried == ["root:xc3511"]
+
+
+def test_ssh_username_without_password_produces_no_credential_pair():
+    session = create_session([("login: root", 0.0)])
+
+    features = extract_session_features(session)
+
+    assert features.ssh_credentials_tried == []
+
+
+def create_ftp_session(commands, duration_seconds=10.0, end_reason="disconnect"):
+    """Build a validated FTP session with predictable timestamps."""
+    started_at = 100.0
+    command_events = [
+        {"cmd": command, "timestamp": started_at + offset}
+        for command, offset in commands
+    ]
+    return SessionRecord.parse_obj({
+        "schema_version": 1,
+        "session_id": str(uuid.uuid4()),
+        "protocol": "ftp",
+        "peer_ip": "127.0.0.1",
+        "peer_port": 4444,
+        "persona_id": "generic_linux",
+        "started_at": started_at,
+        "ended_at": started_at + duration_seconds,
+        "duration_seconds": duration_seconds,
+        "end_reason": end_reason,
+        "command_count": len(command_events),
+        "commands": command_events,
+        "decoy_files_surfaced": [],
+    })
+
+
+def test_ftp_user_pass_pair_becomes_lowercased_credential():
+    """FtpHandler logs "USER x" / "PASS y" as separate commands -- these
+    should pair up the same way Telnet's login/password lines do."""
+    session = create_ftp_session([("USER Admin", 0.0), ("PASS Admin123", 0.1)])
+
+    features = extract_session_features(session)
+
+    assert features.ftp_credentials_tried == ["admin:admin123"]
+
+
+def test_ftp_username_without_password_produces_no_credential_pair():
+    """Client disconnects after USER, before sending PASS -- no pair to log."""
+    session = create_ftp_session([("USER admin", 0.0)])
+
+    features = extract_session_features(session)
+
+    assert features.ftp_credentials_tried == []
+
+
+def test_ftp_malformed_exchange_produces_no_credential_pair():
+    """FtpHandler logs the raw line as-is when the client doesn't send a
+    well-formed USER command first -- there's no real username to pair."""
+    session = create_ftp_session([("HELP", 0.0), ("PASS toor", 0.1)])
+
+    features = extract_session_features(session)
+
+    assert features.ftp_credentials_tried == []
+
+
+def test_telnet_login_password_pair_becomes_lowercased_credential():
+    """A submitted Telnet login/password pair should surface as a matchable
+    "user:pass" string, not just be counted -- rules that need to recognize
+    a specific known wordlist (eg. Mirai defaults) have nothing to match
+    against otherwise."""
+    session = create_telnet_session(
+        [("login: Root", 0.0), ("password: XC3511", 0.1)]
+    )
+
+    features = extract_session_features(session)
+
+    assert features.telnet_credentials_tried == ["root:xc3511"]
+
+
+def test_telnet_username_without_password_produces_no_credential_pair():
+    """A username with no following password line (client disconnected
+    mid-prompt) must not fabricate a pair."""
+    session = create_telnet_session([("login: root", 0.0)])
+
+    features = extract_session_features(session)
+
+    assert features.telnet_credentials_tried == []
+
+
+def test_non_telnet_session_never_populates_telnet_credentials_tried():
+    """FTP logs a structurally similar USER/PASS exchange -- it must not be
+    mistaken for a Telnet credential pair."""
+    session = create_session([("login: root", 0.0), ("password: toor", 0.1)])
+
+    features = extract_session_features(session)
+
+    assert features.telnet_credentials_tried == []
+
+
 def test_http_get_to_sensitive_path_counts_as_sensitive_file_read():
     """HttpHandler logs a full request line as one command -- the probed path
     (eg. /.env, /wp-config.php) previously had no way to reach the classifier
@@ -213,6 +342,46 @@ def test_http_post_with_catalog_field_does_not_count_as_auth_attempt():
     features = extract_session_features(session)
 
     assert features.auth_attempt_count == 0
+
+
+def test_http_post_with_wordpress_field_names_becomes_lowercased_credential():
+    """WordPress's login form uses "log"/"pwd", not "username"/"password" --
+    the pair should still surface as a matchable "user:pass" string."""
+    session = create_http_session(
+        [("POST /wp-login.php: log=Admin&pwd=Hunter2", 1.0)]
+    )
+
+    features = extract_session_features(session)
+
+    assert features.http_credentials_tried == ["admin:hunter2"]
+
+
+def test_http_post_with_generic_field_names_becomes_lowercased_credential():
+    session = create_http_session(
+        [("POST /login: username=Admin&password=Hunter2", 1.0)]
+    )
+
+    features = extract_session_features(session)
+
+    assert features.http_credentials_tried == ["admin:hunter2"]
+
+
+def test_http_post_with_only_username_field_produces_no_credential_pair():
+    """A partial submission (eg. a form validation probe) must not fabricate
+    a pair from a username with no matching password field."""
+    session = create_http_session([("POST /login: username=admin", 1.0)])
+
+    features = extract_session_features(session)
+
+    assert features.http_credentials_tried == []
+
+
+def test_http_post_without_credential_fields_produces_no_credential_pair():
+    session = create_http_session([("POST /api/contact: message=hello", 1.0)])
+
+    features = extract_session_features(session)
+
+    assert features.http_credentials_tried == []
 
 
 def test_handles_malformed_shell_input_as_observed_command():

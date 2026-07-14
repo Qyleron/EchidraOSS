@@ -56,7 +56,7 @@ def test_unknown_command():
 
 
 def test_exit():
-    """exit is represented internally by a close signal for ConnectionHandler."""
+    """exit is represented internally by a close signal for the shell's caller."""
     engine = InteractionEngine()
     session = create_session()
 
