@@ -67,7 +67,7 @@ def test_schema_requires_geoip_coordinates_as_a_pair():
 
 
 def test_schema_rejects_unknown_end_reason():
-    """Only lifecycle reasons emitted by ConnectionHandler should be accepted."""
+    """Only lifecycle reasons the protocol handlers actually emit should be accepted."""
     record = valid_record()
     record["end_reason"] = "mystery"
 

@@ -34,6 +34,14 @@ services:
       - "2323:2323"
     volumes:
       - echidra_logs:/app/logs
+      # SSH_HOST_KEY_PATH defaults to data/ssh_host_key -- without this on a
+      # named volume, it lives in the container's writable layer and a fresh
+      # key gets generated every time the container is recreated (down/up,
+      # a rebuild, a rescheduled pod), not just a plain restart. Returning
+      # attackers then see a different host key fingerprint, which most SSH
+      # clients flag with a loud "REMOTE HOST IDENTIFICATION HAS CHANGED"
+      # warning -- an obvious tell that this is not a real, long-lived host.
+      - echidra_ssh_host_key:/app/data
     depends_on:
       db:
         condition: service_healthy
@@ -58,3 +66,4 @@ services:
 volumes:
   echidra_db_data:
   echidra_logs:
+  echidra_ssh_host_key:

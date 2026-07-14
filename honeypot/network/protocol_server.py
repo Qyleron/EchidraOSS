@@ -17,7 +17,7 @@ class ProtocolServer:
     Accepts TCP connections on a single port and dispatches them to a handler class.
 
     The handler class must accept (reader, writer) as its first two arguments
-    and expose an async handle() method — the same contract as ConnectionHandler.
+    and expose an async handle() method (e.g. TelnetHandler, FtpHandler, HttpHandler).
     """
 
     def __init__(

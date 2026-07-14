@@ -6,7 +6,7 @@ from honeypot.network.config import HTTP_PORT, FTP_PORT, TELNET_PORT, HOST, MAX_
 from honeypot.network.ftp_handler import FtpHandler
 from honeypot.network.http_handler import HttpHandler
 from honeypot.network.protocol_server import ProtocolServer
-from honeypot.network.server import TCPServer
+from honeypot.network.ssh_server import SSHListener
 from honeypot.network.telnet_handler import TelnetHandler
 
 logging.basicConfig(
@@ -28,8 +28,8 @@ async def main():
     if hasattr(signal, "SIGTERM"):
         loop.add_signal_handler(signal.SIGTERM, shutdown_signal)
 
-    # Primary SSH-shell honeypot listener
-    ssh_server = TCPServer()
+    # Primary SSH honeypot listener
+    ssh_server = SSHListener()
 
     # Additional protocol listeners (disabled when port == 0)
     extra_servers: list[ProtocolServer] = []

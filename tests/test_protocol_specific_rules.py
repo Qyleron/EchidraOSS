@@ -92,6 +92,47 @@ def test_telnet_automated_credential_burst_matches_mirai_style_submission():
     assert "telnet_automated_credential_burst" in summary.matched_rule_ids
 
 
+def test_mirai_iot_credential_burst_matches_known_default_pair():
+    session = make_session(
+        "telnet",
+        [("login: root", 0.0), ("password: xc3511", 8.0)],
+        duration_seconds=8.0,
+        persona_id="busybox_router",
+    )
+
+    summary = classify_session(session)
+
+    assert "mirai_iot_credential_burst" in summary.matched_rule_ids
+
+
+def test_mirai_iot_credential_burst_is_case_insensitive():
+    session = make_session(
+        "telnet",
+        [("login: Root", 0.0), ("password: XC3511", 8.0)],
+        duration_seconds=8.0,
+        persona_id="busybox_router",
+    )
+
+    summary = classify_session(session)
+
+    assert "mirai_iot_credential_burst" in summary.matched_rule_ids
+
+
+def test_non_mirai_credential_pair_does_not_match_iot_rule():
+    """An arbitrary (non-wordlist) credential pair should still be caught by
+    the generic burst/attempt rules, but not misattributed to Mirai."""
+    session = make_session(
+        "telnet",
+        [("login: alice", 0.0), ("password: hunter2", 0.05)],
+        duration_seconds=0.05,
+    )
+
+    summary = classify_session(session)
+
+    assert "mirai_iot_credential_burst" not in summary.matched_rule_ids
+    assert "telnet_automated_credential_burst" in summary.matched_rule_ids
+
+
 def test_http_sensitive_path_probe_matches_env_request():
     session = make_session(
         "http",

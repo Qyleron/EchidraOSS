@@ -8,6 +8,7 @@ __pycache__/
 .codex/
 .claude/
 logs/
+data/
 .env
 .env.*
 !.env.example

@@ -244,6 +244,32 @@ rules:
         operator: gte
         value: 120
 
+  - id: mirai_iot_credential_burst
+    name: Known Mirai-family IoT default credential submitted over Telnet
+    actor_label: commodity_bot
+    confidence: 0.85
+    risk_score: 65
+    mitre_tags:
+      - T1110
+    evidence:
+      - The submitted username/password pair matches a known Mirai-family default credential, consistent with an IoT botnet's fixed wordlist rather than opportunistic server credential stuffing.
+    conditions:
+      - field: protocol
+        operator: equals
+        value: telnet
+      - field: telnet_credentials_tried
+        operator: contains_any
+        value:
+          - "root:vizxv"
+          - "root:xc3511"
+          - "root:888888"
+          - "root:zte521"
+          - "admin:1234"
+          - "root:toor"
+          - "admin:admin"
+          - "root:root"
+          - "support:support"
+
   - id: http_sensitive_path_probe
     name: HTTP request for a sensitive-looking path
     actor_label: commodity_bot

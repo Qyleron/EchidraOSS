@@ -58,6 +58,10 @@ fixes:
       title: Commodity bots are searching for credentials stored in files.
       recommended_fix: Remove plaintext credentials from disk, rotate decoy credentials periodically, and alert on credential-file access.
       impact: Closes a common, low-effort path to lateral movement.
+    T1110:
+      title: A known Mirai-family default credential was submitted over Telnet, consistent with an IoT botnet's fixed wordlist rather than generic brute-forcing.
+      recommended_fix: Treat these hits as an IoT botnet campaign indicator distinct from ordinary brute-force traffic -- cross-reference the source IP against known Mirai C2/scanner ranges and prioritize alerting over rate-limiting alone, since these bots don't back off.
+      impact: Separates commodity IoT botnet scanning (large volume, low sophistication, fixed wordlist) from targeted brute-force attempts, so response effort goes to the right one.
 
   skilled_human_operator:
     T1059:
