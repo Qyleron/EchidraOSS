@@ -50,8 +50,14 @@ class SessionState:
 
 
     def prompt(self) -> str:
-        """Return the current fake shell prompt."""
-        return f"{self.cwd}$ "
+        """Return the honeypot's bash-style, persona-aware shell prompt.
+
+        Renders as "user@host:path$ " for a regular user, or
+        "user@host:path# " when the persona's username is root, matching
+        the persona identity in each case.
+        """
+        symbol = "#" if self.persona.username == "root" else "$"
+        return f"{self.persona.username}@{self.persona.hostname}:{self.cwd}{symbol} "
 
     def record_decoy_file_surfaced(self, path: str) -> None:
         """Track a decoy file once after its name or content reaches the visitor."""

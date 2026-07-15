@@ -22,7 +22,7 @@ def test_banner():
     banner = engine.build_banner(session)
 
     assert "Linux" in banner
-    assert "/home/admin$" in banner
+    assert "root@fake-host:/home/admin# " in banner
 
 
 def test_whoami():
@@ -124,6 +124,19 @@ def test_engine_uses_persona_identity_and_environment():
     assert "ubuntu" in whoami
     assert "nginx" in processes
     assert "0.0.0.0:443" in ports
+    assert "ubuntu@web-prod-01:/home/ubuntu$ " in banner
+
+
+def test_prompt_uses_dollar_sign_for_a_non_root_persona():
+    """Bash's own convention: a "#" prompt implies root -- a non-root persona
+    (eg. ubuntu_web_server) must not get one, or the prompt would contradict
+    what `whoami`/`id` already report for that session."""
+    session = SessionState(
+        ("127.0.0.1", 4444),
+        persona=get_persona("ubuntu_web_server"),
+    )
+
+    assert session.prompt() == "ubuntu@web-prod-01:/home/ubuntu$ "
 
 
 def test_engine_lists_persona_filesystem_paths():

@@ -138,7 +138,7 @@ async def test_interactive_exit_produces_logout_reason(running_server):
 
     conn = await connect(port)
     process = await conn.create_process(term_type="ansi")
-    await asyncio.wait_for(process.stdout.readuntil("$ "), timeout=5)
+    await asyncio.wait_for(process.stdout.readuntil("# "), timeout=5)
 
     process.stdin.write("exit\n")
     tail = await asyncio.wait_for(process.stdout.read(), timeout=5)
@@ -159,7 +159,7 @@ async def test_client_disconnect_without_exit_produces_disconnect_reason(running
 
     conn = await connect(port)
     process = await conn.create_process(term_type="ansi")
-    await asyncio.wait_for(process.stdout.readuntil("$ "), timeout=5)
+    await asyncio.wait_for(process.stdout.readuntil("# "), timeout=5)
 
     conn.close()
     await conn.wait_closed()
@@ -175,7 +175,7 @@ async def test_idle_session_times_out(running_server, monkeypatch):
 
     conn = await connect(port)
     process = await conn.create_process(term_type="ansi")
-    await asyncio.wait_for(process.stdout.readuntil("$ "), timeout=5)
+    await asyncio.wait_for(process.stdout.readuntil("# "), timeout=5)
 
     tail = await asyncio.wait_for(process.stdout.read(), timeout=5)
     assert "timed out" in tail.lower()
