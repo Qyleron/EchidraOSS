@@ -4,6 +4,7 @@ import json
 import pytest
 
 import honeypot.network.telnet_handler as telnet_handler_module
+from honeypot.core.persona import get_persona
 from honeypot.logging.session_logger import SessionLogger
 from honeypot.network.telnet_handler import DO, IAC, WILL, TelnetHandler
 
@@ -87,6 +88,32 @@ async def test_telnet_banner_and_login_prompt(tmp_path):
     output = writer.buffer.decode("latin-1")
     assert "Linux fake-host 5.15.0-91-generic x86_64" in output
     assert "fake-host login:" in output
+    assert "Login incorrect" in output
+
+
+@pytest.mark.asyncio
+async def test_busybox_router_persona_presents_as_dlink_router_over_telnet(
+    tmp_path, monkeypatch
+):
+    """Mirai-style scanners fingerprint IoT devices by their Telnet banner and
+    login prompt -- the busybox_router preset must actually produce
+    "DLink-Router login:" on the wire, not just carry that hostname on the
+    Persona dataclass with nothing exercising the real handler with it."""
+    monkeypatch.setattr(
+        telnet_handler_module,
+        "get_active_persona",
+        lambda: get_persona("busybox_router"),
+    )
+    reader = FakeReader(b"", ["root\r\n", "xc3511\r\n"])
+    writer = FakeWriter()
+    log_path = tmp_path / "sessions.jsonl"
+    handler = TelnetHandler(reader, writer, session_logger=SessionLogger(str(log_path)))
+
+    await handler.handle()
+
+    output = writer.buffer.decode("latin-1")
+    assert "BusyBox v1.31.1" in output
+    assert "DLink-Router login:" in output
     assert "Login incorrect" in output
 
 
