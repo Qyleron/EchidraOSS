@@ -103,6 +103,62 @@ async def test_http_root_request_returns_persona_banner(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_http_head_request_gets_headers_but_no_body(tmp_path):
+    """A HEAD response must report the same Content-Length a GET would, but
+    never send the body itself -- sending one anyway is a protocol-level
+    tell real servers don't make."""
+    raw = b"HEAD / HTTP/1.1\r\nHost: example.com\r\n\r\n"
+    reader = FakeReader(raw)
+    writer = FakeWriter()
+    handler = HttpHandler(reader, writer, session_logger=SessionLogger(str(tmp_path / "sessions.jsonl")))
+
+    await handler.handle()
+
+    output = writer.buffer.decode()
+    assert output.startswith("HTTP/1.1 200 OK")
+    content_length = int(
+        next(line for line in output.split("\r\n") if line.startswith("Content-Length:"))
+        .split(":", 1)[1]
+        .strip()
+    )
+    assert content_length > 0
+    body = output.split("\r\n\r\n", 1)[1]
+    assert body == ""
+
+
+@pytest.mark.asyncio
+async def test_http_robots_txt_returns_realistic_content(tmp_path):
+    raw = b"GET /robots.txt HTTP/1.1\r\nHost: example.com\r\n\r\n"
+    reader = FakeReader(raw)
+    writer = FakeWriter()
+    handler = HttpHandler(reader, writer, session_logger=SessionLogger(str(tmp_path / "sessions.jsonl")))
+
+    await handler.handle()
+
+    output = writer.buffer.decode()
+    assert output.startswith("HTTP/1.1 200 OK")
+    assert "Content-Type: text/plain" in output
+    assert "Disallow:" in output
+
+
+@pytest.mark.asyncio
+async def test_http_favicon_returns_200_not_404(tmp_path):
+    """Nearly every real server returns something for /favicon.ico -- a 404
+    here while everything else 200s is a small, free scanner tell."""
+    raw = b"GET /favicon.ico HTTP/1.1\r\nHost: example.com\r\n\r\n"
+    reader = FakeReader(raw)
+    writer = FakeWriter()
+    handler = HttpHandler(reader, writer, session_logger=SessionLogger(str(tmp_path / "sessions.jsonl")))
+
+    await handler.handle()
+
+    output_bytes = writer.buffer
+    assert output_bytes.startswith(b"HTTP/1.1 200 OK")
+    assert b"Content-Type: image/x-icon" in output_bytes
+    assert b"\r\n\r\n" in output_bytes
+
+
+@pytest.mark.asyncio
 async def test_http_connection_produces_session_record(tmp_path):
     """A completed connection should persist a well-formed session record."""
     raw = b"GET /index.html HTTP/1.1\r\nHost: example.com\r\n\r\n"

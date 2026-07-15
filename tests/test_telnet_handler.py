@@ -3,6 +3,7 @@ import json
 
 import pytest
 
+import honeypot.network.telnet_handler as telnet_handler_module
 from honeypot.logging.session_logger import SessionLogger
 from honeypot.network.telnet_handler import DO, IAC, WILL, TelnetHandler
 
@@ -122,6 +123,65 @@ async def test_telnet_login_and_password_attempts_captured(tmp_path):
     commands = [entry["cmd"] for entry in records[0]["commands"]]
     assert "login: root" in commands
     assert "password: toor" in commands
+
+
+@pytest.mark.asyncio
+async def test_telnet_captures_multiple_credential_pairs_in_one_connection(tmp_path, monkeypatch):
+    """Real Mirai-family bots iterate several pairs from a fixed wordlist in
+    one connection before giving up, not just one -- all of them should be
+    captured, in order, not just the first."""
+    monkeypatch.setattr(telnet_handler_module, "REJECTION_DELAY_SECONDS", 0)
+    reader = FakeReader(
+        b"",
+        ["root\r\n", "xc3511\r\n", "admin\r\n", "admin\r\n", "root\r\n", "vizxv\r\n"],
+    )
+    writer = FakeWriter()
+    log_path = tmp_path / "sessions.jsonl"
+    handler = TelnetHandler(reader, writer, session_logger=SessionLogger(str(log_path)))
+
+    await handler.handle()
+
+    commands = [entry["cmd"] for entry in read_records(log_path)[0]["commands"]]
+    assert commands == [
+        "login: root",
+        "password: xc3511",
+        "login: admin",
+        "password: admin",
+        "login: root",
+        "password: vizxv",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_telnet_stops_after_max_login_attempts(tmp_path, monkeypatch):
+    """A connection must not be held open forever -- once MAX_LOGIN_ATTEMPTS
+    pairs have all been rejected, the handler stops reading and disconnects
+    instead of prompting for a 6th attempt."""
+    monkeypatch.setattr(telnet_handler_module, "REJECTION_DELAY_SECONDS", 0)
+    monkeypatch.setattr(telnet_handler_module, "MAX_LOGIN_ATTEMPTS", 3)
+    reader = FakeReader(
+        b"",
+        [
+            "user1\r\n", "pass1\r\n",
+            "user2\r\n", "pass2\r\n",
+            "user3\r\n", "pass3\r\n",
+            # A 4th pair is queued but must never be consumed.
+            "user4\r\n", "pass4\r\n",
+        ],
+    )
+    writer = FakeWriter()
+    log_path = tmp_path / "sessions.jsonl"
+    handler = TelnetHandler(reader, writer, session_logger=SessionLogger(str(log_path)))
+
+    await handler.handle()
+
+    commands = [entry["cmd"] for entry in read_records(log_path)[0]["commands"]]
+    assert commands == [
+        "login: user1", "password: pass1",
+        "login: user2", "password: pass2",
+        "login: user3", "password: pass3",
+    ]
+    assert reader._lines == ["user4\r\n".encode(), "pass4\r\n".encode()]
 
 
 @pytest.mark.asyncio

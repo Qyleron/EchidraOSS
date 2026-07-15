@@ -64,9 +64,11 @@ class HoneypotSSHServer(asyncssh.SSHServer):
         self._on_connection_made = on_connection_made
         self._on_connection_lost = on_connection_lost
         self._admitted = False
+        self._conn: asyncssh.SSHServerConnection | None = None
 
     def connection_made(self, conn: asyncssh.SSHServerConnection) -> None:
-        if self._on_connection_made is not None and not self._on_connection_made():
+        self._conn = conn
+        if self._on_connection_made is not None and not self._on_connection_made(conn):
             logger.warning("SSH connection refused: max limit reached")
             conn.abort()
             return
@@ -78,7 +80,7 @@ class HoneypotSSHServer(asyncssh.SSHServer):
 
     def connection_lost(self, exc: Exception | None) -> None:
         if self._admitted and self._on_connection_lost is not None:
-            self._on_connection_lost()
+            self._on_connection_lost(self._conn)
         self._finalize("error" if exc else self.end_reason)
 
     def password_auth_supported(self) -> bool:
@@ -235,6 +237,7 @@ class SSHListener:
         self.session_logger = session_logger or SessionLogger(SESSION_LOG_PATH)
         self._acceptor: asyncssh.SSHAcceptor | None = None
         self._active_count = 0
+        self._active_connections: set[asyncssh.SSHServerConnection] = set()
 
     def _server_factory(self) -> HoneypotSSHServer:
         return HoneypotSSHServer(
@@ -243,15 +246,17 @@ class SSHListener:
             on_connection_lost=self._release,
         )
 
-    def _admit(self) -> bool:
+    def _admit(self, conn: asyncssh.SSHServerConnection) -> bool:
         """Return False to refuse once the session limit is reached."""
         if self._active_count >= self.max_connections:
             return False
         self._active_count += 1
+        self._active_connections.add(conn)
         return True
 
-    def _release(self) -> None:
+    def _release(self, conn: asyncssh.SSHServerConnection) -> None:
         self._active_count = max(0, self._active_count - 1)
+        self._active_connections.discard(conn)
 
     async def start(self) -> None:
         """Bind the SSH listener and serve clients until cancelled."""
@@ -277,4 +282,11 @@ class SSHListener:
         if self._acceptor is not None:
             self._acceptor.close()
             await self._acceptor.wait_closed()
+        connections = list(self._active_connections)
+        for conn in connections:
+            conn.abort()
+        await asyncio.gather(
+            *(conn.wait_closed() for conn in connections),
+            return_exceptions=True,
+        )
         logger.info("SSH server shutdown complete.")

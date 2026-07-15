@@ -19,6 +19,14 @@ DO = b"\xfd"
 WONT = b"\xfc"
 WILL = b"\xfb"
 
+# Real Mirai-family bots iterate several pairs from a fixed wordlist in one
+# connection before giving up, not just one -- capping at 5 covers the vast
+# majority of that behavior without letting one connection loop forever.
+MAX_LOGIN_ATTEMPTS = 5
+# Module-level so tests can shrink it to 0 instead of eating this delay for
+# real once they cover more than one attempt per connection.
+REJECTION_DELAY_SECONDS = 1
+
 
 class TelnetHandler:
     """
@@ -26,9 +34,10 @@ class TelnetHandler:
 
     Most Telnet attacks are Mirai botnet variants scanning for default
     IoT credentials. This handler presents a plausible login prompt,
-    accepts one username/password pair, always rejects it, and logs both.
-    The credential intelligence (real username+password pairs being tried
-    across the internet) is the primary value of this listener.
+    accepts up to MAX_LOGIN_ATTEMPTS username/password pairs (always
+    rejecting each one), and logs all of them. The credential intelligence
+    (real username+password pairs being tried across the internet) is the
+    primary value of this listener.
     """
 
     def __init__(
@@ -57,29 +66,31 @@ class TelnetHandler:
 
             banner = f"\r\n{persona.os_banner}\r\n\r\n"
             await self._send(banner)
-            await self._send(f"{persona.hostname} login: ")
 
-            username, leftover = await self._read_line(initial=leftover)
-            if username is None:
-                return
+            for _ in range(MAX_LOGIN_ATTEMPTS):
+                await self._send(f"{persona.hostname} login: ")
 
-            username = username.strip()
-            if username:
-                self.session.log_command(f"login: {username}")
+                username, leftover = await self._read_line(initial=leftover)
+                if username is None:
+                    return
 
-            await self._send("Password: ")
+                username = username.strip()
+                if username:
+                    self.session.log_command(f"login: {username}")
 
-            password, leftover = await self._read_line(initial=leftover, echo=False)
-            if password is None:
-                return
+                await self._send("Password: ")
 
-            password = password.strip()
-            if password:
-                self.session.log_command(f"password: {password}")
+                password, leftover = await self._read_line(initial=leftover, echo=False)
+                if password is None:
+                    return
 
-            await asyncio.sleep(1)
-            await self._send("\r\nLogin incorrect\r\n")
-            await self._send(f"\r\n{persona.hostname} login: ")
+                password = password.strip()
+                if password:
+                    self.session.log_command(f"password: {password}")
+
+                await asyncio.sleep(REJECTION_DELAY_SECONDS)
+                await self._send("\r\nLogin incorrect\r\n")
+
             end_reason = "disconnect"
 
         except asyncio.TimeoutError:

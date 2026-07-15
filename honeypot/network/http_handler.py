@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import logging
 
 from honeypot.logging.session_logger import SessionLogger
@@ -109,6 +110,32 @@ _NOT_FOUND = """\
 <center><h1>404 Not Found</h1></center>
 <hr><center>nginx/1.18.0</center>
 </body></html>"""
+
+_ROBOTS_TXT = "User-agent: *\nDisallow: /wp-admin/\nDisallow: /admin/\n"
+
+# A minimal, structurally valid 16x16 32bpp ICO -- scanners and browsers
+# alike request /favicon.ico on nearly every visit; a 404 there (while every
+# other real server on the internet returns 200) is a small but free tell.
+_FAVICON_ICO = base64.b64decode(
+    "AAABAAEAEBAAAAEAIABoBAAAFgAAACgAAAAQAAAAIAAAAAEAIAAAAAAAQAQAAAAA"
+    "AAAAAAAAAAAAAAAAAAAAAAAzLB//Mywf/zMsH/8zLB//Mywf/zMsH/8zLB//Mywf"
+    "/zMsH/8zLB//Mywf/zMsH/8zLB//Mywf/zMsH/8zLB//Mywf/zMsH/8zLB//Mywf"
+    "/zMsH/8zLB//Mywf/zMsH/8zLB//Mywf/zMsH/8zLB//Mywf/zMsH/8zLB//Mywf"
+    "/zMsH/8zLB//Mywf/zMsH/8zLB//Mywf/zMsH/8zLB//Mywf/zMsH/8zLB//Mywf"
+    "/zMsH/8zLB//Mywf/zMsH/8zLB//Mywf/zMsH/8zLB//Mywf/zMsH/8zLB//Mywf"
+    "/zMsH/8zLB//Mywf/zMsH/8zLB//Mywf/zMsH/8zLB//Mywf/zMsH/8zLB//Mywf"
+    "/zMsH/8zLB//Mywf/zMsH/8zLB//Mywf/zMsH/8zLB//Mywf/zMsH/8zLB//Mywf"
+    "/zMsH/8zLB//Mywf/zMsH/8zLB//Mywf/zMsH/8zLB//Mywf/zMsH/8zLB//Mywf"
+    "/zMsH/8zLB//Mywf/zMsH/8zLB//Mywf/zMsH/8zLB//Mywf/zMsH/8zLB//Mywf"
+    "/zMsH/8zLB//Mywf/zMsH/8zLB//Mywf/zMsH/8zLB//Mywf/zMsH/8zLB//Mywf"
+    "/zMsH/8zLB//Mywf/zMsH/8zLB//Mywf/zMsH/8zLB//Mywf/zMsH/8zLB//Mywf"
+    "/zMsH/8zLB//Mywf/zMsH/8zLB//Mywf/zMsH/8zLB//Mywf/zMsH/8zLB//Mywf"
+    "/zMsH/8zLB//Mywf/zMsH/8zLB//Mywf/zMsH/8zLB//Mywf/zMsH/8zLB//Mywf"
+    "/zMsH/8zLB//Mywf/zMsH/8zLB//Mywf/zMsH/8zLB//Mywf/zMsH/8zLB//Mywf"
+    "/zMsH/8zLB//Mywf/zMsH/8zLB//Mywf/zMsH/8zLB//Mywf/zMsH/8zLB//Mywf"
+    "/zMsH/8zLB//AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="
+)
 
 
 class HttpHandler:
@@ -221,8 +248,7 @@ class HttpHandler:
 
     def _build_response(self, method: str, path: str) -> bytes:
         persona = self.session.persona
-        status, body = self._pick_body(persona, path)
-        body_bytes = body.encode()
+        status, content_type, body_bytes = self._pick_body(persona, path)
 
         if "nginx" in persona.running_processes:
             server_header = "nginx/1.18.0 (Ubuntu)"
@@ -231,34 +257,45 @@ class HttpHandler:
         headers = (
             f"HTTP/1.1 {status}\r\n"
             f"Server: {server_header}\r\n"
-            f"Content-Type: text/html; charset=UTF-8\r\n"
+            f"Content-Type: {content_type}\r\n"
             f"Content-Length: {len(body_bytes)}\r\n"
             f"Connection: close\r\n"
             f"\r\n"
         )
+        # A HEAD response reports the same Content-Length a GET would return
+        # but never sends the body itself -- sending one anyway is a
+        # protocol-level tell real servers don't make.
+        if method == "HEAD":
+            return headers.encode()
         return headers.encode() + body_bytes
 
-    def _pick_body(self, persona, path: str) -> tuple[str, str]:
+    def _pick_body(self, persona, path: str) -> tuple[str, str, bytes]:
         p = path.lower().split("?")[0].rstrip("/") or "/"
+
+        if p == "/favicon.ico":
+            return "200 OK", "image/x-icon", _FAVICON_ICO
+
+        if p == "/robots.txt":
+            return "200 OK", "text/plain; charset=UTF-8", _ROBOTS_TXT.encode()
 
         # Sensitive probe paths — 403 to confirm existence without exposing content
         if any(x in p for x in ("/.env", "/wp-config", "/.git", "/config.php", "/.htaccess")):
-            return "403 Forbidden", _FORBIDDEN
+            return "403 Forbidden", "text/html; charset=UTF-8", _FORBIDDEN.encode()
 
         # WordPress credential capture paths
         if any(x in p for x in ("/wp-login", "/wp-admin", "/wp-content", "/wp-includes")):
-            return "200 OK", _WP_LOGIN
+            return "200 OK", "text/html; charset=UTF-8", _WP_LOGIN.encode()
 
         # phpMyAdmin credential capture paths
         if any(x in p for x in ("/phpmyadmin", "/pma", "/mysqladmin", "/dbadmin", "/myadmin")):
-            return "200 OK", _PHPMYADMIN
+            return "200 OK", "text/html; charset=UTF-8", _PHPMYADMIN.encode()
 
         # Root and index variants
         if p in ("/", "/index.html", "/index.php"):
             if "nginx" in persona.running_processes:
-                return "200 OK", _WP_HOME
+                return "200 OK", "text/html; charset=UTF-8", _WP_HOME.encode()
             if persona.persona_id == "centos_database":
-                return "200 OK", _PHPMYADMIN
-            return "200 OK", _APACHE_DEFAULT
+                return "200 OK", "text/html; charset=UTF-8", _PHPMYADMIN.encode()
+            return "200 OK", "text/html; charset=UTF-8", _APACHE_DEFAULT.encode()
 
-        return "404 Not Found", _NOT_FOUND
+        return "404 Not Found", "text/html; charset=UTF-8", _NOT_FOUND.encode()
