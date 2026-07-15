@@ -9,6 +9,7 @@ __pycache__/
 .claude/
 logs/
 data/
+reports/
 .env
 .env.*
 !.env.example
@@ -17,6 +18,9 @@ summation.txt
 Echidra-build-doc.pdf
 echidra_presentation.html
 docs/PROJECT_PLAN.md
+CONTEXT.md
 TBD.txt
 TBD2.txt
+personas.txt
+
 
