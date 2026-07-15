@@ -66,6 +66,26 @@ _HTTP_CREDENTIAL_BODY_PATTERN = re.compile(
 # alias rather than assuming one fixed pair of field names.
 _HTTP_USERNAME_FIELD_NAMES = ("log", "user", "username", "email", "uname")
 _HTTP_PASSWORD_FIELD_NAMES = ("pwd", "pass", "passwd", "password")
+# Product names of well-known vulnerability/recon scanners that identify
+# themselves in their User-Agent header. Deliberately conservative (no
+# "curl"/"python-requests"/etc.) -- those are used by huge amounts of benign
+# automation too, so including them would make this rule fire constantly.
+_SCANNER_USER_AGENT_MARKERS = (
+    "masscan",
+    "nikto",
+    "sqlmap",
+    "nmap",
+    "nuclei",
+    "zgrab",
+    "wpscan",
+    "dirbuster",
+    "gobuster",
+    "acunetix",
+    "nessus",
+)
+_SCANNER_USER_AGENT_PATTERN = re.compile(
+    "|".join(re.escape(marker) for marker in _SCANNER_USER_AGENT_MARKERS)
+)
 
 
 class SessionFeatures(BaseModel):
@@ -102,6 +122,18 @@ class SessionFeatures(BaseModel):
     ftp_credentials_tried: list[str] = Field(default_factory=list)
     # Same idea again, for credentials found in an HTTP POST body.
     http_credentials_tried: list[str] = Field(default_factory=list)
+    # Request-line paths observed over HTTP, in the order requested (eg.
+    # "/wp-login.php", "/.env") -- lets a rule or operator see what a scanner
+    # actually probed for, beyond just whether one hit was "sensitive".
+    http_paths_requested: list[str] = Field(default_factory=list)
+    # Raw User-Agent header values observed over HTTP, as sent by the client.
+    http_user_agents: list[str] = Field(default_factory=list)
+    # True if any http_user_agents entry names a known scanner tool (eg.
+    # masscan, nikto, sqlmap) -- a dedicated boolean rather than requiring a
+    # rule to substring-match http_user_agents itself, since the rule engine's
+    # contains_any operator only does exact element membership, not substring
+    # matching within a list of free-form header strings.
+    http_known_scanner_user_agent: bool = False
     # Cross-session feature — only populated by the store-time path when the DB
     # is available; None in the stateless /classify/session endpoint by design.
     connection_count_from_same_ip: int | None = None
@@ -126,6 +158,9 @@ def extract_session_features(
     ssh_credentials_tried: list[str] = []
     ftp_credentials_tried: list[str] = []
     http_credentials_tried: list[str] = []
+    http_paths_requested: list[str] = []
+    http_user_agents: list[str] = []
+    http_known_scanner_user_agent = False
     _pending_telnet_username: str | None = None
     _pending_ssh_username: str | None = None
     _pending_ftp_username: str | None = None
@@ -170,6 +205,16 @@ def extract_session_features(
             pair = _extract_http_credential_pair(body)
             if pair:
                 http_credentials_tried.append(pair)
+
+        if session.protocol == "http" and command_name in _HTTP_REQUEST_COMMANDS and args:
+            http_paths_requested.append(args[0])
+
+        if session.protocol == "http" and normalized.startswith("user-agent:"):
+            user_agent = event.cmd.split(":", 1)[1].strip()
+            if user_agent:
+                http_user_agents.append(user_agent)
+                if _SCANNER_USER_AGENT_PATTERN.search(user_agent.lower()):
+                    http_known_scanner_user_agent = True
 
         if command_name in DISCOVERY_COMMANDS:
             discovery_command_count += 1
@@ -222,6 +267,9 @@ def extract_session_features(
         ssh_credentials_tried=ssh_credentials_tried,
         ftp_credentials_tried=ftp_credentials_tried,
         http_credentials_tried=http_credentials_tried,
+        http_paths_requested=http_paths_requested,
+        http_user_agents=http_user_agents,
+        http_known_scanner_user_agent=http_known_scanner_user_agent,
         connection_count_from_same_ip=connection_count_from_same_ip,
     )
 

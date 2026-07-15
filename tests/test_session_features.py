@@ -384,6 +384,62 @@ def test_http_post_without_credential_fields_produces_no_credential_pair():
     assert features.http_credentials_tried == []
 
 
+def test_http_request_paths_are_collected_in_order():
+    """HttpHandler logs one request-line command per request -- the path
+    should be exposed as its own feature, not just folded into a sensitive/
+    not-sensitive boolean."""
+    session = create_http_session([
+        ("GET /wp-login.php HTTP/1.1", 1.0),
+        ("GET /favicon.ico HTTP/1.1", 2.0),
+    ])
+
+    features = extract_session_features(session)
+
+    assert features.http_paths_requested == ["/wp-login.php", "/favicon.ico"]
+
+
+def test_non_http_session_never_populates_http_paths_requested():
+    session = create_session([("get /.env", 1.0)])
+
+    features = extract_session_features(session)
+
+    assert features.http_paths_requested == []
+
+
+def test_http_scanner_user_agent_is_logged_and_flagged():
+    """HttpHandler logs a captured User-Agent header as its own command
+    (eg. "User-Agent: masscan/1.3") -- a known scanner name in it should
+    both surface in http_user_agents and flip the dedicated boolean rules
+    match on, since the rule engine can't substring-match a raw header
+    string against a wordlist itself."""
+    session = create_http_session([("User-Agent: masscan/1.3", 1.0)])
+
+    features = extract_session_features(session)
+
+    assert features.http_user_agents == ["masscan/1.3"]
+    assert features.http_known_scanner_user_agent is True
+
+
+def test_http_ordinary_browser_user_agent_is_logged_but_not_flagged():
+    session = create_http_session([
+        ("User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)", 1.0),
+    ])
+
+    features = extract_session_features(session)
+
+    assert features.http_user_agents == ["Mozilla/5.0 (Windows NT 10.0; Win64; x64)"]
+    assert features.http_known_scanner_user_agent is False
+
+
+def test_non_http_session_never_populates_http_user_agents():
+    session = create_session([("cat /etc/passwd", 1.0)])
+
+    features = extract_session_features(session)
+
+    assert features.http_user_agents == []
+    assert features.http_known_scanner_user_agent is False
+
+
 def test_handles_malformed_shell_input_as_observed_command():
     """Malformed input should remain measurable without crashing extraction."""
     session = create_session([

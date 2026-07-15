@@ -33,6 +33,19 @@ from classifier.realtime import LiveSessionClassifier
 
 logger = logging.getLogger(__name__)
 
+# asyncssh sends "SSH-2.0-" + this string as its version exchange line, so
+# a persona's ssh_banner (which already includes that prefix, matching how
+# a real server's banner reads) must have it stripped before being handed
+# back in as server_version -- otherwise the wire banner would double it.
+_SSH_VERSION_PREFIX = "SSH-2.0-"
+
+
+def _server_version_for(persona) -> str:
+    banner = persona.ssh_banner
+    if banner.startswith(_SSH_VERSION_PREFIX):
+        return banner[len(_SSH_VERSION_PREFIX):]
+    return banner
+
 # A honeypot that authenticates any credential instantly is a cheap tell --
 # real sshd takes a variable amount of time to check them. Module-level so
 # tests can shrink it to (0, 0) instead of eating this delay for real.
@@ -268,6 +281,7 @@ class SSHListener:
             self.port,
             server_host_keys=[key],
             process_factory=handle_shell,
+            server_version=_server_version_for(get_active_persona()),
         )
         logger.info("SSH server listening on %s:%s", self.host, self.port)
 

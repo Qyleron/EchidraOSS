@@ -303,3 +303,20 @@ rules:
       - field: auth_attempt_count
         operator: gte
         value: 1
+
+  - id: http_known_scanner_user_agent
+    name: Known scanner User-Agent
+    actor_label: automated_scanner
+    confidence: 0.75
+    risk_score: 40
+    mitre_tags:
+      - T1595
+    evidence:
+      - Request carried a User-Agent header naming a known vulnerability or reconnaissance scanner (eg. masscan, nikto, sqlmap).
+    conditions:
+      - field: protocol
+        operator: equals
+        value: http
+      - field: http_known_scanner_user_agent
+        operator: equals
+        value: true

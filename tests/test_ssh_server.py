@@ -7,7 +7,7 @@ import pytest_asyncio
 
 import honeypot.network.ssh_server as ssh_server_module
 from honeypot.logging.session_logger import SessionLogger
-from honeypot.network.ssh_server import SSHListener
+from honeypot.network.ssh_server import SSHListener, _server_version_for
 
 
 """
@@ -15,6 +15,25 @@ These are end-to-end tests against a real asyncssh server: a genuine SSH
 handshake, host key, and USERAUTH exchange, not a mocked reader/writer --
 that's the whole point of moving off the old raw-TCP fake login prompt.
 """
+
+
+class _FakePersona:
+    def __init__(self, ssh_banner):
+        self.ssh_banner = ssh_banner
+
+
+def test_server_version_for_strips_the_ssh_2_0_prefix():
+    """asyncssh prepends "SSH-2.0-" itself when sending the wire banner --
+    passing a persona's ssh_banner through unstripped would double it."""
+    persona = _FakePersona("SSH-2.0-OpenSSH_8.9p1 Ubuntu-3ubuntu0.6")
+
+    assert _server_version_for(persona) == "OpenSSH_8.9p1 Ubuntu-3ubuntu0.6"
+
+
+def test_server_version_for_leaves_a_prefixless_banner_untouched():
+    persona = _FakePersona("dropbear_2019.78")
+
+    assert _server_version_for(persona) == "dropbear_2019.78"
 
 
 @pytest_asyncio.fixture
@@ -77,6 +96,23 @@ async def test_accepts_any_credentials_and_reaches_the_fake_shell(running_server
     result = await conn.run("whoami", check=True)
 
     assert "root" in result.stdout
+
+    conn.close()
+    await conn.wait_closed()
+
+
+@pytest.mark.asyncio
+async def test_server_version_advertises_the_active_persona_ssh_banner(running_server):
+    """A wire banner reading "AsyncSSH_x.y.z" (asyncssh's own default) instead
+    of the persona's configured OpenSSH version is a one-command `nmap -sV`
+    tell. asyncssh reconstructs the full "SSH-2.0-" + server_version string
+    for this extra_info field, so it should read back out exactly as the
+    persona's ssh_banner -- the active persona here is generic_linux, whose
+    ssh_banner is "SSH-2.0-OpenSSH_8.9p1 Ubuntu-3ubuntu0.6"."""
+    port, _, _ = running_server
+
+    conn = await connect(port)
+    assert conn.get_extra_info("server_version") == "SSH-2.0-OpenSSH_8.9p1 Ubuntu-3ubuntu0.6"
 
     conn.close()
     await conn.wait_closed()
