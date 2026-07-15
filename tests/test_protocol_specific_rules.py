@@ -183,3 +183,29 @@ def test_http_post_without_credential_fields_does_not_match_harvest_rule():
     summary = classify_session(session)
 
     assert "http_credential_harvest_attempt" not in summary.matched_rule_ids
+
+
+def test_http_known_scanner_user_agent_matches_masscan():
+    session = make_session(
+        "http",
+        [("User-Agent: masscan/1.3", 0.1)],
+        duration_seconds=0.1,
+        persona_id="ubuntu_web_server",
+    )
+
+    summary = classify_session(session)
+
+    assert "http_known_scanner_user_agent" in summary.matched_rule_ids
+
+
+def test_http_ordinary_browser_user_agent_does_not_match_scanner_rule():
+    session = make_session(
+        "http",
+        [("User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)", 0.1)],
+        duration_seconds=0.1,
+        persona_id="ubuntu_web_server",
+    )
+
+    summary = classify_session(session)
+
+    assert "http_known_scanner_user_agent" not in summary.matched_rule_ids
