@@ -64,8 +64,8 @@ _HTTP_CREDENTIAL_BODY_PATTERN = re.compile(
 # Login forms don't agree on field names ("log"/"pwd" is WordPress; "username"/
 # "password" is generic; "email"/"pass" shows up too) -- check each known
 # alias rather than assuming one fixed pair of field names.
-_HTTP_USERNAME_FIELD_NAMES = {"log", "user", "username", "email", "uname"}
-_HTTP_PASSWORD_FIELD_NAMES = {"pwd", "pass", "passwd", "password"}
+_HTTP_USERNAME_FIELD_NAMES = ("log", "user", "username", "email", "uname")
+_HTTP_PASSWORD_FIELD_NAMES = ("pwd", "pass", "passwd", "password")
 
 
 class SessionFeatures(BaseModel):
