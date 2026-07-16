@@ -73,7 +73,7 @@ def test_rule_matches_with_fewer_than_two_commands_are_partial_not_complete():
 
     assert summary.classification_status == "partial"
     assert summary.insufficient_data_reason == (
-        "only one command was observed; a single matching rule isn't "
+        "no commands were observed; matching evidence alone isn't "
         "enough signal to classify with full confidence"
     )
     assert summary.actor_label == "automated_scanner"
