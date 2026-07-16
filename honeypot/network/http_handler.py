@@ -6,7 +6,7 @@ import asyncio
 import base64
 import logging
 
-from honeypot.logging.session_logger import SessionLogger
+from honeypot.logging.session_logger import SessionLogger, finalize_and_schedule
 from honeypot.network.config import READ_TIMEOUT, SESSION_LOG_PATH, get_active_persona
 from honeypot.network.protocol_session import ProtocolSession
 
@@ -210,10 +210,7 @@ class HttpHandler:
             except Exception:
                 pass
             self.session.finalize(end_reason)
-            try:
-                self.session_logger.log(self.session)
-            except Exception:
-                logger.exception("Failed to log HTTP session %s", self.session.session_id)
+            finalize_and_schedule(self.session_logger, self.session, "HTTP", logger)
 
     async def _read_headers(self) -> bytes:
         data = b""

@@ -3,6 +3,7 @@ import json
 
 import pytest
 
+import honeypot.logging.session_logger as session_logger_module
 import honeypot.network.telnet_handler as telnet_handler_module
 from honeypot.core.persona import get_persona
 from honeypot.logging.session_logger import SessionLogger
@@ -89,6 +90,28 @@ async def test_telnet_banner_and_login_prompt(tmp_path):
     assert "Linux fake-host 5.15.0-91-generic x86_64" in output
     assert "fake-host login:" in output
     assert "Login incorrect" in output
+
+
+@pytest.mark.asyncio
+async def test_telnet_session_schedules_auto_classification_after_logging(
+    tmp_path, monkeypatch
+):
+    """Every completed session should be handed to the auto-classification
+    hook, not just written to JSONL -- otherwise nothing ever classifies a
+    Telnet session unless an operator runs `echidra classify` manually."""
+    scheduled = []
+    monkeypatch.setattr(
+        session_logger_module, "schedule_auto_classification", scheduled.append
+    )
+    reader = FakeReader(b"", ["root\r\n", "toor\r\n"])
+    writer = FakeWriter()
+    log_path = tmp_path / "sessions.jsonl"
+    handler = TelnetHandler(reader, writer, session_logger=SessionLogger(str(log_path)))
+
+    await handler.handle()
+
+    assert len(scheduled) == 1
+    assert str(scheduled[0].session_id) == handler.session.session_id
 
 
 @pytest.mark.asyncio
