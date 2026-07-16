@@ -94,6 +94,45 @@ def test_handles_empty_sessions_without_division_errors():
     assert features.command_names == []
 
 
+def test_human_timing_score_reads_near_zero_at_bot_speed():
+    """Commands 0.2s apart are well under the bot-speed floor -- the score
+    should clamp to 0.0, not go negative."""
+    session = create_session([
+        ("whoami", 0.0),
+        ("ls", 0.2),
+        ("id", 0.4),
+    ])
+
+    features = extract_session_features(session)
+
+    assert features.human_timing_score == 0.0
+
+
+def test_human_timing_score_reads_near_one_at_human_pacing():
+    """Commands 6s apart are well past the human-pacing ceiling -- the score
+    should clamp to 1.0, not overshoot."""
+    session = create_session([
+        ("whoami", 0.0),
+        ("ls", 6.0),
+        ("id", 12.0),
+    ], duration_seconds=12.0)
+
+    features = extract_session_features(session)
+
+    assert features.human_timing_score == 1.0
+
+
+def test_human_timing_score_is_none_without_an_interval_to_measure():
+    """A single command has no cadence at all -- that's a different fact
+    than "scored as bot-speed", so it must read as None, not 0.0."""
+    session = create_session([("whoami", 0.0)])
+
+    features = extract_session_features(session)
+
+    assert features.average_inter_command_interval_seconds is None
+    assert features.human_timing_score is None
+
+
 def test_zero_duration_burst_with_commands_reads_as_high_rate_not_idle():
     """Several commands landing on the same timestamp (duration_seconds == 0)
     is a maximally fast burst -- it must not be reported as a 0.0 rate, which

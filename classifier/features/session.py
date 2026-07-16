@@ -86,6 +86,14 @@ _SCANNER_USER_AGENT_MARKERS = (
 _SCANNER_USER_AGENT_PATTERN = re.compile(
     "|".join(re.escape(marker) for marker in _SCANNER_USER_AGENT_MARKERS)
 )
+# Bounds for normalizing average_inter_command_interval_seconds into a 0-1
+# human_timing_score. Below BOT_SPEED, commands are indistinguishable from
+# automation (matches the ftp/telnet automated-credential-burst rules'
+# implicit ceiling: commands_per_minute >= 120 is exactly a 0.5s interval).
+# At or above HUMAN_PACING, the cadence reads as unambiguously human --
+# someone reading output and deciding on a next command, not a script.
+_BOT_SPEED_INTERVAL_SECONDS = 0.5
+_HUMAN_PACING_INTERVAL_SECONDS = 5.0
 
 
 class SessionFeatures(BaseModel):
@@ -108,6 +116,11 @@ class SessionFeatures(BaseModel):
     exit_command_present: bool
     inter_command_intervals_seconds: list[float]
     average_inter_command_interval_seconds: float | None
+    # Normalized 0.0-1.0 read on average_inter_command_interval_seconds: 0.0
+    # is clearly bot-speed pacing, 1.0 is clearly human pacing. None when
+    # there's no interval to measure at all (fewer than two commands) --
+    # a single command has no cadence to score, not a bot-speed one.
+    human_timing_score: float | None = Field(default=None, ge=0, le=1)
     command_names: list[str]
     auth_attempt_count: int = Field(default=0, ge=0)
     # "username:password" pairs submitted over Telnet, lowercased. Distinct
@@ -239,6 +252,7 @@ def extract_session_features(
     ]
     average_interval = sum(intervals) / len(intervals) if intervals else None
     unique_command_count = len(set(command_names))
+    human_timing_score = _human_timing_score(average_interval)
 
     return SessionFeatures(
         session_id=session.session_id,
@@ -261,6 +275,7 @@ def extract_session_features(
         exit_command_present=exit_command_present,
         inter_command_intervals_seconds=intervals,
         average_inter_command_interval_seconds=average_interval,
+        human_timing_score=human_timing_score,
         command_names=command_names,
         auth_attempt_count=auth_attempt_count,
         telnet_credentials_tried=telnet_credentials_tried,
@@ -304,6 +319,22 @@ def _extract_http_credential_pair(body: str) -> str | None:
 def _is_sensitive_path(path: str) -> bool:
     """Identify reads of paths likely to contain credentials or useful secrets."""
     return _SENSITIVE_PATH_MARKER_PATTERN.search(path.lower()) is not None
+
+
+def _human_timing_score(average_interval: float | None) -> float | None:
+    """Normalize average_inter_command_interval_seconds to a 0.0-1.0 score.
+
+    0.0 reads as clearly bot-speed pacing, 1.0 as clearly human pacing,
+    linearly interpolated between the two bounds. None in, None out --
+    a session with fewer than two commands has no cadence to score at all,
+    which is a different fact than "scored as bot-speed".
+    """
+    if average_interval is None:
+        return None
+
+    span = _HUMAN_PACING_INTERVAL_SECONDS - _BOT_SPEED_INTERVAL_SECONDS
+    score = (average_interval - _BOT_SPEED_INTERVAL_SECONDS) / span
+    return round(min(max(score, 0.0), 1.0), 2)
 
 
 def _commands_per_minute(command_count: int, duration_seconds: float) -> float:

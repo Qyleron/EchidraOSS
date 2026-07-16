@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
+import logging
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
@@ -20,6 +22,7 @@ from classifier.scoring.session import (
     summarize_rule_evaluation,
 )
 
+logger = logging.getLogger(__name__)
 
 DEFAULT_RULES_PATH = Path(__file__).parent / "rules" / "default_rules.yaml"
 
@@ -113,3 +116,76 @@ def classify_session_jsonl_file(
     """
     with Path(path).open("r", encoding="utf-8") as log_file:
         return classify_session_jsonl_lines(log_file, rules)
+
+
+# Tasks scheduled by schedule_auto_classification(), kept alive until they
+# finish -- asyncio only holds a weak reference to a bare create_task()
+# result, so an unreferenced task can be garbage-collected mid-execution.
+_background_classification_tasks: set[asyncio.Task] = set()
+
+
+def auto_classify_and_store(session: SessionRecord) -> None:
+    """Classify a just-completed session and persist the result, best-effort.
+
+    Called by every protocol handler right after SessionLogger.log() so a
+    completed session gets classified automatically, without an operator
+    manually running `echidra classify` or calling the ingest API. Mirrors
+    classify_and_store_session_endpoint's DB-optional behavior: the honeypot
+    must keep working with zero DB setup, so a missing or misconfigured
+    database silently skips classification instead of raising -- the session
+    is already durably logged to JSONL by the caller regardless of this
+    function's outcome. Every step past that is independently best-effort
+    for the same reason: a failure here must never surface to (or block)
+    the protocol handler that already finished serving its client.
+    """
+    from classifier.alerts import _maybe_send_alert
+    from classifier.storage import (
+        DatabaseDriverMissingError,
+        DatabaseNotConfiguredError,
+        PostgresClassifierRepository,
+    )
+
+    try:
+        repository = PostgresClassifierRepository()
+    except (DatabaseDriverMissingError, DatabaseNotConfiguredError):
+        return
+    except Exception:
+        logger.exception("Failed to construct repository for auto classification")
+        return
+
+    connection_count: int | None = None
+    if session.peer_ip:
+        try:
+            connection_count = repository.count_sessions_from_ip(str(session.peer_ip))
+        except Exception:
+            logger.exception("count_sessions_from_ip failed during auto classification")
+
+    try:
+        summary = classify_session(session, connection_count_from_same_ip=connection_count)
+    except Exception:
+        logger.exception("classify_session failed during auto classification")
+        return
+
+    try:
+        run = repository.save_classifier_run(session, summary)
+    except Exception:
+        logger.exception("save_classifier_run failed during auto classification")
+        return
+
+    try:
+        _maybe_send_alert(run, session, summary)
+    except Exception:
+        logger.exception("_maybe_send_alert failed during auto classification")
+
+
+def schedule_auto_classification(session: SessionRecord) -> None:
+    """Fire-and-forget auto_classify_and_store from a sync or async call site.
+
+    Runs the (blocking, DB-bound) work in a thread so it never stalls the
+    caller's event loop -- every protocol handler calls this right after
+    logging a completed session and must not wait on a database round trip
+    (or an alert email) before it can close the connection and move on.
+    """
+    task = asyncio.create_task(asyncio.to_thread(auto_classify_and_store, session))
+    _background_classification_tasks.add(task)
+    task.add_done_callback(_background_classification_tasks.discard)

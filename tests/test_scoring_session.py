@@ -52,7 +52,13 @@ def test_empty_rule_evaluation_returns_no_risk_summary():
     assert summary.matched_rule_ids == []
 
 
-def test_rule_matches_can_classify_zero_command_sessions():
+def test_rule_matches_with_fewer_than_two_commands_are_partial_not_complete():
+    """A matched rule can still identify an actor_label from a session with
+    zero or one commands (eg. repeat_connections_same_ip, which matches on
+    cross-session connection metadata, not command content) -- but
+    classification_status must say "partial", not "complete": one
+    coincidental match on that little command evidence overstates
+    confidence, even though the rule itself fired correctly."""
     evaluation = RuleEvaluation(matched_rules=[
         make_match(
             "repeat_connections_same_ip",
@@ -65,8 +71,11 @@ def test_rule_matches_can_classify_zero_command_sessions():
 
     summary = summarize_rule_evaluation(evaluation, features)
 
-    assert summary.classification_status == "complete"
-    assert summary.insufficient_data_reason is None
+    assert summary.classification_status == "partial"
+    assert summary.insufficient_data_reason == (
+        "only one command was observed; a single matching rule isn't "
+        "enough signal to classify with full confidence"
+    )
     assert summary.actor_label == "automated_scanner"
     assert summary.matched_rule_ids == ["repeat_connections_same_ip"]
 

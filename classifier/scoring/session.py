@@ -23,6 +23,7 @@ Intent = Literal[
     "credential_theft",
     "data_access",
     "interactive_operation",
+    "vulnerability_exploitation",
 ]
 SafeguardPriority = Literal["low", "medium", "high", "critical"]
 DeceptionActionName = Literal["adaptive_response_delay"]
@@ -70,6 +71,9 @@ class FeatureSummary(BaseModel):
     sensitive_file_read_count: int = Field(ge=0)
     decoy_files_surfaced_count: int = Field(ge=0)
     exit_command_present: bool
+    # 0.0 (clearly bot-speed) to 1.0 (clearly human-paced); None when the
+    # session has fewer than two commands and so has no cadence to score.
+    human_timing_score: float | None = Field(default=None, ge=0, le=1)
 
     class Config:
         extra = "forbid"
@@ -222,19 +226,32 @@ def _classification_status(
 ) -> tuple[ClassificationStatus, str | None]:
     """Decide whether a session had enough signal to classify safely.
 
-    A session with zero observed commands carries no command evidence and no
-    inter-command timing signal (there is no auth step to fall back on), so
-    it can never support a confident actor label regardless of connection
-    duration — that case is always insufficient_data, not a low-confidence
+    A session with fewer than two observed commands carries no meaningful
+    command pattern and no inter-command timing signal at all (there's no
+    auth step to fall back on), so it can never support a confident actor
+    label regardless of connection duration -- not even when the lone
+    command happens to match a rule (eg. a single "sqlmap ..." line matching
+    script_kiddie_tool_names). One coincidental match on one command
+    overstates confidence; that case is "partial", not "complete", and a
+    session with one command that matches nothing at all has no evidence
+    whatsoever, so that's "insufficient_data" rather than a low-confidence
     guess.
     """
+    command_count = features.command_count if features is not None else 0
+
+    if command_count < 2:
+        if matched_rules:
+            return "partial", (
+                "only one command was observed; a single matching rule isn't "
+                "enough signal to classify with full confidence"
+            )
+        return "insufficient_data", (
+            "fewer than two commands were observed during the session, so no "
+            "reliable command or timing evidence is available"
+        )
+
     if matched_rules:
         return "complete", None
-    if features is None or features.command_count == 0:
-        return "insufficient_data", (
-            "no commands were observed during the session, so no command or "
-            "timing evidence is available"
-        )
     return "partial", (
         "commands were observed but none matched a classification rule "
         "confidently enough to assign an actor label"
@@ -298,6 +315,7 @@ def _feature_summary(features: SessionFeatures | None) -> FeatureSummary | None:
         sensitive_file_read_count=features.sensitive_file_read_count,
         decoy_files_surfaced_count=features.decoy_files_surfaced_count,
         exit_command_present=features.exit_command_present,
+        human_timing_score=features.human_timing_score,
     )
 
 
@@ -325,7 +343,14 @@ def _behavior_stage_and_intent(
         return "credential_access", "credential_theft"
     if "T1005" in tag_set:
         return "collection", "data_access"
-    if "T1087" in tag_set or "T1082" in tag_set:
+    # T1190 (Exploit Public-Facing Application) takes priority over T1595:
+    # script_kiddie_tool_names tags a session with both at once (a known
+    # exploit/scanning tool typed directly), and running one is a more
+    # specific, further-along signal than the general active-scanning
+    # T1595/T1087/T1082 reconnaissance bucket below.
+    if "T1190" in tag_set:
+        return "execution", "vulnerability_exploitation"
+    if "T1087" in tag_set or "T1082" in tag_set or "T1595" in tag_set:
         return "discovery", "reconnaissance"
     if "T1059" in tag_set:
         return "execution", "interactive_operation"
@@ -399,6 +424,18 @@ def _analyst_recommendation(
                 supporting_evidence=supporting_evidence,
         )
 
+    if intent == "vulnerability_exploitation":
+        return AnalystRecommendation(
+                action="increase_source_monitoring",
+                priority="high",
+                rationale=(
+                    "A known exploit or scanning tool was run directly "
+                    "against the service, warranting closer monitoring of "
+                    "this source."
+                ),
+                supporting_evidence=supporting_evidence,
+        )
+
     if (
         behavior_stage == "collection"
         and persona_context.decoy_files_surfaced
@@ -439,7 +476,22 @@ def _analyst_recommendation(
                 supporting_evidence=supporting_evidence,
         )
 
-    return None
+    # This function is only ever called once a rule has matched (see
+    # summarize_rule_evaluation) -- a "complete" classification must always
+    # give an analyst somewhere to look next, even when the matched rule's
+    # behavior_stage/intent didn't fit one of the more specific cases above
+    # (eg. a brute_force_bot match carrying only T1110, with no discovery,
+    # collection, or execution signal alongside it).
+    return AnalystRecommendation(
+            action="increase_source_monitoring",
+            priority="low" if risk_level in {"none", "low"} else "medium",
+            rationale=(
+                "This session matched a classification rule; monitor the "
+                "source for further activity even though no more specific "
+                "follow-up action is indicated yet."
+            ),
+            supporting_evidence=supporting_evidence,
+    )
 
 
 def _unique_ordered(values) -> list[str]:

@@ -3,6 +3,7 @@ import json
 
 import pytest
 
+import honeypot.logging.session_logger as session_logger_module
 from honeypot.logging.session_logger import SessionLogger
 from honeypot.network.http_handler import HttpHandler
 
@@ -100,6 +101,27 @@ async def test_http_root_request_returns_persona_banner(tmp_path):
     assert output.startswith("HTTP/1.1 200 OK")
     assert "Server: Apache/2.4.54 (Debian)" in output
     assert "Apache2 Ubuntu Default Page" in output
+
+
+@pytest.mark.asyncio
+async def test_http_session_schedules_auto_classification_after_logging(tmp_path, monkeypatch):
+    """Every completed session should be handed to the auto-classification
+    hook, not just written to JSONL -- otherwise nothing ever classifies an
+    HTTP session unless an operator runs `echidra classify` manually."""
+    scheduled = []
+    monkeypatch.setattr(
+        session_logger_module, "schedule_auto_classification", scheduled.append
+    )
+    raw = b"GET / HTTP/1.1\r\nHost: example.com\r\n\r\n"
+    reader = FakeReader(raw)
+    writer = FakeWriter()
+    log_path = tmp_path / "sessions.jsonl"
+    handler = HttpHandler(reader, writer, session_logger=SessionLogger(str(log_path)))
+
+    await handler.handle()
+
+    assert len(scheduled) == 1
+    assert str(scheduled[0].session_id) == handler.session.session_id
 
 
 @pytest.mark.asyncio

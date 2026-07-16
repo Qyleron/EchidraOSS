@@ -209,3 +209,57 @@ def test_http_ordinary_browser_user_agent_does_not_match_scanner_rule():
     summary = classify_session(session)
 
     assert "http_known_scanner_user_agent" not in summary.matched_rule_ids
+
+
+def test_single_command_matching_no_rule_returns_insufficient_data():
+    """A 2-second session with one command that matches nothing has no
+    command or timing evidence at all -- that's insufficient_data, not a
+    low-confidence guess."""
+    session = make_session("tcp_shell", [("ls", 0.0)], duration_seconds=2.0)
+
+    summary = classify_session(session)
+
+    assert summary.matched_rule_ids == []
+    assert summary.classification_status == "insufficient_data"
+    assert summary.actor_label is None
+
+
+def test_single_command_matching_a_rule_returns_partial_not_complete():
+    """A 2-second session with one command that does match a rule (eg.
+    "sqlmap ..." triggering script_kiddie_tool_names) still only carries one
+    command's worth of evidence -- classification_status must read
+    "partial", not "complete", even though a rule fired and actor_label is
+    populated."""
+    session = make_session(
+        "tcp_shell",
+        [("sqlmap -u http://target", 0.0)],
+        duration_seconds=2.0,
+    )
+
+    summary = classify_session(session)
+
+    assert "script_kiddie_tool_names" in summary.matched_rule_ids
+    assert summary.actor_label == "script_kiddie"
+    assert summary.classification_status == "partial"
+
+
+def test_repeat_connections_at_five_matches_brute_force_bot_with_t1110():
+    """5+ connections from the same source IP in 24h is the documented
+    threshold for repeat_connections_same_ip -- verify the boundary itself,
+    not just that the rule exists."""
+    session = make_session("tcp_shell", [("whoami", 0.0)], duration_seconds=0.1)
+
+    summary = classify_session(session, connection_count_from_same_ip=5)
+
+    assert "repeat_connections_same_ip" in summary.matched_rule_ids
+    assert summary.actor_label == "brute_force_bot"
+    assert "T1110" in summary.mitre_tags
+
+
+def test_repeat_connections_at_four_does_not_match():
+    """One connection short of the threshold must not fire the rule."""
+    session = make_session("tcp_shell", [("whoami", 0.0)], duration_seconds=0.1)
+
+    summary = classify_session(session, connection_count_from_same_ip=4)
+
+    assert "repeat_connections_same_ip" not in summary.matched_rule_ids

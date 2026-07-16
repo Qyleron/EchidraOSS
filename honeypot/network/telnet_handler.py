@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from honeypot.logging.session_logger import SessionLogger
+from honeypot.logging.session_logger import SessionLogger, finalize_and_schedule
 from honeypot.network.config import READ_TIMEOUT, SESSION_LOG_PATH, get_active_persona
 from honeypot.network.protocol_session import ProtocolSession
 
@@ -112,10 +112,7 @@ class TelnetHandler:
             except Exception:
                 pass
             self.session.finalize(end_reason)
-            try:
-                self.session_logger.log(self.session)
-            except Exception:
-                logger.exception("Failed to log Telnet session %s", self.session.session_id)
+            finalize_and_schedule(self.session_logger, self.session, "Telnet", logger)
 
     async def _send(self, text: str) -> None:
         self.writer.write(text.encode("latin-1", errors="replace"))

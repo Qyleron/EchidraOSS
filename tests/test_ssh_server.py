@@ -5,6 +5,7 @@ import asyncssh
 import pytest
 import pytest_asyncio
 
+import honeypot.logging.session_logger as session_logger_module
 import honeypot.network.ssh_server as ssh_server_module
 from honeypot.logging.session_logger import SessionLogger
 from honeypot.network.ssh_server import SSHListener, _server_version_for
@@ -116,6 +117,30 @@ async def test_server_version_advertises_the_active_persona_ssh_banner(running_s
 
     conn.close()
     await conn.wait_closed()
+
+
+@pytest.mark.asyncio
+async def test_ssh_session_schedules_auto_classification_after_logging(
+    running_server, monkeypatch
+):
+    """Every completed session should be handed to the auto-classification
+    hook, not just written to JSONL -- otherwise the only classification an
+    SSH session ever gets is the periodic, partial live-classifier pass;
+    nothing runs a full classification once the session actually ends."""
+    scheduled = []
+    monkeypatch.setattr(
+        session_logger_module, "schedule_auto_classification", scheduled.append
+    )
+    port, _, log_path = running_server
+
+    conn = await connect(port, username="op", password="operator")
+    await conn.run("whoami")
+    conn.close()
+    await conn.wait_closed()
+    await asyncio.sleep(0.1)
+
+    assert len(scheduled) == 1
+    assert str(scheduled[0].session_id) == read_records(log_path)[0]["session_id"]
 
 
 @pytest.mark.asyncio

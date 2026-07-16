@@ -3,6 +3,7 @@ import json
 
 import pytest
 
+import honeypot.logging.session_logger as session_logger_module
 from honeypot.logging.session_logger import SessionLogger
 from honeypot.network.ftp_handler import FtpHandler
 
@@ -104,6 +105,26 @@ async def test_ftp_banner_and_credentials_are_captured(tmp_path):
     commands = [entry["cmd"] for entry in records[0]["commands"]]
     assert "USER admin" in commands
     assert "PASS hunter2" in commands
+
+
+@pytest.mark.asyncio
+async def test_ftp_session_schedules_auto_classification_after_logging(tmp_path, monkeypatch):
+    """Every completed session should be handed to the auto-classification
+    hook, not just written to JSONL -- otherwise nothing ever classifies an
+    FTP session unless an operator runs `echidra classify` manually."""
+    scheduled = []
+    monkeypatch.setattr(
+        session_logger_module, "schedule_auto_classification", scheduled.append
+    )
+    reader = FakeReader(["USER admin", "PASS hunter2"])
+    writer = FakeWriter()
+    log_path = tmp_path / "sessions.jsonl"
+    handler = FtpHandler(reader, writer, session_logger=SessionLogger(str(log_path)))
+
+    await handler.handle()
+
+    assert len(scheduled) == 1
+    assert str(scheduled[0].session_id) == handler.session.session_id
 
 
 @pytest.mark.asyncio

@@ -17,7 +17,7 @@ import asyncssh
 
 from honeypot.core.engine import InteractionEngine
 from honeypot.core.session import SessionState
-from honeypot.logging.session_logger import SessionLogger
+from honeypot.logging.session_logger import SessionLogger, finalize_and_schedule
 from honeypot.network.config import (
     HOST,
     MAX_CONNECTIONS,
@@ -123,10 +123,7 @@ class HoneypotSSHServer(asyncssh.SSHServer):
             return
         self._finalized = True
         self.session.finalize(end_reason)
-        try:
-            self.session_logger.log(self.session)
-        except Exception:
-            logger.exception("Failed to log SSH session %s", self.session.session_id)
+        finalize_and_schedule(self.session_logger, self.session, "SSH", logger)
 
 
 async def handle_shell(process: asyncssh.SSHServerProcess) -> None:
