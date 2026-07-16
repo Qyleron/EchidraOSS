@@ -34,9 +34,16 @@ Compose fails fast with a clear error if you forget to set it, same as
 they're not percent-encoded before being interpolated into the connection
 string.
 
+Unlike a bare-metal run, Compose also requires `ECHIDRA_SESSION_SECRET`
+explicitly rather than falling back to the auto-generated/persisted default
+described above — the `api` container's writable layer doesn't survive
+`docker compose down`/recreation, so an auto-generated secret would silently
+rotate and invalidate every dashboard session.
+
 ```bash
 cp .env.example .env
-# edit .env: set ECHIDRA_DB_PASSWORD and ECHIDRA_INGEST_API_KEY (see above)
+# edit .env: set ECHIDRA_DB_PASSWORD, ECHIDRA_INGEST_API_KEY, and
+# ECHIDRA_SESSION_SECRET (see above)
 docker compose up -d --build
 docker compose exec api python -m classifier.storage.cli init-db
 ```
