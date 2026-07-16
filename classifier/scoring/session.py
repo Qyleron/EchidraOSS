@@ -239,7 +239,18 @@ def _classification_status(
     """
     command_count = features.command_count if features is not None else 0
 
-    if command_count < 2:
+    if command_count == 0:
+        if matched_rules:
+            return "partial", (
+                "no commands were observed; matching evidence alone isn't "
+                "enough signal to classify with full confidence"
+            )
+        return "insufficient_data", (
+            "no commands were observed during the session, so no reliable "
+            "command or timing evidence is available"
+        )
+
+    if command_count == 1:
         if matched_rules:
             return "partial", (
                 "only one command was observed; a single matching rule isn't "
