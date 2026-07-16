@@ -56,4 +56,11 @@ def finalize_and_schedule(
     except Exception:
         logger.exception("Failed to log %s session %s", protocol, session.session_id)
     else:
-        schedule_auto_classification(record)
+        try:
+            schedule_auto_classification(record)
+        except Exception:
+            logger.exception(
+                "Failed to schedule classification for %s session %s",
+                protocol,
+                session.session_id,
+            )

@@ -133,11 +133,22 @@ async def test_ssh_session_schedules_auto_classification_after_logging(
     )
     port, _, log_path = running_server
 
+    scheduled = []
+    scheduled_event = asyncio.Event()
+
+    def capture(session):
+        scheduled.append(session)
+        scheduled_event.set()
+
+    monkeypatch.setattr(
+        session_logger_module, "schedule_auto_classification", capture
+    )
+
     conn = await connect(port, username="op", password="operator")
     await conn.run("whoami")
     conn.close()
     await conn.wait_closed()
-    await asyncio.sleep(0.1)
+    await asyncio.wait_for(scheduled_event.wait(), timeout=5)
 
     assert len(scheduled) == 1
     assert str(scheduled[0].session_id) == read_records(log_path)[0]["session_id"]
