@@ -2,9 +2,10 @@
 
 Two supported paths beyond the local dev Quick Start in [README.md](../README.md):
 a Docker Compose stack, and systemd units for a bare VM. Both require
-`ECHIDRA_INGEST_API_KEY`; `ECHIDRA_SESSION_SECRET` can also be set explicitly
-if you run more than one API process, so they all sign/verify the same
-dashboard session cookies (see below).
+`ECHIDRA_INGEST_API_KEY`. `ECHIDRA_SESSION_SECRET` is required for Compose;
+for a bare-metal systemd run it's optional only if you're running a single
+API process — set it explicitly if you run more than one, so they all
+sign/verify the same dashboard session cookies (see below).
 
 ## Secrets you need either way
 
@@ -15,11 +16,12 @@ python -c "import secrets; print(secrets.token_urlsafe(32))"   # ECHIDRA_SESSION
 
 - `ECHIDRA_INGEST_API_KEY` — required. `POST /classify/session/store` refuses
   every request until this is set.
-- `ECHIDRA_SESSION_SECRET` — optional. If unset, the API auto-generates one
-  and persists it to `logs/.dashboard_session_secret` on first run, which is
-  fine for a single instance. Set it explicitly if you run more than one API
-  process (multiple containers/replicas, systemd + a reverse proxy doing
-  multiple workers) so they all sign/verify the same session cookies.
+- `ECHIDRA_SESSION_SECRET` — optional only for a single-instance bare-metal
+  (systemd) deployment. If unset there, the API auto-generates one and
+  persists it to `logs/.dashboard_session_secret` on first run. Set it
+  explicitly if you run more than one API process (systemd + a reverse proxy
+  doing multiple workers) so they all sign/verify the same session cookies.
+  Compose always requires it explicitly — see below.
 - `ECHIDRA_COOKIE_SECURE=true` — set this once the dashboard is served over
   HTTPS (it isn't by default; put a reverse proxy like Caddy or nginx in
   front for TLS termination in production).
