@@ -286,7 +286,7 @@ def test_signup_dashboard_user_blocked_once_an_account_exists(monkeypatch):
         route.endpoint(payload, Response())
 
     assert exc_info.value.status_code == 403
-    assert "signup is disabled" in exc_info.value.detail
+    assert exc_info.value.detail == "signup is currently unavailable."
 
 
 def test_signup_dashboard_user_allowed_when_env_override_set(monkeypatch):
