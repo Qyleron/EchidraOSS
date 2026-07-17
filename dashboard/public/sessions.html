@@ -628,7 +628,7 @@
     async function loadSessions(from, to) {
       const requestId = ++latestSessionsRequestId;
       const truncatedNotice = document.getElementById("rangeTruncatedNotice");
-      tableBody.innerHTML = '<tr><td colspan="8" class="table-loader-cell"><div class="spinner"></div></td></tr>';
+      tableBody.innerHTML = '<tr><td colspan="8" class="table-loader-cell"><div class="spinner" role="status" aria-label="Loading sessions"></div></td></tr>';
       renderPagination(0);
       truncatedNotice.style.display = "none";
       let runs = null;
