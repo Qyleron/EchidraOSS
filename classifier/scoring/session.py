@@ -237,7 +237,12 @@ def _classification_status(
     whatsoever, so that's "insufficient_data" rather than a low-confidence
     guess.
     """
-    command_count = features.command_count if features is not None else 0
+    if features is None:
+        if matched_rules:
+            return "complete", None
+        return "insufficient_data", "session features were not supplied"
+
+    command_count = features.command_count
 
     if command_count == 0:
         if matched_rules:
