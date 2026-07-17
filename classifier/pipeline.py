@@ -118,10 +118,107 @@ def classify_session_jsonl_file(
         return classify_session_jsonl_lines(log_file, rules)
 
 
-# Tasks scheduled by schedule_auto_classification(), kept alive until they
-# finish -- asyncio only holds a weak reference to a bare create_task()
-# result, so an unreferenced task can be garbage-collected mid-execution.
-_background_classification_tasks: set[asyncio.Task] = set()
+# Classification work runs in a small fixed pool of background workers
+# draining a bounded queue, instead of one asyncio.to_thread task per session
+# on the interpreter's default executor (whose internal work queue has no
+# size limit). That decouples "session finished" -- unbounded, driven by
+# attacker traffic -- from "classification capacity" -- bounded, driven by
+# DB/alerting latency -- so a connection flood can't grow the backlog
+# without limit.
+_CLASSIFICATION_WORKER_COUNT = 4
+_CLASSIFICATION_QUEUE_MAXSIZE = 500
+
+_classification_queue: "asyncio.Queue[SessionRecord | object] | None" = None
+_classification_workers: list[asyncio.Task] = []
+
+# Tells a worker to exit its loop instead of waiting on the next queue item.
+# Cancelling a worker's task while it's mid asyncio.to_thread(auto_classify_
+# and_store, ...) would not stop the underlying thread -- concurrent.futures
+# only honors cancel() before a job starts running, and Python joins any
+# still-running threads at interpreter exit regardless. So shutdown must
+# make the worker loop *return on its own*, and does so by feeding it this
+# sentinel once it's idle, rather than cancelling it.
+_WORKER_STOP = object()
+
+# Log threshold (not a hard deadline) for how long stop_classification_workers
+# waits for already-queued sessions to finish classifying. Every blocking
+# call reachable from auto_classify_and_store now has its own timeout --
+# DB connect/statement timeouts (classifier/storage/repository.py) and
+# alert-delivery socket timeouts (classifier/alerts.py) -- so the wait below
+# is guaranteed to finish rather than hang forever; this constant only
+# controls when a "this is taking a while" warning is logged.
+_CLASSIFICATION_SHUTDOWN_DRAIN_TIMEOUT = 15.0
+
+
+async def _classification_worker(queue: "asyncio.Queue[SessionRecord | object]") -> None:
+    while True:
+        session = await queue.get()
+        if session is _WORKER_STOP:
+            queue.task_done()
+            return
+        try:
+            await asyncio.to_thread(auto_classify_and_store, session)
+        except Exception:
+            logger.exception("auto_classify_and_store failed in classification worker")
+        finally:
+            queue.task_done()
+
+
+def start_classification_workers(
+    worker_count: int = _CLASSIFICATION_WORKER_COUNT,
+    queue_maxsize: int = _CLASSIFICATION_QUEUE_MAXSIZE,
+) -> None:
+    """Start the bounded classification queue and its fixed worker pool.
+
+    Call once from the application's event loop at startup (honeypot/main.py
+    does this alongside starting each ProtocolServer) before any session can
+    reach schedule_auto_classification.
+    """
+    global _classification_queue
+    _classification_queue = asyncio.Queue(maxsize=queue_maxsize)
+    _classification_workers.extend(
+        asyncio.create_task(_classification_worker(_classification_queue))
+        for _ in range(worker_count)
+    )
+
+
+async def stop_classification_workers(
+    drain_timeout: float = _CLASSIFICATION_SHUTDOWN_DRAIN_TIMEOUT,
+) -> None:
+    """Drain already-queued classification work, then stop workers and drop the queue.
+
+    Waits for the queue to fully empty -- so sessions enqueued right before
+    shutdown still get classified and stored instead of silently dropped --
+    then feeds each now-idle worker a stop sentinel so its loop returns on
+    its own. Workers are never cancelled: cancelling a task awaiting
+    asyncio.to_thread does not stop the underlying thread, which would keep
+    running against a database/SMTP connection after this function -- and
+    the worker pool and queue it clears -- has already returned. drain_timeout
+    only bounds how long we wait before logging that the drain is slow; the
+    actual wait continues past it, relying on every blocking call inside
+    auto_classify_and_store having its own timeout (see module docstring
+    above _WORKER_STOP) to guarantee this still finishes.
+    """
+    global _classification_queue
+    queue = _classification_queue
+    if queue is None:
+        return
+
+    try:
+        await asyncio.wait_for(queue.join(), timeout=drain_timeout)
+    except asyncio.TimeoutError:
+        logger.warning(
+            "Classification queue drain still running after %.1fs; "
+            "continuing to wait for in-flight work to finish",
+            drain_timeout,
+        )
+        await queue.join()
+
+    for _ in _classification_workers:
+        await queue.put(_WORKER_STOP)
+    await asyncio.gather(*_classification_workers)
+    _classification_workers.clear()
+    _classification_queue = None
 
 
 def auto_classify_and_store(session: SessionRecord) -> None:
@@ -179,13 +276,30 @@ def auto_classify_and_store(session: SessionRecord) -> None:
 
 
 def schedule_auto_classification(session: SessionRecord) -> None:
-    """Fire-and-forget auto_classify_and_store from a sync or async call site.
+    """Enqueue a just-completed session for background classification.
 
-    Runs the (blocking, DB-bound) work in a thread so it never stalls the
-    caller's event loop -- every protocol handler calls this right after
-    logging a completed session and must not wait on a database round trip
-    (or an alert email) before it can close the connection and move on.
+    Runs the (blocking, DB-bound) work in one of a fixed pool of worker
+    threads started by start_classification_workers(), so a protocol handler
+    calling this right after logging a completed session never waits on a
+    database round trip (or an alert email) before it can close the
+    connection and move on.
+
+    Overload policy: if the bounded queue is already full -- classification
+    can't keep up with session volume, eg. during a connection flood -- the
+    session is dropped from auto-classification rather than growing the
+    backlog without bound. It's already durably logged to JSONL by the
+    caller regardless of this function's outcome.
     """
-    task = asyncio.create_task(asyncio.to_thread(auto_classify_and_store, session))
-    _background_classification_tasks.add(task)
-    task.add_done_callback(_background_classification_tasks.discard)
+    if _classification_queue is None:
+        logger.warning(
+            "Classification workers not started; dropping session %s",
+            session.session_id,
+        )
+        return
+    try:
+        _classification_queue.put_nowait(session)
+    except asyncio.QueueFull:
+        logger.warning(
+            "Classification queue full; dropping session %s",
+            session.session_id,
+        )
