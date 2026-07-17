@@ -183,6 +183,28 @@ def test_dashboard_route_accepts_valid_session_cookie():
     assert isinstance(response, FileResponse)
 
 
+def test_dashboard_route_sets_no_store_cache_headers():
+    """A logged-out browser must never be able to restore this page from the
+    back-forward cache and see stale authenticated content -- no-store makes
+    the page ineligible for bfcache in the first place."""
+    route = route_for("/dashboard", "GET")
+
+    response = route.endpoint(dashboard_request())
+
+    assert response.headers["cache-control"] == "no-store, must-revalidate"
+    assert response.headers["pragma"] == "no-cache"
+
+
+def test_dashboard_page_route_sets_no_store_cache_headers():
+    route = route_for("/dashboard/{page_name}", "GET")
+
+    response = route.endpoint("sessions", dashboard_request())
+
+    assert isinstance(response, FileResponse)
+    assert response.headers["cache-control"] == "no-store, must-revalidate"
+    assert response.headers["pragma"] == "no-cache"
+
+
 def test_personas_endpoint_never_returns_decoy_credential_values():
     """/personas must expose only a count, never the actual username/password."""
     route = route_for("/personas", "GET")
