@@ -97,9 +97,20 @@ database won't retroactively appear in the dashboard once you add one.
 
 Want to run each service manually (its own terminal, `--reload` for API
 development, only one listener at a time)? See the prereqs block at the top
-of [docs/TESTING_GUIDE.md](docs/TESTING_GUIDE.md#manual-testing-guide). For a
-Docker Compose stack or a systemd deployment on a VM, see
-[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+of [docs/TESTING_GUIDE.md](docs/TESTING_GUIDE.md#manual-testing-guide).
+
+### Deployment options
+
+Three supported paths — pick the one that matches where this is running:
+
+| Path | Best for | How |
+|---|---|---|
+| **Local machine** | Trying it out, day-to-day development | The Quick Start above (`echidra` CLI), or run each service in its own terminal per [docs/TESTING_GUIDE.md](docs/TESTING_GUIDE.md#manual-testing-guide) |
+| **Docker Compose** | A self-contained stack (honeypot + API + Postgres) on any machine with Docker | [docs/DEPLOYMENT.md#docker-compose](docs/DEPLOYMENT.md#docker-compose) |
+| **systemd (bare VM)** | A long-running deployment on a VM you administer directly, without Docker | [docs/DEPLOYMENT.md#systemd-bare-vm](docs/DEPLOYMENT.md#systemd-bare-vm) |
+
+All three read the same `.env` file and produce the same `logs/sessions.jsonl` —
+switching between them later doesn't require re-architecting anything.
 
 Default listeners:
 

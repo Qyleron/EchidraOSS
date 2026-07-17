@@ -4,8 +4,13 @@ Hands-on commands and expected output for every honeypot listener, the
 classifier/storage layer, and every dashboard page. Run these yourself —
 nothing here is automated for you.
 
-Prereqs for most sections:
+Every command below (`curl`, `nc`, `telnet`, `psql`) works unchanged against
+any of the three deployment paths — only how you start the services and
+where you run the `classifier.storage.cli`/`echidra` commands differs.
 
+Prereqs, by deployment path:
+
+**Local machine** (this is what the rest of this guide assumes):
 ```bash
 cp .env.example .env                       # set ECHIDRA_DATABASE_URL inside
 python -m classifier.storage.cli init-db --seed-demo-issues
@@ -13,6 +18,28 @@ python -m classifier.storage.cli init-db --seed-demo-issues
 python -m honeypot.main                    # terminal 1 — the 4 protocol listeners
 uvicorn classifier.api.app:create_app --factory --reload        # terminal 2 — API + dashboard, port 8000
 ```
+
+**Docker Compose** (see [DEPLOYMENT.md#docker-compose](DEPLOYMENT.md#docker-compose)):
+```bash
+docker compose up -d --build
+docker compose exec api python -m classifier.storage.cli init-db --seed-demo-issues
+```
+Everything below still targets `127.0.0.1`/`localhost` on the same published
+ports (2222/8080/2121/2323/8000) — Compose publishes them to the host. Swap
+any bare `python -m classifier.storage.cli ...` command in the sections below
+for `docker compose exec api python -m classifier.storage.cli ...`, and
+`tail -1 logs/sessions.jsonl` for `docker compose exec honeypot tail -1 logs/sessions.jsonl`
+(the log lives inside the container's volume).
+
+**systemd** (see [DEPLOYMENT.md#systemd-bare-vm](DEPLOYMENT.md#systemd-bare-vm)):
+```bash
+sudo -u echidra /opt/echidra/venv/bin/python -m classifier.storage.cli init-db --seed-demo-issues
+sudo systemctl status echidra-honeypot echidra-api   # instead of watching two terminals
+journalctl -u echidra-honeypot -f                    # instead of terminal 1's stdout
+```
+Run the guide's `curl`/`nc`/`telnet`/`psql` commands from the VM itself (or
+against its public IP/hostname if the ports are reachable), and
+`tail -1 /opt/echidra/logs/sessions.jsonl` for the JSONL checks.
 
 ---
 
