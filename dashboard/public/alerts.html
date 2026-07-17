@@ -253,7 +253,7 @@
     // ── Alert history ──────────────────────────────────────────────────────────
     async function loadAlertEvents() {
       var tbody = document.getElementById("alertEventsBody");
-      tbody.innerHTML = '<tr><td colspan="7" class="table-loader-cell"><div class="spinner"></div></td></tr>';
+      tbody.innerHTML = '<tr><td colspan="7" class="table-loader-cell"><div class="spinner" role="status" aria-label="Loading alert history"></div></td></tr>';
       try {
         var responses = await Promise.all([
           fetch("/alerts/events?limit=200"),

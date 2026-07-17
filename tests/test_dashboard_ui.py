@@ -264,7 +264,7 @@ def test_high_volume_tables_show_a_loader_inside_their_own_container():
     issues, the 8 most recent events) don't need one."""
     table_pages = {
         "sessions.html": 'tableBody.innerHTML = \'<tr><td colspan="8" class="table-loader-cell"><div class="spinner"></div></td></tr>\';',
-        "alerts.html": 'tbody.innerHTML = \'<tr><td colspan="7" class="table-loader-cell"><div class="spinner"></div></td></tr>\';',
+        "alerts.html": 'tbody.innerHTML = \'<tr><td colspan="7" class="table-loader-cell"><div class="spinner" role="status" aria-label="Loading alert history"></div></td></tr>\';',
     }
     for page, loader_line in table_pages.items():
         html = (DASHBOARD_PUBLIC_PATH / page).read_text(encoding="utf-8")
