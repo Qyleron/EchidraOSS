@@ -151,6 +151,21 @@ per-service and per-page manual test commands.
 
 ---
 
+## One persona at a time
+
+Echidra runs **one active persona** at a time — set it with
+`ECHIDRA_PERSONA=ubuntu_web_server` before `echidra serve`. The five
+presets visible in the dashboard are configuration choices, not five
+simultaneous honeypots.
+
+To capture different attack profiles in parallel, run Echidra on
+multiple servers, each with a different persona, all pointing at the
+same `ECHIDRA_DATABASE_URL`. The dashboard aggregates sessions from
+all of them, tagged by `persona_id`, so you can compare attack
+patterns across personas in the Analytics and Intelligence pages.
+
+---
+
 ## Safety Model
 
 Echidra never runs attacker input on the host. Shell commands, HTTP requests,

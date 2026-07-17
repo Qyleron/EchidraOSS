@@ -81,9 +81,8 @@ docker compose exec api python -m classifier.storage.cli init-db --seed-demo-iss
 
 Two separate units — `echidra-honeypot.service` and `echidra-api.service` —
 so a crash or restart in one never takes down the other. Both live in
-[deploy/systemd/](../deploy/systemd/).
-
-
+[deploy/systemd/](../deploy/systemd/) — `echidra-honeypot.service` for the
+listeners and `echidra-api.service` for the dashboard and classifier API.
 
 Both unit files run as the unprivileged `echidra` user with
 `ProtectSystem=strict` (read-only filesystem outside `logs/`). The
