@@ -109,13 +109,15 @@ sudo chown -R echidra:echidra /opt/echidra
 
 sudo cp deploy/systemd/echidra-honeypot.service deploy/systemd/echidra-api.service /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable --now echidra-honeypot echidra-api
-```
+sudo systemctl enable --now echidra-honeypot
+sudo systemctl enable echidra-api
 
-`echidra-api.service` requires a Postgres instance reachable at
-`ECHIDRA_DATABASE_URL` before it starts cleanly — run
-`venv/bin/python -m classifier.storage.cli init-db` (as the `echidra` user)
-against it first, the same way Compose's `init-db` step works.
+# echidra-api requires a Postgres instance reachable at ECHIDRA_DATABASE_URL
+# before it starts cleanly -- init it first, the same way Compose's init-db
+# step works, then start the service.
+sudo -u echidra venv/bin/python -m classifier.storage.cli init-db
+sudo systemctl start echidra-api
+```
 
 Check status:
 
