@@ -64,6 +64,15 @@ DASHBOARD_PAGE_FILES = {
 DASHBOARD_SESSION_SECRET_ENV = "ECHIDRA_SESSION_SECRET"
 DASHBOARD_COOKIE_SECURE_ENV = "ECHIDRA_COOKIE_SECURE"
 DASHBOARD_AUTH_COOKIE = "echidra_dashboard_auth"
+# Applied to every authenticated dashboard page response. Without this, a
+# browser may serve a logged-out user their last-viewed dashboard straight
+# from the back-forward cache on Back/Forward navigation -- a real network
+# request (and this route's own auth check) never happens, so a revoked
+# session would otherwise appear to still be logged in.
+_DASHBOARD_NO_STORE_HEADERS = {
+    "Cache-Control": "no-store, must-revalidate",
+    "Pragma": "no-cache",
+}
 INGEST_API_KEY_ENV = "ECHIDRA_INGEST_API_KEY"
 INGEST_API_KEY_HEADER = "x-api-key"
 ALLOW_SIGNUPS_ENV = "ECHIDRA_ALLOW_SIGNUPS"
@@ -192,7 +201,11 @@ def create_app() -> FastAPI:
         """Serve the dashboard access page."""
         if not AUTH_INDEX_PATH.exists():
             raise HTTPException(status_code=404, detail="auth page not found")
-        return FileResponse(AUTH_INDEX_PATH, media_type="text/html")
+        return FileResponse(
+            AUTH_INDEX_PATH,
+            media_type="text/html",
+            headers=_DASHBOARD_NO_STORE_HEADERS,
+        )
 
     @api.post("/auth/signup", tags=["dashboard"])
     def signup_dashboard_user(
@@ -214,12 +227,14 @@ def create_app() -> FastAPI:
                 allow_multiple=_dashboard_allow_multiple_signups(),
             )
         except DashboardSignupNotAllowedError:
+            # Deliberately generic: this endpoint is reachable by anyone who
+            # can reach the honeypot's dashboard port, including attackers
+            # probing it, so the response must not name the exact env var
+            # that reopens signups. An operator who needs that already has
+            # it documented in README.md/docs/DEPLOYMENT.md.
             raise HTTPException(
                 status_code=403,
-                detail=(
-                    "signup is disabled — a dashboard account already exists. "
-                    f"Set {ALLOW_SIGNUPS_ENV}=true to allow additional accounts."
-                ),
+                detail="signup is currently unavailable.",
             )
         except DashboardEmailAlreadyRegisteredError:
             raise HTTPException(status_code=409, detail="email already registered")
@@ -291,14 +306,29 @@ def create_app() -> FastAPI:
             return RedirectResponse("/auth", status_code=303)
         if not DASHBOARD_INDEX_PATH.exists():
             raise HTTPException(status_code=404, detail="dashboard not found")
-        return FileResponse(DASHBOARD_INDEX_PATH, media_type="text/html")
+        return FileResponse(
+            DASHBOARD_INDEX_PATH,
+            media_type="text/html",
+            headers=_DASHBOARD_NO_STORE_HEADERS,
+        )
 
     @api.get("/dashboard.css", response_class=FileResponse, tags=["dashboard"])
     def dashboard_css() -> FileResponse:
-        """Serve the shared dashboard stylesheet."""
+        """Serve the shared dashboard stylesheet.
+
+        no-store here isn't the bfcache/auth concern _DASHBOARD_NO_STORE_HEADERS
+        was introduced for (this route needs no auth) -- it's so a browser
+        never keeps serving a stylesheet cached from before a deploy/restart
+        changed it, which silently breaks any page relying on a class added
+        since (eg. .password-toggle-btn's positioning).
+        """
         if not DASHBOARD_CSS_PATH.exists():
             raise HTTPException(status_code=404, detail="dashboard stylesheet not found")
-        return FileResponse(DASHBOARD_CSS_PATH, media_type="text/css")
+        return FileResponse(
+            DASHBOARD_CSS_PATH,
+            media_type="text/css",
+            headers=_DASHBOARD_NO_STORE_HEADERS,
+        )
 
     @api.get("/dashboard/{page_name}", response_class=FileResponse, tags=["dashboard"])
     def dashboard_page(page_name: str, request: Request) -> Response:
@@ -308,7 +338,11 @@ def create_app() -> FastAPI:
         page_path = DASHBOARD_PAGE_FILES.get(page_name)
         if page_path is None or not page_path.exists():
             raise HTTPException(status_code=404, detail="dashboard page not found")
-        return FileResponse(page_path, media_type="text/html")
+        return FileResponse(
+            page_path,
+            media_type="text/html",
+            headers=_DASHBOARD_NO_STORE_HEADERS,
+        )
 
     @api.get(
         "/personas",
