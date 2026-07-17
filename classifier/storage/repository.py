@@ -1419,6 +1419,65 @@ class PostgresClassifierRepository:
         )
         return int(row["cnt"]) if row else 0
 
+    def record_session_and_count_from_ip(
+        self,
+        session: SessionRecord,
+        *,
+        window_seconds: int = 86_400,
+    ) -> int:
+        """Atomically upsert this session's row, then count sessions from its
+        peer IP in the last window_seconds -- so the count always includes
+        the current session and can't race with another concurrent session
+        from the same IP.
+
+        Calling count_sessions_from_ip() before this session has a row of
+        its own (the previous auto-classification order: count, then
+        classify, then save_classifier_run upserts the row last) lets two
+        sessions from the same IP classified concurrently by the worker
+        pool both read a stale, undercounted value before either commits --
+        undermining the repeat_connections_same_ip rule specifically for
+        the fast, concurrent bursts it exists to catch. Holding a
+        transaction-scoped advisory lock keyed by peer_ip around the
+        upsert-then-count serializes exactly (and only) concurrent callers
+        sharing that IP, so this is immune to that race. save_classifier_run
+        upserts the same session id again once classification finishes;
+        that's safe since UPSERT_SESSION_SQL is an idempotent ON CONFLICT
+        DO UPDATE.
+        """
+        from classifier.storage.geolocation import resolve_country
+
+        peer_ip = str(session.peer_ip)
+        psycopg = _load_psycopg()
+        with _connect(psycopg, self.database_url) as conn:
+            with conn.transaction():
+                with conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
+                    cur.execute(
+                        "SELECT pg_advisory_xact_lock(hashtext(%(peer_ip)s)::bigint)",
+                        {"peer_ip": peer_ip},
+                    )
+                    cur.execute(
+                        UPSERT_SESSION_SQL,
+                        {
+                            "id": session.session_id,
+                            "protocol": session.protocol,
+                            "peer_ip": peer_ip,
+                            "peer_port": session.peer_port,
+                            "latitude": session.latitude,
+                            "longitude": session.longitude,
+                            "country": resolve_country(peer_ip),
+                            "persona_id": session.persona_id,
+                            "started_at": session.started_at,
+                            "ended_at": session.ended_at,
+                            "end_reason": session.end_reason,
+                        },
+                    )
+                    cur.execute(
+                        SELECT_SESSIONS_FROM_IP_SQL,
+                        {"peer_ip": peer_ip, "window_seconds": window_seconds},
+                    )
+                    row = cur.fetchone()
+        return int(row["cnt"]) if row else 0
+
     def get_alert_config(self) -> "AlertConfigRecord | None":
         """Return the singleton global alert config, or None if never configured."""
         from classifier.storage.models import AlertConfigRecord
