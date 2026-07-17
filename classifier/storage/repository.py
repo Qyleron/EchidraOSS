@@ -46,13 +46,40 @@ from classifier.storage.models import (
 _DB_CONNECT_TIMEOUT_SECONDS = 10
 _DB_STATEMENT_TIMEOUT_SECONDS = 10
 
+# connect_timeout only bounds the initial handshake, and statement_timeout is
+# enforced server-side -- neither helps once a connection is already
+# established and the network then dies silently (a partition, a middlebox
+# dropping an idle connection), since the client's blocking read() has no way
+# to learn the peer is gone. TCP keepalives make the OS probe the connection
+# and fail that read instead of hanging forever: idle=10s before the first
+# probe, interval=5s between probes, count=3 failed probes before giving up
+# (worst case ~25s to detect), keeping the same order of magnitude as the
+# timeouts above instead of relying on the OS's default (often 2+ hours).
+# libpq only honors these over an actual TCP connection -- every documented
+# ECHIDRA_DATABASE_URL is a postgresql://host:port/... TCP DSN (see
+# docs/DEPLOYMENT.md), but a Unix-domain-socket DSN or a libpq build on a
+# platform where it doesn't support keepalives_interval/keepalives_count
+# (only keepalives_idle is universal) would silently get none of this
+# dead-connection detection.
+_DB_KEEPALIVES_IDLE_SECONDS = 10
+_DB_KEEPALIVES_INTERVAL_SECONDS = 5
+_DB_KEEPALIVES_COUNT = 3
+
 
 def _connect(psycopg, database_url: str):
-    """psycopg.connect(), bounded by both a connect timeout and a per-statement timeout."""
+    """psycopg.connect(), bounded by a connect timeout, a per-statement timeout,
+    and TCP keepalives so an established connection can't hang forever after
+    the underlying network dies. The keepalive guarantee only holds for a TCP
+    database_url -- libpq ignores keepalives_* over a Unix-domain socket, and
+    keepalives_interval/keepalives_count aren't honored on every platform."""
     return psycopg.connect(
         database_url,
         connect_timeout=_DB_CONNECT_TIMEOUT_SECONDS,
         options=f"-c statement_timeout={_DB_STATEMENT_TIMEOUT_SECONDS * 1000}",
+        keepalives=1,
+        keepalives_idle=_DB_KEEPALIVES_IDLE_SECONDS,
+        keepalives_interval=_DB_KEEPALIVES_INTERVAL_SECONDS,
+        keepalives_count=_DB_KEEPALIVES_COUNT,
     )
 
 
