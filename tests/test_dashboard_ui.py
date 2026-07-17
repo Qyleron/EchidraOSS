@@ -301,6 +301,24 @@ def test_every_dashboard_page_styles_the_logout_modal_close_button_as_danger():
         assert 'class="modal-close modal-close-danger" id="logoutConfirmCloseBtn"' in html, page
 
 
+def test_failed_logout_restores_focus_to_the_logout_button():
+    """logoutButton.disabled = true (set before the fetch) drops keyboard
+    focus even though closeLogoutConfirm() had just set it there -- on a
+    failed logout the button is re-enabled but focus was never restored,
+    stranding a keyboard user's focus nowhere after the alert() closes."""
+    pages = [
+        "index.html",
+        "sessions.html",
+        "analytics.html",
+        "intelligence.html",
+        "personas.html",
+        "alerts.html",
+    ]
+    for page in pages:
+        html = (DASHBOARD_PUBLIC_PATH / page).read_text(encoding="utf-8")
+        assert "logoutButton.disabled = false;\n        logoutButton.focus();" in html, page
+
+
 def test_cross_buttons_have_no_fill_behind_the_x():
     """Every close (x) button -- the default modal-close and the danger
     logout variant -- shows only a border and the x mark, no solid fill
@@ -332,6 +350,23 @@ def test_sessions_table_has_pagination_controls():
     css = (DASHBOARD_PUBLIC_PATH / "dashboard.css").read_text(encoding="utf-8")
     assert ".table-pagination {" in css
     assert "justify-content: flex-end;" in css
+
+
+def test_pagination_render_restores_focus_after_destroying_the_clicked_button():
+    """renderPagination() replaces its own innerHTML on every Prev/Next
+    click, destroying the button that had focus -- without restoring it
+    somewhere, a keyboard user's focus is lost to <body>. Only do this when
+    focus was actually inside the pagination area (a Prev/Next click), not
+    on an unrelated re-render like the initial load or a new date range."""
+    html = (DASHBOARD_PUBLIC_PATH / "sessions.html").read_text(encoding="utf-8")
+
+    assert "const hadFocusInside = paginationContainer.contains(document.activeElement);" in html
+    assert 'id="sessionsPaginationStatus" tabindex="-1"' in html
+    assert (
+        "if (hadFocusInside) {\n"
+        '        document.getElementById("sessionsPaginationStatus").focus();\n'
+        "      }"
+    ) in html
 
 
 def test_disabled_pagination_button_does_not_pick_up_hover_styling():

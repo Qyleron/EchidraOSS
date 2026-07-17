@@ -134,6 +134,13 @@ a {
   }
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .page-loader .spinner,
+  .table-loader-cell .spinner {
+    animation: none;
+  }
+}
+
 /* ── Unified two-row header ── */
 .topbar {
   position: fixed;

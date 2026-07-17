@@ -285,13 +285,18 @@
     }
 
     function renderPagination(totalPages) {
+      // A Prev/Next click re-renders this whole container, destroying the
+      // button that had focus -- if that's what's happening (as opposed to
+      // an unrelated re-render, eg. the initial load or a new date range),
+      // move focus to the page-status text instead of losing it to <body>.
+      const hadFocusInside = paginationContainer.contains(document.activeElement);
       if (totalPages <= 1) {
         paginationContainer.innerHTML = "";
         return;
       }
       paginationContainer.innerHTML = `
         <button type="button" class="text-button" id="sessionsPrevPage" ${currentPage === 1 ? "disabled" : ""}>Prev</button>
-        <span class="pagination-status">Page ${currentPage} of ${totalPages}</span>
+        <span class="pagination-status" id="sessionsPaginationStatus" tabindex="-1">Page ${currentPage} of ${totalPages}</span>
         <button type="button" class="text-button" id="sessionsNextPage" ${currentPage === totalPages ? "disabled" : ""}>Next</button>
       `;
       const prevButton = document.getElementById("sessionsPrevPage");
@@ -308,6 +313,9 @@
           renderSessions(visibleSessions);
         }
       });
+      if (hadFocusInside) {
+        document.getElementById("sessionsPaginationStatus").focus();
+      }
     }
 
     async function loadSessionEvents(sessionId) {
@@ -603,6 +611,7 @@
         console.error(error);
         alert("Logout failed: " + error.message);
         logoutButton.disabled = false;
+        logoutButton.focus();
       } finally {
         clearTimeout(timeoutId);
       }
@@ -620,6 +629,8 @@
       const requestId = ++latestSessionsRequestId;
       const truncatedNotice = document.getElementById("rangeTruncatedNotice");
       tableBody.innerHTML = '<tr><td colspan="8" class="table-loader-cell"><div class="spinner"></div></td></tr>';
+      renderPagination(0);
+      truncatedNotice.style.display = "none";
       let runs = null;
       try {
         const fromTs = from.getTime() / 1000;
