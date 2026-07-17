@@ -226,10 +226,20 @@ async def stop_classification_workers(
     try:
         await asyncio.wait_for(queue.join(), timeout=drain_timeout)
     except asyncio.TimeoutError:
+        dropped = 0
+        while True:
+            try:
+                queue.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+            else:
+                queue.task_done()
+                dropped += 1
         logger.warning(
-            "Classification queue drain still running after %.1fs; "
-            "continuing to wait for in-flight work to finish",
+            "Classification queue did not drain after %.1fs; "
+            "dropping %d pending sessions and waiting for in-flight work",
             drain_timeout,
+            dropped,
         )
         await queue.join()
 
@@ -272,6 +282,8 @@ def auto_classify_and_store(session: SessionRecord) -> None:
     if session.peer_ip:
         try:
             connection_count = repository.record_session_and_count_from_ip(session)
+        except DatabaseDriverMissingError:
+            return
         except Exception:
             logger.exception("record_session_and_count_from_ip failed during auto classification")
 
@@ -283,6 +295,8 @@ def auto_classify_and_store(session: SessionRecord) -> None:
 
     try:
         run = repository.save_classifier_run(session, summary)
+    except DatabaseDriverMissingError:
+        return
     except Exception:
         logger.exception("save_classifier_run failed during auto classification")
         return
