@@ -106,6 +106,8 @@ sudo cp .env.example .env
 sudo $EDITOR .env   # set ECHIDRA_DATABASE_URL, ECHIDRA_INGEST_API_KEY, ECHIDRA_SESSION_SECRET
 sudo mkdir -p logs
 sudo chown -R echidra:echidra /opt/echidra
+sudo chmod 600 /opt/echidra/.env
+sudo chmod 700 /opt/echidra/logs
 
 sudo cp deploy/systemd/echidra-honeypot.service deploy/systemd/echidra-api.service /etc/systemd/system/
 sudo systemctl daemon-reload
