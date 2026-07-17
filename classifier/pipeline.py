@@ -174,7 +174,14 @@ def start_classification_workers(
     does this alongside starting each ProtocolServer) before any session can
     reach schedule_auto_classification.
     """
+    if worker_count < 1:
+        raise ValueError("worker_count must be at least 1")
+    if queue_maxsize < 1:
+        raise ValueError("queue_maxsize must be at least 1")
+
     global _classification_queue
+    if _classification_queue is not None or _classification_workers:
+        raise RuntimeError("Classification workers are already running")
     _classification_queue = asyncio.Queue(maxsize=queue_maxsize)
     _classification_workers.extend(
         asyncio.create_task(_classification_worker(_classification_queue))
@@ -185,12 +192,16 @@ def start_classification_workers(
 async def stop_classification_workers(
     drain_timeout: float = _CLASSIFICATION_SHUTDOWN_DRAIN_TIMEOUT,
 ) -> None:
-    """Drain already-queued classification work, then stop workers and drop the queue.
+    """Close intake, drain already-queued classification work, then stop workers.
 
-    Waits for the queue to fully empty -- so sessions enqueued right before
-    shutdown still get classified and stored instead of silently dropped --
-    then feeds each now-idle worker a stop sentinel so its loop returns on
-    its own. Workers are never cancelled: cancelling a task awaiting
+    Clears the module-level queue reference up front so schedule_auto_
+    classification() starts rejecting (and logging) new sessions immediately,
+    before waiting for the queue to fully empty -- so sessions enqueued right
+    before shutdown began still get classified and stored instead of being
+    silently dropped, while nothing enqueued after can land behind the stop
+    sentinels below and get stranded once their worker has already exited.
+    Once drained, each now-idle worker gets a stop sentinel so its loop
+    returns on its own. Workers are never cancelled: cancelling a task awaiting
     asyncio.to_thread does not stop the underlying thread, which would keep
     running against a database/SMTP connection after this function -- and
     the worker pool and queue it clears -- has already returned. drain_timeout
@@ -203,6 +214,14 @@ async def stop_classification_workers(
     queue = _classification_queue
     if queue is None:
         return
+
+    # Close intake before draining: schedule_auto_classification() treats a
+    # None queue as "reject and log", so clearing the global reference here
+    # -- while still holding the local `queue` for the rest of this function
+    # -- guarantees no session enqueued from this point on can land behind
+    # the stop sentinels below and get silently stranded once the workers
+    # that would have processed it have already exited.
+    _classification_queue = None
 
     try:
         await asyncio.wait_for(queue.join(), timeout=drain_timeout)
@@ -218,7 +237,6 @@ async def stop_classification_workers(
         await queue.put(_WORKER_STOP)
     await asyncio.gather(*_classification_workers)
     _classification_workers.clear()
-    _classification_queue = None
 
 
 def auto_classify_and_store(session: SessionRecord) -> None:
@@ -253,9 +271,9 @@ def auto_classify_and_store(session: SessionRecord) -> None:
     connection_count: int | None = None
     if session.peer_ip:
         try:
-            connection_count = repository.count_sessions_from_ip(str(session.peer_ip))
+            connection_count = repository.record_session_and_count_from_ip(session)
         except Exception:
-            logger.exception("count_sessions_from_ip failed during auto classification")
+            logger.exception("record_session_and_count_from_ip failed during auto classification")
 
     try:
         summary = classify_session(session, connection_count_from_same_ip=connection_count)

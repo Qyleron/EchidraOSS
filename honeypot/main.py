@@ -29,8 +29,6 @@ async def main():
     if hasattr(signal, "SIGTERM"):
         loop.add_signal_handler(signal.SIGTERM, shutdown_signal)
 
-    start_classification_workers()
-
     # Primary SSH honeypot listener
     ssh_server = SSHListener()
 
@@ -54,6 +52,8 @@ async def main():
     stop_task = asyncio.create_task(stop_event.wait())
 
     try:
+        start_classification_workers()
+
         remaining = list(tasks)
         while remaining:
             done, _ = await asyncio.wait(
