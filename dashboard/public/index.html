@@ -301,6 +301,7 @@
         console.error(error);
         alert("Logout failed: " + error.message);
         logoutButton.disabled = false;
+        logoutButton.focus();
       } finally {
         clearTimeout(timeoutId);
       }
