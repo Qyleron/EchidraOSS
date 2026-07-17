@@ -269,6 +269,27 @@ def test_empty_rule_evaluation_includes_feature_summary_when_available():
     assert summary.feature_summary.exit_command_present is True
 
 
+def test_t1110_only_match_reports_credential_theft_not_unknown():
+    """Every brute_force_bot rule (repeat connections, raw auth attempts,
+    FTP/Telnet/HTTP credential bursts) is tagged with only T1110 -- a session
+    that matches one of those and nothing else must still report a real
+    intent, not fall through to "unknown" for lack of a T1110 branch."""
+    evaluation = RuleEvaluation(matched_rules=[
+        make_match(
+            "authentication_attempt",
+            "brute_force_bot",
+            0.7,
+            55,
+            mitre_tags=["T1110"],
+        ),
+    ])
+
+    summary = summarize_rule_evaluation(evaluation, make_features(command_count=4))
+
+    assert summary.behavior_stage == "credential_access"
+    assert summary.intent == "credential_theft"
+
+
 def _risk_level_for_score(score):
     evaluation = RuleEvaluation(matched_rules=[
         make_match("rule", "automated_scanner", 1.0, score),
