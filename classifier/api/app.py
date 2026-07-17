@@ -212,7 +212,12 @@ def create_app() -> FastAPI:
         path = request.url.path
         if path not in _NO_STORE_EXEMPT_PATHS and not path.startswith(_NO_STORE_EXEMPT_PREFIXES):
             for key, value in _DASHBOARD_NO_STORE_HEADERS.items():
-                response.headers.setdefault(key, value)
+                existing = response.headers.get(key)
+                if key == "Cache-Control" and existing and "no-store" in existing.lower():
+                    continue
+                if key == "Pragma" and existing and "no-cache" in existing.lower():
+                    continue
+                response.headers[key] = value
         return response
 
     @api.get("/health", tags=["service"])
