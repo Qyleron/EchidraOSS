@@ -1,11 +1,21 @@
 # Deployment
 
-Two supported paths beyond the local dev Quick Start in [README.md](../README.md):
-a Docker Compose stack, and systemd units for a bare VM. Both require
+Three supported paths: the local dev Quick Start, a Docker Compose stack, and
+systemd units for a bare VM. Docker Compose and systemd both require
 `ECHIDRA_INGEST_API_KEY`. `ECHIDRA_SESSION_SECRET` is required for Compose;
 for a bare-metal systemd run it's optional only if you're running a single
 API process — set it explicitly if you run more than one, so they all
 sign/verify the same dashboard session cookies (see below).
+
+## Local machine
+
+Covered in full in the [README Quick Start](../README.md#quick-start)
+(`echidra init` / `echidra serve` / `echidra status`) and in
+[TESTING_GUIDE.md](TESTING_GUIDE.md#manual-testing-guide) if you'd rather run
+each service in its own terminal. No systemd units, containers, or a
+dedicated `echidra` user — just a clone, a virtualenv, and `.env`. This is
+the right choice for trying Echidra out or actively developing on it; move to
+Docker Compose or systemd once you want it running unattended.
 
 ## Secrets you need either way
 
@@ -82,6 +92,32 @@ Both unit files run as the unprivileged `echidra` user with
 capability the process doesn't otherwise need. Uncomment it only if you set
 any listener port below 1024 (e.g. `ECHIDRA_HTTP_PORT=80`).
 
+Both unit files assume the layout below (`WorkingDirectory=/opt/echidra`,
+`EnvironmentFile=/opt/echidra/.env`, `ExecStart=/opt/echidra/venv/bin/...`) —
+edit the paths in `deploy/systemd/*.service` first if you install somewhere
+else:
+
+```bash
+sudo useradd --system --home /opt/echidra --shell /usr/sbin/nologin echidra
+sudo git clone <this-repo-url> /opt/echidra
+cd /opt/echidra
+sudo python3 -m venv venv
+sudo ./venv/bin/pip install -e .
+sudo cp .env.example .env
+sudo $EDITOR .env   # set ECHIDRA_DATABASE_URL, ECHIDRA_INGEST_API_KEY, ECHIDRA_SESSION_SECRET
+sudo mkdir -p logs
+sudo chown -R echidra:echidra /opt/echidra
+
+sudo cp deploy/systemd/echidra-honeypot.service deploy/systemd/echidra-api.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now echidra-honeypot echidra-api
+```
+
+`echidra-api.service` requires a Postgres instance reachable at
+`ECHIDRA_DATABASE_URL` before it starts cleanly — run
+`venv/bin/python -m classifier.storage.cli init-db` (as the `echidra` user)
+against it first, the same way Compose's `init-db` step works.
+
 Check status:
 
 ```bash
@@ -89,7 +125,7 @@ sudo systemctl status echidra-honeypot echidra-api
 journalctl -u echidra-honeypot -f
 ```
 
-## Either way: confirm it's actually working
+## Any of these: confirm it's actually working
 
 ```bash
 cd /opt/echidra   # or wherever you cloned it, with the venv active
