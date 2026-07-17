@@ -8,7 +8,8 @@ Prereqs for most sections:
 
 ```bash
 cp .env.example .env                       # set ECHIDRA_DATABASE_URL inside
-python -m classifier.storage.cli init-db   # creates tables
+python -m classifier.storage.cli init-db --seed-demo-issues
+# creates tables and seeds 4 demo issues for the Intelligence page
 python -m honeypot.main                    # terminal 1 — the 4 protocol listeners
 uvicorn classifier.api.app:create_app --factory --reload        # terminal 2 — API + dashboard, port 8000
 ```

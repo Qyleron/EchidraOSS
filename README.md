@@ -50,6 +50,9 @@ dashboard.
 **Storage & API**
 - PostgreSQL schema for sessions, session events, classifier runs/signals,
   manual labels, issues, persona configs, and alert config/events
+- Sessions are always written to `logs/sessions.jsonl` regardless of
+  database configuration — PostgreSQL enables the dashboard, live alerts,
+  and fast cross-session queries
 - FastAPI backend serves the classifier endpoints and the dashboard itself
 
 **Dashboard** (`/dashboard`, behind signup/login)
@@ -81,6 +84,16 @@ No PostgreSQL yet? `echidra init` skips the database step and tells you so;
 the honeypot still runs and logs to `logs/sessions.jsonl`, you just won't get
 the dashboard/API or live alerting until `ECHIDRA_DATABASE_URL` is set in
 `.env` and you re-run `echidra init`.
+
+**JSONL-only mode (no Postgres)?** Classify captured sessions on demand:
+
+    echidra classify logs/sessions.jsonl
+
+This prints classifier output — actor label, risk, MITRE tags, evidence —
+for every session in the file. Add `--output reports/out.jsonl` to write
+results to a file instead of stdout. Note this only classifies and prints —
+it does not write to PostgreSQL, so sessions captured before you set up a
+database won't retroactively appear in the dashboard once you add one.
 
 Want to run each service manually (its own terminal, `--reload` for API
 development, only one listener at a time)? See the prereqs block at the top
@@ -146,7 +159,7 @@ IPs, changes firewalls, or touches production systems.
 | Classifier API | FastAPI |
 | Rule engine | YAML |
 | Schemas | Pydantic |
-| Storage | PostgreSQL |
+| Storage | PostgreSQL (optional — JSONL always written) |
 | Geolocation | `geoip2fast` (offline) |
 | Dashboard | HTML, CSS, JavaScript |
 
