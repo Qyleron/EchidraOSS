@@ -350,7 +350,12 @@ def _behavior_stage_and_intent(
     tag_set = set(mitre_tags)
     rule_ids = {match.rule_id for match in matches}
 
-    if "T1552.001" in tag_set:
+    # T1110 (Brute Force) is every brute_force_bot rule's only tag (repeat
+    # connections, raw auth attempts, FTP/Telnet/HTTP credential bursts) --
+    # without this branch, all of those matched, "complete" classifications
+    # fell through to behavior_stage="none"/intent="unknown" despite being
+    # unambiguously credential-access activity.
+    if "T1552.001" in tag_set or "T1110" in tag_set:
         return "credential_access", "credential_theft"
     if "T1005" in tag_set:
         return "collection", "data_access"
