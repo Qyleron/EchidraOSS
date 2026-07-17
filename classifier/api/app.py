@@ -73,6 +73,27 @@ _DASHBOARD_NO_STORE_HEADERS = {
     "Cache-Control": "no-store, must-revalidate",
     "Pragma": "no-cache",
 }
+# Every dashboard JSON/API route (reports, classifier runs, issues, alerts,
+# personas, sessions, manual labels, persona configs, ...) reads the same
+# echidra_dashboard_auth cookie as /dashboard itself, so it's exposed to the
+# same risk _DASHBOARD_NO_STORE_HEADERS was introduced for: a cached response
+# body could otherwise be replayed for a since-logged-out or different
+# session sharing the same URL. Rather than hand-adding headers= to each of
+# the 20+ individual endpoints (and needing to remember it for every new one
+# added later), _apply_dashboard_no_store_headers below defaults to
+# protecting every response and this is the explicit allowlist of routes
+# that are intentionally public/non-session and should stay normally
+# cacheable -- the ingest endpoints (authenticated separately, by API key,
+# not cookie), health/docs, and static assets.
+_NO_STORE_EXEMPT_PATHS = {
+    "/health",
+    "/",
+    "/classify/session",
+    "/openapi.json",
+    "/docs",
+    "/redoc",
+}
+_NO_STORE_EXEMPT_PREFIXES = ("/assets/",)
 INGEST_API_KEY_ENV = "ECHIDRA_INGEST_API_KEY"
 INGEST_API_KEY_HEADER = "x-api-key"
 ALLOW_SIGNUPS_ENV = "ECHIDRA_ALLOW_SIGNUPS"
@@ -175,6 +196,24 @@ def create_app() -> FastAPI:
         version="1.0.0",
         description="Post-session behavioral classification for Echidra logs.",
     )
+
+    @api.middleware("http")
+    async def _apply_dashboard_no_store_headers(request: Request, call_next):
+        """Default every response to no-store except the explicit public allowlist.
+
+        See _NO_STORE_EXEMPT_PATHS for why this defaults to protecting rather
+        than an allowlist of routes to protect: a route that forgets to opt in
+        is a silent gap, a route that forgets to opt out fails safe. Uses
+        setdefault so it never overwrites the header on /dashboard, /auth, and
+        /dashboard.css, which already set it explicitly for reasons (bfcache,
+        stale-CSS-after-deploy) that predate and go beyond this middleware.
+        """
+        response = await call_next(request)
+        path = request.url.path
+        if path not in _NO_STORE_EXEMPT_PATHS and not path.startswith(_NO_STORE_EXEMPT_PREFIXES):
+            for key, value in _DASHBOARD_NO_STORE_HEADERS.items():
+                response.headers.setdefault(key, value)
+        return response
 
     @api.get("/health", tags=["service"])
     def health() -> dict[str, str]:

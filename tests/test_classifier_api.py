@@ -205,6 +205,74 @@ def test_dashboard_page_route_sets_no_store_cache_headers():
     assert response.headers["pragma"] == "no-cache"
 
 
+# _apply_dashboard_no_store_headers only runs as part of the real ASGI
+# middleware stack, unlike route_for(...).endpoint(...) above which calls the
+# handler function directly and bypasses middleware entirely -- these need an
+# actual TestClient request to exercise it.
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/reports/summary",
+        "/analytics/summary?from_ts=0&to_ts=1",
+        "/classifier/runs",
+        "/issues",
+        "/manual-labels",
+        "/persona-configs",
+        "/alerts/config",
+        "/alerts/events",
+        "/alerts/events/count",
+        "/personas",
+    ],
+)
+def test_dashboard_json_api_routes_get_no_store_cache_headers(path):
+    """Every dashboard JSON endpoint reads the same session cookie as
+    /dashboard itself, so a cached response body could otherwise be replayed
+    for a since-logged-out or different session sharing the same URL --
+    this must hold even when the request is unauthenticated (401), since an
+    error response for a session-scoped URL shouldn't be cacheable either."""
+    from fastapi.testclient import TestClient
+
+    client = TestClient(app_module.app)
+
+    response = client.get(path)
+
+    assert response.status_code == 401
+    assert response.headers["cache-control"] == "no-store, must-revalidate"
+    assert response.headers["pragma"] == "no-cache"
+
+
+@pytest.mark.parametrize("path", ["/health", "/assets/qyleron_logo.png"])
+def test_public_routes_are_exempt_from_no_store_cache_headers(path):
+    """Static/public routes must stay normally cacheable -- the middleware
+    protects by default, so this confirms the exemption allowlist actually
+    takes effect instead of blanket-covering every route."""
+    from fastapi.testclient import TestClient
+
+    client = TestClient(app_module.app)
+
+    response = client.get(path)
+
+    assert response.status_code == 200
+    assert "cache-control" not in response.headers
+
+
+def test_auth_route_no_store_header_is_not_duplicated_by_middleware():
+    """/auth already sets the header explicitly (route_for test above);
+    the middleware must use setdefault so it doesn't add a second,
+    duplicate Cache-Control header on top of it."""
+    from fastapi.testclient import TestClient
+
+    client = TestClient(app_module.app)
+
+    response = client.get("/auth")
+
+    assert response.headers["cache-control"] == "no-store, must-revalidate"
+    raw_cache_control_headers = [
+        value for key, value in response.headers.raw if key.lower() == b"cache-control"
+    ]
+    assert len(raw_cache_control_headers) == 1
+
+
 def test_personas_endpoint_never_returns_decoy_credential_values():
     """/personas must expose only a count, never the actual username/password."""
     route = route_for("/personas", "GET")
