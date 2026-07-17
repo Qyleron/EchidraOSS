@@ -45,7 +45,7 @@ def test_dashboard_map_and_events_are_backed_by_live_api_calls():
     assert "L.circle([run.latitude, run.longitude]" in html
     assert "L.circleMarker([run.latitude, run.longitude]" in html
     assert 'fetchJSON("/reports/summary")' in html
-    assert 'fetchJSON("/classifier/runs?limit=10")' in html
+    assert 'fetchJSON("/classifier/runs?limit=8")' in html
     # The old static mock dataset must be gone.
     assert "attackOrigins" not in html
     assert "Moscow" not in html
@@ -114,17 +114,18 @@ def test_sessions_page_server_side_filters_by_date_range_not_client_side():
     assert "runs.length >= SESSIONS_FETCH_LIMIT" in html
 
 
-def test_sessions_page_flags_partial_classifications():
-    """A session classified mid-flight (real-time partial classification)
-    must be visibly distinguishable from a fully closed one, both on screen
-    and in the CSV export -- previously classification_status wasn't even
-    persisted, so there was nothing to show here at all."""
+def test_sessions_page_exports_classification_status_without_a_redundant_risk_badge():
+    """classification_status is still captured and exported in the CSV
+    Status column, but the Risk column no longer crams a second "Partial"
+    badge next to the risk-level badge -- that read as an unexplained
+    second label stacked under Risk, not a status column of its own."""
     html = (DASHBOARD_PUBLIC_PATH / "sessions.html").read_text(encoding="utf-8")
 
     assert "run.classification_status" in html
-    assert 'session.classificationStatus !== "complete"' in html
-    assert ">Partial<" in html
+    assert 'session.classificationStatus === "complete" ? "Complete" : "Partial"' in html
     assert '"Status"' in html
+    assert 'session.classificationStatus !== "complete"' not in html
+    assert ">Partial<" not in html
 
 
 def test_sessions_and_analytics_range_pickers_cannot_produce_an_inverted_range():
@@ -180,3 +181,188 @@ def test_alerts_page_history_table_distinguishes_channel():
 
     assert ">Channel<" in html
     assert '{slack: "Slack", both: "Slack + Email"}[ev.channel] || "Email"' in html
+
+
+def test_every_dashboard_page_confirms_logout_with_an_in_page_modal():
+    """window.confirm() is a native dialog that some browser contexts (eg. a
+    sandboxed iframe without allow-modals) suppress outright, so clicking
+    Logout would silently do nothing -- an in-page modal always renders
+    regardless of that, and every dashboard page must wire it the same way."""
+    pages = [
+        "index.html",
+        "sessions.html",
+        "analytics.html",
+        "intelligence.html",
+        "personas.html",
+        "alerts.html",
+    ]
+    for page in pages:
+        html = (DASHBOARD_PUBLIC_PATH / page).read_text(encoding="utf-8")
+
+        assert "window.confirm" not in html, page
+        assert 'id="logoutConfirmModal"' in html, page
+        assert 'class="modal-backdrop"' in html, page
+        assert 'id="logoutConfirmBtn"' in html, page
+        assert 'id="logoutCancelBtn"' in html, page
+        assert '"click", openLogoutConfirm' in html, page
+        assert '"click", performLogout' in html, page
+        # Clicking the backdrop itself, and pressing Escape, must also close
+        # the modal -- not just the explicit Cancel/close button.
+        assert "event.target === logoutConfirmModal" in html, page
+        assert 'event.key === "Escape"' in html, page
+
+
+def test_every_password_field_has_a_show_hide_toggle():
+    """Every password input across the dashboard (login, signup, confirm,
+    SMTP) must let the user reveal what they typed before submitting --
+    a password field with no way to check for typos is a common source of
+    lockouts and misconfigured SMTP credentials."""
+    fields_by_page = {
+        "auth.html": ["loginPassword", "signupPassword", "confirmPassword"],
+        "alerts.html": ["smtpPassword"],
+    }
+    for page, field_ids in fields_by_page.items():
+        html = (DASHBOARD_PUBLIC_PATH / page).read_text(encoding="utf-8")
+
+        assert "password-field-wrapper" in html, page
+        assert "initPasswordToggle" in html, page
+        for field_id in field_ids:
+            assert f'id="{field_id}"' in html, (page, field_id)
+            assert f'id="{field_id}Toggle"' in html, (page, field_id)
+            assert f'initPasswordToggle("{field_id}", "{field_id}Toggle")' in html, (
+                page,
+                field_id,
+            )
+
+
+def test_no_dashboard_page_shows_a_full_page_loader():
+    """A full-viewport loading overlay hides the header/nav along with the
+    content -- every page's loading state must live inside its own table or
+    list container instead, never block the whole page."""
+    pages = [
+        "index.html",
+        "sessions.html",
+        "analytics.html",
+        "intelligence.html",
+        "personas.html",
+        "alerts.html",
+    ]
+    for page in pages:
+        html = (DASHBOARD_PUBLIC_PATH / page).read_text(encoding="utf-8")
+        assert 'id="pageLoader"' not in html, page
+        assert "hidePageLoader" not in html, page
+
+    css = (DASHBOARD_PUBLIC_PATH / "dashboard.css").read_text(encoding="utf-8")
+    assert "position: fixed;\n  inset: 0;\n  z-index: 4000;" not in css
+
+
+def test_high_volume_tables_show_a_loader_inside_their_own_container():
+    """Only pages whose table can hold a lot of rows -- sessions (up to 500)
+    and the alert history (up to 200) -- show a loading row; a colspan-wide
+    spinner row so it disappears the instant real rows replace it, not on a
+    separate timer. Small, fast lookups (a handful of personas, aggregated
+    issues, the 8 most recent events) don't need one."""
+    table_pages = {
+        "sessions.html": 'tableBody.innerHTML = \'<tr><td colspan="8" class="table-loader-cell"><div class="spinner"></div></td></tr>\';',
+        "alerts.html": 'tbody.innerHTML = \'<tr><td colspan="7" class="table-loader-cell"><div class="spinner"></div></td></tr>\';',
+    }
+    for page, loader_line in table_pages.items():
+        html = (DASHBOARD_PUBLIC_PATH / page).read_text(encoding="utf-8")
+        assert loader_line in html, page
+
+    for page in ["personas.html", "intelligence.html", "index.html"]:
+        html = (DASHBOARD_PUBLIC_PATH / page).read_text(encoding="utf-8")
+        assert "table-loader-cell" not in html, page
+
+    css = (DASHBOARD_PUBLIC_PATH / "dashboard.css").read_text(encoding="utf-8")
+    assert ".table-loader-cell {" in css
+
+
+def test_modal_backdrop_blurs_content_behind_it():
+    css = (DASHBOARD_PUBLIC_PATH / "dashboard.css").read_text(encoding="utf-8")
+
+    assert "backdrop-filter: blur(6px);" in css
+
+
+def test_every_dashboard_page_styles_the_logout_modal_close_button_as_danger():
+    pages = [
+        "index.html",
+        "sessions.html",
+        "analytics.html",
+        "intelligence.html",
+        "personas.html",
+        "alerts.html",
+    ]
+    css = (DASHBOARD_PUBLIC_PATH / "dashboard.css").read_text(encoding="utf-8")
+    assert ".modal-close-danger {" in css
+
+    for page in pages:
+        html = (DASHBOARD_PUBLIC_PATH / page).read_text(encoding="utf-8")
+        assert 'class="modal-close modal-close-danger" id="logoutConfirmCloseBtn"' in html, page
+
+
+def test_cross_buttons_have_no_fill_behind_the_x():
+    """Every close (x) button -- the default modal-close and the danger
+    logout variant -- shows only a border and the x mark, no solid fill
+    behind it."""
+    css = (DASHBOARD_PUBLIC_PATH / "dashboard.css").read_text(encoding="utf-8")
+
+    assert "background: transparent;\n  color: var(--muted);" in css
+    assert "border-color: #e5484d;\n  background: transparent;\n  color: #e5484d;" in css
+
+
+def test_standard_buttons_use_the_dark_scheme_with_a_raised_shadow():
+    """text-button/iconless-button/logout-button use the original dark
+    surface color scheme (not the white-bg/black-text variant), lifted off
+    the page with a shadow so they read as raised/tactile."""
+    css = (DASHBOARD_PUBLIC_PATH / "dashboard.css").read_text(encoding="utf-8")
+
+    assert "color: var(--text);\n  background: var(--surface-hover);\n  cursor: pointer;" in css
+    assert "box-shadow: 0 2px 4px rgba(0, 0, 0, 0.45)" in css
+    assert ".text-button:active {" in css
+
+
+def test_sessions_table_has_pagination_controls():
+    html = (DASHBOARD_PUBLIC_PATH / "sessions.html").read_text(encoding="utf-8")
+
+    assert 'id="sessionsPagination" class="table-pagination"' in html
+    assert "function renderPagination(totalPages)" in html
+    assert "SESSIONS_PAGE_SIZE = 25" in html
+
+    css = (DASHBOARD_PUBLIC_PATH / "dashboard.css").read_text(encoding="utf-8")
+    assert ".table-pagination {" in css
+    assert "justify-content: flex-end;" in css
+
+
+def test_disabled_pagination_button_does_not_pick_up_hover_styling():
+    """:disabled doesn't stop :hover from matching in CSS -- without an
+    explicit reset, mousing over a disabled Prev/Next button still shows
+    the enabled-button hover border/background, a false affordance for a
+    button that does nothing when clicked."""
+    css = (DASHBOARD_PUBLIC_PATH / "dashboard.css").read_text(encoding="utf-8")
+
+    assert (
+        ".table-pagination .text-button:disabled:hover,\n"
+        ".table-pagination .text-button:disabled:focus-visible {\n"
+        "  border-color: var(--line);\n"
+        "  background: var(--surface-hover);\n"
+        "}"
+    ) in css
+
+    # The persona-config modal's own close button must be unaffected --
+    # only the logout modal gets the danger treatment.
+    personas_html = (DASHBOARD_PUBLIC_PATH / "personas.html").read_text(encoding="utf-8")
+    assert 'class="modal-close" id="modalCloseBtn"' in personas_html
+
+
+def test_sessions_table_persona_column_shows_only_the_friendly_name():
+    """The Persona column previously also showed the raw session_id
+    underneath the friendly name -- just the name now, keeping the cell
+    focused on what it's labeled as. session.sessionId itself is still used
+    elsewhere (expanding a row's detail view fetches /sessions/{id}/events),
+    so only the removed table-cell markup is asserted gone, not the field."""
+    html = (DASHBOARD_PUBLIC_PATH / "sessions.html").read_text(encoding="utf-8")
+
+    assert "<strong>${escHtml(session.persona)}</strong>" in html
+    assert "<span>Session ${escHtml(session.sessionId)}</span>" not in html
+    assert "loadSessionEvents(session.sessionId)" in html

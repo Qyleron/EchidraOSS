@@ -29,6 +29,22 @@
       </nav>
     </header>
 
+    <div id="logoutConfirmModal" class="modal-backdrop" hidden aria-modal="true" role="dialog" aria-labelledby="logoutConfirmTitle">
+      <div class="modal" style="max-width:380px;">
+        <div class="modal-header">
+          <h2 id="logoutConfirmTitle">Log Out</h2>
+          <button class="modal-close modal-close-danger" id="logoutConfirmCloseBtn" type="button" aria-label="Close">&times;</button>
+        </div>
+        <div class="modal-body" style="padding:22px;">
+          <p style="margin:0 0 18px;color:var(--muted);">Are you sure you want to log out of Echidra?</p>
+          <div style="display:flex;justify-content:flex-end;gap:8px;">
+            <button type="button" class="text-button" id="logoutCancelBtn">Cancel</button>
+            <button type="button" class="text-button" id="logoutConfirmBtn" style="border-color:rgba(255,92,112,0.3);color:#ff9aa6;">Log Out</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <main class="dashboard-main">
       <section class="page-panel" aria-labelledby="sessionsTitle">
         <div class="page-panel-header">
@@ -89,6 +105,7 @@
             <tbody id="sessionsTableBody"></tbody>
           </table>
         </div>
+        <div id="sessionsPagination" class="table-pagination"></div>
       </section>
     </main>
   </div>
@@ -97,8 +114,11 @@
     let allSessions = [];
     let visibleSessions = [];
     let sessionsLoadFailed = false;
+    let currentPage = 1;
+    const SESSIONS_PAGE_SIZE = 25;
     const eventsCache = new Map();
     const tableBody = document.getElementById("sessionsTableBody");
+    const paginationContainer = document.getElementById("sessionsPagination");
 
     const ACTOR_LABELS = {
       automated_scanner: "Automated Scanner",
@@ -206,6 +226,7 @@
         actor: run.actor_label,
         risk: run.risk_level,
         classificationStatus: run.classification_status || "complete",
+        insufficientDataReason: run.insufficient_data_reason || null,
         intent: INTENT_LABELS[run.intent] || run.intent,
         duration: formatDuration(run.started_at, run.ended_at),
         evidence: (run.signals || [])
@@ -224,9 +245,16 @@
           ? "Could not load sessions. Is the database configured?"
           : "No sessions in this range.";
         tableBody.innerHTML = `<tr><td colspan="8" class="empty-state" style="text-align: center;">${message}</td></tr>`;
+        renderPagination(0);
         return;
       }
-      tableBody.innerHTML = sessionsToRender.map((session) => `
+
+      const totalPages = Math.max(1, Math.ceil(sessionsToRender.length / SESSIONS_PAGE_SIZE));
+      currentPage = Math.min(currentPage, totalPages);
+      const pageStart = (currentPage - 1) * SESSIONS_PAGE_SIZE;
+      const pageItems = sessionsToRender.slice(pageStart, pageStart + SESSIONS_PAGE_SIZE);
+
+      tableBody.innerHTML = pageItems.map((session) => `
         <tr data-session-row="${session.id}" tabindex="0" aria-expanded="false">
           <td>
             <div class="cell-primary">
@@ -239,7 +267,6 @@
           <td>
             <div class="cell-primary">
               <strong>${escHtml(session.persona)}</strong>
-              <span>${escHtml(session.sessionId)}</span>
             </div>
           </td>
           <td>${escHtml(session.protocol)}</td>
@@ -250,13 +277,37 @@
           </td>
           <td>
             <span class="risk-badge ${badgeTier(session.risk)}">${escHtml(session.risk)}</span>
-            ${session.classificationStatus !== "complete"
-              ? `<span class="risk-badge" style="margin-left:4px;background:rgba(0,0,0,0.3);" title="This session was still in progress when classified; the result may change once it ends.">Partial</span>`
-              : ""}
           </td>
           <td>${escHtml(session.intent)}</td>
         </tr>
       `).join("");
+      renderPagination(totalPages);
+    }
+
+    function renderPagination(totalPages) {
+      if (totalPages <= 1) {
+        paginationContainer.innerHTML = "";
+        return;
+      }
+      paginationContainer.innerHTML = `
+        <button type="button" class="text-button" id="sessionsPrevPage" ${currentPage === 1 ? "disabled" : ""}>Prev</button>
+        <span class="pagination-status">Page ${currentPage} of ${totalPages}</span>
+        <button type="button" class="text-button" id="sessionsNextPage" ${currentPage === totalPages ? "disabled" : ""}>Next</button>
+      `;
+      const prevButton = document.getElementById("sessionsPrevPage");
+      const nextButton = document.getElementById("sessionsNextPage");
+      prevButton.addEventListener("click", () => {
+        if (currentPage > 1) {
+          currentPage -= 1;
+          renderSessions(visibleSessions);
+        }
+      });
+      nextButton.addEventListener("click", () => {
+        if (currentPage < totalPages) {
+          currentPage += 1;
+          renderSessions(visibleSessions);
+        }
+      });
     }
 
     async function loadSessionEvents(sessionId) {
@@ -499,46 +550,129 @@
         }
       });
 
-      applyRange();
+      return applyRange();
     }
 
-    async function logoutDashboard() {
-      const logoutButton = document.getElementById("logoutButton");
+    const logoutButton = document.getElementById("logoutButton");
+    const logoutConfirmModal = document.getElementById("logoutConfirmModal");
+
+    function getLogoutModalFocusable() {
+      return Array.from(
+        logoutConfirmModal.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')
+      ).filter((el) => !el.disabled);
+    }
+
+    function openLogoutConfirm() {
+      logoutConfirmModal.hidden = false;
+      const [first] = getLogoutModalFocusable();
+      if (first) first.focus();
+    }
+
+    function closeLogoutConfirm() {
+      logoutConfirmModal.hidden = true;
+      logoutButton.focus();
+    }
+
+    function trapLogoutModalTab(event) {
+      if (event.key !== "Tab" || logoutConfirmModal.hidden) return;
+      const focusable = getLogoutModalFocusable();
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+
+    async function performLogout() {
+      closeLogoutConfirm();
       logoutButton.disabled = true;
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000);
       try {
-        await fetch("/auth/logout", { method: "POST" });
-      } finally {
+        const response = await fetch("/auth/logout", { method: "POST", signal: controller.signal });
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
         window.location.assign("/auth");
+      } catch (error) {
+        console.error(error);
+        alert("Logout failed: " + error.message);
+        logoutButton.disabled = false;
+      } finally {
+        clearTimeout(timeoutId);
       }
     }
 
     const SESSIONS_FETCH_LIMIT = 500;
 
+    // Tracks which loadSessions() call is the most recent one, so a slower
+    // request for an earlier range selection can't clobber the UI after a
+    // faster request for a later one already rendered -- requests aren't
+    // guaranteed to resolve in the order they were sent.
+    let latestSessionsRequestId = 0;
+
     async function loadSessions(from, to) {
+      const requestId = ++latestSessionsRequestId;
       const truncatedNotice = document.getElementById("rangeTruncatedNotice");
+      tableBody.innerHTML = '<tr><td colspan="8" class="table-loader-cell"><div class="spinner"></div></td></tr>';
+      let runs = null;
       try {
         const fromTs = from.getTime() / 1000;
         const toTs = to.getTime() / 1000;
-        const runs = await fetchJSON(
+        runs = await fetchJSON(
           `/classifier/runs?from_ts=${fromTs}&to_ts=${toTs}&limit=${SESSIONS_FETCH_LIMIT}`
         );
+      } catch (error) {
+        console.error(error);
+      }
+
+      if (requestId !== latestSessionsRequestId) {
+        return; // superseded by a newer range request; discard this result
+      }
+
+      if (runs) {
         allSessions = runs.map(mapRun);
         sessionsLoadFailed = false;
         // The server filters by range server-side now, so a full page means
         // there may be more matching sessions beyond the cap -- say so
         // rather than silently showing an incomplete result as if complete.
         truncatedNotice.style.display = runs.length >= SESSIONS_FETCH_LIMIT ? "" : "none";
-      } catch (error) {
-        console.error(error);
+      } else {
         allSessions = [];
         sessionsLoadFailed = true;
         truncatedNotice.style.display = "none";
       }
       visibleSessions = allSessions;
+      currentPage = 1;
       renderSessions(visibleSessions);
     }
 
-    document.getElementById("logoutButton").addEventListener("click", logoutDashboard);
+    logoutButton.addEventListener("click", openLogoutConfirm);
+    document.getElementById("logoutConfirmCloseBtn").addEventListener("click", closeLogoutConfirm);
+    document.getElementById("logoutCancelBtn").addEventListener("click", closeLogoutConfirm);
+    document.getElementById("logoutConfirmBtn").addEventListener("click", performLogout);
+    logoutConfirmModal.addEventListener("click", (event) => {
+      if (event.target === logoutConfirmModal) closeLogoutConfirm();
+    });
+    document.addEventListener("keydown", trapLogoutModalTab);
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && !logoutConfirmModal.hidden) closeLogoutConfirm();
+    });
+    // A page restored from the browser's back-forward cache is never
+    // re-requested from the server, so a stale, already-logged-out dashboard
+    // would otherwise stay visible after Back -- force a real reload so the
+    // server's auth check (redirecting to /auth if the session is gone)
+    // actually runs again.
+    window.addEventListener("pageshow", (event) => {
+      if (event.persisted) {
+        window.location.reload();
+      }
+    });
     initTimeRangeControl();
   </script>
 </body>

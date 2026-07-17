@@ -29,6 +29,22 @@
       </nav>
     </header>
 
+    <div id="logoutConfirmModal" class="modal-backdrop" hidden aria-modal="true" role="dialog" aria-labelledby="logoutConfirmTitle">
+      <div class="modal" style="max-width:380px;">
+        <div class="modal-header">
+          <h2 id="logoutConfirmTitle">Log Out</h2>
+          <button class="modal-close modal-close-danger" id="logoutConfirmCloseBtn" type="button" aria-label="Close">&times;</button>
+        </div>
+        <div class="modal-body" style="padding:22px;">
+          <p style="margin:0 0 18px;color:var(--muted);">Are you sure you want to log out of Echidra?</p>
+          <div style="display:flex;justify-content:flex-end;gap:8px;">
+            <button type="button" class="text-button" id="logoutCancelBtn">Cancel</button>
+            <button type="button" class="text-button" id="logoutConfirmBtn" style="border-color:rgba(255,92,112,0.3);color:#ff9aa6;">Log Out</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <main class="dashboard-main">
       <section class="page-panel" aria-labelledby="personasTitle">
         <div class="page-panel-header">
@@ -901,12 +917,66 @@
     }
 
     // ── Logout ─────────────────────────────────────────────────────────────────
-    async function logoutDashboard() {
-      var btn = document.getElementById("logoutButton");
-      btn.disabled = true;
+    var logoutButton = document.getElementById("logoutButton");
+    var logoutConfirmModal = document.getElementById("logoutConfirmModal");
+
+    function getLogoutModalFocusable() {
+      return Array.prototype.slice.call(
+        logoutConfirmModal.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')
+      ).filter(function (el) { return !el.disabled; });
+    }
+
+    function openLogoutConfirm() {
+      logoutConfirmModal.hidden = false;
+      var focusable = getLogoutModalFocusable();
+      if (focusable[0]) focusable[0].focus();
+    }
+
+    function closeLogoutConfirm() {
+      logoutConfirmModal.hidden = true;
+      logoutButton.focus();
+    }
+
+    function trapLogoutModalTab(event) {
+      if (event.key !== "Tab" || logoutConfirmModal.hidden) return;
+      var focusable = getLogoutModalFocusable();
+      if (focusable.length === 0) return;
+      var first = focusable[0];
+      var last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+
+    async function performLogout() {
+      closeLogoutConfirm();
+      logoutButton.disabled = true;
       try { await fetch("/auth/logout", { method: "POST" }); } finally { window.location.assign("/auth"); }
     }
-    document.getElementById("logoutButton").addEventListener("click", logoutDashboard);
+
+    logoutButton.addEventListener("click", openLogoutConfirm);
+    document.getElementById("logoutConfirmCloseBtn").addEventListener("click", closeLogoutConfirm);
+    document.getElementById("logoutCancelBtn").addEventListener("click", closeLogoutConfirm);
+    document.getElementById("logoutConfirmBtn").addEventListener("click", performLogout);
+    logoutConfirmModal.addEventListener("click", function (event) {
+      if (event.target === logoutConfirmModal) closeLogoutConfirm();
+    });
+    document.addEventListener("keydown", trapLogoutModalTab);
+    document.addEventListener("keydown", function (event) {
+      if (event.key === "Escape" && !logoutConfirmModal.hidden) closeLogoutConfirm();
+    });
+    // A page restored from the browser's back-forward cache is never
+    // re-requested from the server, so a stale, already-logged-out dashboard
+    // would otherwise stay visible after Back -- force a real reload so the
+    // server's auth check (redirecting to /auth if the session is gone)
+    // actually runs again.
+    window.addEventListener("pageshow", function (event) {
+      if (event.persisted) { window.location.reload(); }
+    });
 
     // ── Boot ───────────────────────────────────────────────────────────────────
     loadConfiguration();

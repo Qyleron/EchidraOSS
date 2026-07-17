@@ -65,7 +65,10 @@ a {
   font-size: 13px;
   font-weight: 560;
   text-decoration: none;
-  transition: border-color 0.2s ease, background 0.2s ease;
+  /* "Come out towards the user" -- a raised, tactile look instead of a flat
+     fill, with the shadow shrinking on press so it reads as pushed in. */
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  transition: border-color 0.2s ease, background 0.2s ease, box-shadow 0.1s ease, transform 0.1s ease;
 }
 
 .iconless-button:hover,
@@ -76,9 +79,59 @@ a {
   background: var(--surface-strong);
 }
 
+.iconless-button:active,
+.text-button:active {
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.4);
+  transform: translateY(1px);
+}
+
 .app-shell {
   min-height: 100vh;
   padding-top: 108px;
+}
+
+/* In-flow within the page's own content area (never a full-page overlay --
+   the header/nav must stay visible and usable while data is still loading). */
+.page-loader {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 0;
+}
+
+.page-loader[hidden] {
+  display: none;
+}
+
+.page-loader .spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid var(--line);
+  border-top-color: var(--text);
+  border-radius: 50%;
+  animation: page-loader-spin 0.8s linear infinite;
+}
+
+/* Smaller inline variant for use inside a table body (a <td> cell). */
+.table-loader-cell {
+  padding: 40px 0 !important;
+  text-align: center !important;
+}
+
+.table-loader-cell .spinner {
+  width: 24px;
+  height: 24px;
+  border: 3px solid var(--line);
+  border-top-color: var(--text);
+  border-radius: 50%;
+  animation: page-loader-spin 0.8s linear infinite;
+  margin: 0 auto;
+}
+
+@keyframes page-loader-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* ── Unified two-row header ── */
@@ -181,13 +234,19 @@ a {
   cursor: pointer;
   font-size: 14px;
   font-weight: 560;
-  transition: border-color 0.3s ease, background 0.3s ease;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  transition: border-color 0.3s ease, background 0.3s ease, box-shadow 0.1s ease, transform 0.1s ease;
 }
 
 .logout-button:hover,
 .logout-button:focus-visible {
   border-color: var(--border-strong);
   background: var(--surface-strong);
+}
+
+.logout-button:active {
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.4);
+  transform: translateY(1px);
 }
 
 .dashboard-main {
@@ -392,6 +451,35 @@ a {
 .table-shell {
   width: 100%;
   overflow-x: auto;
+}
+
+.table-pagination {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 22px;
+}
+
+.table-pagination .pagination-status {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.table-pagination .text-button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  box-shadow: none;
+  transform: none;
+}
+
+/* :disabled doesn't stop :hover from matching, so without this a disabled
+   Prev/Next button still picked up .text-button:hover's border/background
+   change on mouseover -- a false affordance for a button that does nothing. */
+.table-pagination .text-button:disabled:hover,
+.table-pagination .text-button:disabled:focus-visible {
+  border-color: var(--line);
+  background: var(--surface-hover);
 }
 
 .data-table {
@@ -759,8 +847,7 @@ a {
 }
 
 .map-frame {
-  height: min(62vh, 610px);
-  min-height: 440px;
+  height: 340px;
   overflow: hidden;
   border: 1px solid var(--line);
   border-radius: 6px;
@@ -860,8 +947,20 @@ a {
 }
 
 .event-list {
-  flex: 1;
-  min-height: 440px;
+  /* Fixed to exactly 4 rows (event-row is 84px + 1px border, last row has
+     no border) so the list scrolls after 4 instead of growing with however
+     many of the up to 8 fetched events there are -- and stays the same
+     height as .map-frame beside it regardless of event count. */
+  height: 340px;
+  /* .panel-card is a column flexbox, and flex items default to
+     min-height: auto -- that lets a tall child grow past its own explicit
+     height to fit its content instead of clipping/scrolling, which both
+     defeated this list's scroll (it just grew to fit all 8 events) and, via
+     .overview-grid's align-items: stretch, force-stretched the shorter map
+     panel down to match that inflated height (the "excess bottom padding"
+     under the map). min-height: 0 removes that default so the fixed height
+     above actually holds. */
+  min-height: 0;
   overflow-y: auto;
   border-radius: 4px;
   background: var(--surface);
@@ -961,6 +1060,37 @@ a {
 .form-textarea:focus {
   outline: none;
   border-color: var(--border-strong);
+}
+
+.password-field-wrapper {
+  position: relative;
+}
+
+.password-field-wrapper .form-input {
+  padding-right: 36px;
+}
+
+.password-toggle-btn {
+  position: absolute;
+  top: 0;
+  right: 0;
+  height: 36px;
+  width: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  border-radius: 6px;
+}
+
+.password-toggle-btn:hover,
+.password-toggle-btn:focus-visible {
+  color: var(--text);
+  outline: none;
+  background: rgba(255, 255, 255, 0.06);
 }
 
 /* ── Persona config form layout ── */
@@ -1366,6 +1496,8 @@ a {
   inset: 0;
   z-index: 2000;
   background: rgba(0, 0, 0, 0.72);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1423,6 +1555,18 @@ a {
 .modal-close:hover {
   border-color: var(--border-strong);
   color: var(--text);
+}
+
+.modal-close-danger {
+  border-color: #e5484d;
+  background: transparent;
+  color: #e5484d;
+}
+
+.modal-close-danger:hover {
+  border-color: #ff5c62;
+  background: transparent;
+  color: #ff5c62;
 }
 
 .modal-body {
@@ -1575,20 +1719,15 @@ a {
   opacity: 1;
 }
 
-/* ── Add Decoy File button: match Create Persona button style, smaller width ── */
-#form___new__ .add-decoy-btn {
-  background: #ffffff;
-  color: #000000;
-  border-color: #ffffff;
+/* ── Add Decoy File button: content-sized width, not a full grid column ──
+   Was previously scoped to #form___new__ (the create-new-persona form)
+   only, so an existing persona's edit form still stretched this button
+   full-width -- dropping the id scope makes both forms consistent, and
+   dropping the white/black color override lets it fall back to the
+   standard .text-button color scheme like every other button. ── */
+.add-decoy-btn {
   width: fit-content;
   justify-self: start;
-}
-
-#form___new__ .add-decoy-btn:hover,
-#form___new__ .add-decoy-btn:focus-visible {
-  background: #e6e6e6;
-  color: #000000;
-  border-color: #e6e6e6;
 }
 
 /* ── High-Specificity Dropdown Customizations ── */
