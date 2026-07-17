@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
@@ -130,6 +131,18 @@ _CLASSIFICATION_QUEUE_MAXSIZE = 500
 
 _classification_queue: "asyncio.Queue[SessionRecord | object] | None" = None
 _classification_workers: list[asyncio.Task] = []
+
+# During exactly the connection flood this bounded queue exists to survive,
+# every dropped session previously got its own logger.warning() call -- log
+# spam (and call overhead) precisely when the process is already under load.
+# Log the first drop of each kind immediately (so it's never silent), then
+# aggregate further drops of that kind into one summary at most every
+# _DROP_LOG_INTERVAL_SECONDS instead of one line per drop.
+_DROP_LOG_INTERVAL_SECONDS = 30.0
+_dropped_no_workers_count = 0
+_dropped_no_workers_last_logged = 0.0
+_dropped_queue_full_count = 0
+_dropped_queue_full_last_logged = 0.0
 
 # Tells a worker to exit its loop instead of waiting on the next queue item.
 # Cancelling a worker's task while it's mid asyncio.to_thread(auto_classify_
@@ -320,18 +333,40 @@ def schedule_auto_classification(session: SessionRecord) -> None:
     can't keep up with session volume, eg. during a connection flood -- the
     session is dropped from auto-classification rather than growing the
     backlog without bound. It's already durably logged to JSONL by the
-    caller regardless of this function's outcome.
+    caller regardless of this function's outcome. Dropped-session warnings
+    are logged immediately on the first drop, then aggregated into one
+    summary at most every _DROP_LOG_INTERVAL_SECONDS -- a flood dropping
+    hundreds of sessions a second must not itself become log spam.
     """
+    global _dropped_no_workers_count, _dropped_no_workers_last_logged
+    global _dropped_queue_full_count, _dropped_queue_full_last_logged
+
     if _classification_queue is None:
-        logger.warning(
-            "Classification workers not started; dropping session %s",
-            session.session_id,
-        )
+        _dropped_no_workers_count += 1
+        now = time.monotonic()
+        if now - _dropped_no_workers_last_logged >= _DROP_LOG_INTERVAL_SECONDS:
+            logger.warning(
+                "Classification workers not started; dropped %d session(s) "
+                "in the last %.0fs (most recent: %s)",
+                _dropped_no_workers_count,
+                _DROP_LOG_INTERVAL_SECONDS,
+                session.session_id,
+            )
+            _dropped_no_workers_count = 0
+            _dropped_no_workers_last_logged = now
         return
     try:
         _classification_queue.put_nowait(session)
     except asyncio.QueueFull:
-        logger.warning(
-            "Classification queue full; dropping session %s",
-            session.session_id,
-        )
+        _dropped_queue_full_count += 1
+        now = time.monotonic()
+        if now - _dropped_queue_full_last_logged >= _DROP_LOG_INTERVAL_SECONDS:
+            logger.warning(
+                "Classification queue full; dropped %d session(s) in the "
+                "last %.0fs (most recent: %s)",
+                _dropped_queue_full_count,
+                _DROP_LOG_INTERVAL_SECONDS,
+                session.session_id,
+            )
+            _dropped_queue_full_count = 0
+            _dropped_queue_full_last_logged = now
