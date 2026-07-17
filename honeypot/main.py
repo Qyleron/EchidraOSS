@@ -2,6 +2,7 @@ import asyncio
 import logging
 import signal
 
+from classifier.pipeline import start_classification_workers, stop_classification_workers
 from honeypot.network.config import HTTP_PORT, FTP_PORT, TELNET_PORT, HOST, MAX_CONNECTIONS
 from honeypot.network.ftp_handler import FtpHandler
 from honeypot.network.http_handler import HttpHandler
@@ -27,6 +28,8 @@ async def main():
     loop.add_signal_handler(signal.SIGINT, shutdown_signal)
     if hasattr(signal, "SIGTERM"):
         loop.add_signal_handler(signal.SIGTERM, shutdown_signal)
+
+    start_classification_workers()
 
     # Primary SSH honeypot listener
     ssh_server = SSHListener()
@@ -70,6 +73,7 @@ async def main():
         await ssh_server.shutdown()
         for s in extra_servers:
             await s.shutdown()
+        await stop_classification_workers()
 
         stop_task.cancel()
         for task in tasks:

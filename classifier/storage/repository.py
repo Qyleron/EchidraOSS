@@ -35,6 +35,26 @@ from classifier.storage.models import (
     StoredSessionEvent,
 )
 
+# Bounds how long a connection may take to establish (eg. an unreachable/
+# firewalled DB host) and how long any one statement on it may run (eg. lock
+# contention). Without these, a call can hang far longer than any caller
+# expects -- notably auto_classify_and_store, which runs via asyncio.to_thread
+# on classifier.pipeline's fixed worker pool. Cancelling that worker's task on
+# shutdown does not stop a blocking call already running in its thread, so
+# classifier.pipeline.stop_classification_workers relies on every such call
+# being bounded like this instead, and simply waits for it to finish.
+_DB_CONNECT_TIMEOUT_SECONDS = 10
+_DB_STATEMENT_TIMEOUT_SECONDS = 10
+
+
+def _connect(psycopg, database_url: str):
+    """psycopg.connect(), bounded by both a connect timeout and a per-statement timeout."""
+    return psycopg.connect(
+        database_url,
+        connect_timeout=_DB_CONNECT_TIMEOUT_SECONDS,
+        options=f"-c statement_timeout={_DB_STATEMENT_TIMEOUT_SECONDS * 1000}",
+    )
+
 
 DELETE_SESSION_EVENTS_SQL = """
 DELETE FROM session_events
@@ -1087,7 +1107,7 @@ class PostgresClassifierRepository:
         email is already registered.
         """
         psycopg = _load_psycopg()
-        with psycopg.connect(self.database_url) as conn:
+        with _connect(psycopg, self.database_url) as conn:
             with conn.transaction():
                 with conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
                     cur.execute("SELECT pg_advisory_xact_lock(%s)", (_DASHBOARD_SIGNUP_LOCK_KEY,))
@@ -2202,7 +2222,7 @@ def _execute_statements(
     statements: list[tuple[str, dict[str, Any]]],
 ) -> None:
     psycopg = _load_psycopg()
-    with psycopg.connect(database_url) as connection:
+    with _connect(psycopg, database_url) as connection:
         with connection.transaction():
             with connection.cursor() as cursor:
                 for sql, params in statements:
@@ -2260,7 +2280,7 @@ def _fetch_all_with_conn(
             return list(cur.fetchall())
 
     # Fallback: open a fresh connection per call (existing behavior).
-    with psycopg.connect(database_url) as conn:
+    with _connect(psycopg, database_url) as conn:
         with conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
             cur.execute(sql, params)
             return list(cur.fetchall())
@@ -2288,7 +2308,7 @@ def _fetch_aggregate_batch(
     """
     try:
         psycopg = _load_psycopg()
-        with psycopg.connect(database_url) as conn:
+        with _connect(psycopg, database_url) as conn:
             with conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
                 return [
                     _fetch_one_with_conn(database_url, sql, params, connection=conn, cursor=cur)

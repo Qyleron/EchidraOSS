@@ -957,7 +957,7 @@ def test_dashboard_report_summary_reuses_one_connection_when_driver_available(mo
         rows = _FakeRows()
 
         @staticmethod
-        def connect(database_url):
+        def connect(database_url, **kwargs):
             return connection
 
     monkeypatch.setattr(
@@ -1001,7 +1001,7 @@ def test_get_persona_analytics_reuses_one_connection_when_driver_available(monke
         rows = _FakeRows()
 
         @staticmethod
-        def connect(database_url):
+        def connect(database_url, **kwargs):
             return connection
 
     monkeypatch.setattr(
