@@ -239,7 +239,10 @@ def _classification_status(
     """
     if features is None:
         if matched_rules:
-            return "complete", None
+            return "partial", (
+                "session features were not supplied, so classification "
+                "completeness cannot be established"
+            )
         return "insufficient_data", "session features were not supplied"
 
     command_count = features.command_count
