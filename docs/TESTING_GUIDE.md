@@ -21,8 +21,9 @@ uvicorn classifier.api.app:create_app --factory --reload        # terminal 2 —
 
 **Docker Compose** (see [DEPLOYMENT.md#docker-compose](DEPLOYMENT.md#docker-compose)):
 ```bash
-docker compose up -d --build
-docker compose exec api python -m classifier.storage.cli init-db --seed-demo-issues
+docker compose up -d --build db
+docker compose run --rm --build api python -m classifier.storage.cli init-db --seed-demo-issues
+docker compose up -d --build honeypot api
 ```
 Everything below still targets `127.0.0.1`/`localhost` on the same published
 ports (2222/8080/2121/2323/8000) — Compose publishes them to the host. Swap
@@ -35,7 +36,7 @@ for `docker compose exec api python -m classifier.storage.cli ...`, and
 ```bash
 sudo -u echidra /opt/echidra/venv/bin/python -m classifier.storage.cli init-db --seed-demo-issues
 sudo systemctl status echidra-honeypot echidra-api   # instead of watching two terminals
-journalctl -u echidra-honeypot -f                    # instead of terminal 1's stdout
+sudo journalctl -u echidra-honeypot -f                # instead of terminal 1's stdout
 ```
 Run the guide's `curl`/`nc`/`telnet`/`psql` commands from the VM itself (or
 against its public IP/hostname if the ports are reachable), and
