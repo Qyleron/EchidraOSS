@@ -57,7 +57,7 @@ cp .env.example .env
 # edit .env: set ECHIDRA_DB_PASSWORD, ECHIDRA_INGEST_API_KEY, and
 # ECHIDRA_SESSION_SECRET (see above)
 docker compose up -d --build db
-docker compose run --rm api python -m classifier.storage.cli init-db
+docker compose run --rm --build api python -m classifier.storage.cli init-db
 docker compose up -d --build honeypot api
 ```
 
@@ -67,10 +67,13 @@ up, not that the schema exists yet, so `init-db` runs against it before
 `honeypot`/`api` start (`docker compose run` spins up a one-off container
 using `api`'s image/config, without needing `api` itself running yet, the
 same way `docker compose exec api ...` needs a running container to attach
-to). This starts three containers total: `db`, `honeypot` (the four
-listeners), and `api` (dashboard + classifier API on port 8000). The
-`init-db` step only needs to run once — it's idempotent, so re-running it
-against an existing database is safe.
+to; `--build` on that line ensures the image actually exists to run on a
+clean checkout, rather than relying on Compose's implicit auto-build).
+The `--rm` migration container is temporary and removed once `init-db`
+finishes -- three long-running containers remain afterward: `db`,
+`honeypot` (the four listeners), and `api` (dashboard + classifier API on
+port 8000). The `init-db` step only needs to run once — it's idempotent,
+so re-running it against an existing database is safe.
 
 Ports published on the host: `2222` (SSH-style shell), `8080` (HTTP),
 `2121` (FTP), `2323` (Telnet), `8000` (dashboard/API). Adjust the `ports:`
