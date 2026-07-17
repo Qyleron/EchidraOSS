@@ -140,9 +140,9 @@ _classification_workers: list[asyncio.Task] = []
 # _DROP_LOG_INTERVAL_SECONDS instead of one line per drop.
 _DROP_LOG_INTERVAL_SECONDS = 30.0
 _dropped_no_workers_count = 0
-_dropped_no_workers_last_logged = 0.0
+_dropped_no_workers_last_logged: float | None = None
 _dropped_queue_full_count = 0
-_dropped_queue_full_last_logged = 0.0
+_dropped_queue_full_last_logged: float | None = None
 
 # Tells a worker to exit its loop instead of waiting on the next queue item.
 # Cancelling a worker's task while it's mid asyncio.to_thread(auto_classify_
@@ -344,7 +344,10 @@ def schedule_auto_classification(session: SessionRecord) -> None:
     if _classification_queue is None:
         _dropped_no_workers_count += 1
         now = time.monotonic()
-        if now - _dropped_no_workers_last_logged >= _DROP_LOG_INTERVAL_SECONDS:
+        if (
+            _dropped_no_workers_last_logged is None
+            or now - _dropped_no_workers_last_logged >= _DROP_LOG_INTERVAL_SECONDS
+        ):
             logger.warning(
                 "Classification workers not started; dropped %d session(s) "
                 "in the last %.0fs (most recent: %s)",
@@ -360,7 +363,10 @@ def schedule_auto_classification(session: SessionRecord) -> None:
     except asyncio.QueueFull:
         _dropped_queue_full_count += 1
         now = time.monotonic()
-        if now - _dropped_queue_full_last_logged >= _DROP_LOG_INTERVAL_SECONDS:
+        if (
+            _dropped_queue_full_last_logged is None
+            or now - _dropped_queue_full_last_logged >= _DROP_LOG_INTERVAL_SECONDS
+        ):
             logger.warning(
                 "Classification queue full; dropped %d session(s) in the "
                 "last %.0fs (most recent: %s)",
