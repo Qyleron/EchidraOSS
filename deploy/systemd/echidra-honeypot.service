@@ -12,6 +12,15 @@ ExecStart=/opt/echidra/venv/bin/python -m honeypot.main
 Restart=on-failure
 RestartSec=5
 
+# Provisions data/ (see ReadWritePaths below) on every start, not just at
+# initial install -- the "+" prefix runs this one line as root, ignoring
+# User=/Group= and the ProtectSystem=strict sandbox below, so it can
+# create/fix the directory even though the main process (and its
+# unprivileged User=echidra) can't write to the root-owned /opt/echidra
+# parent. Covers upgrades or re-provisioning flows that skip DEPLOYMENT.md's
+# manual mkdir step, instead of relying on it having been run once by hand.
+ExecStartPre=+/bin/sh -c 'mkdir -p /opt/echidra/data && chown echidra:echidra /opt/echidra/data && chmod 0700 /opt/echidra/data'
+
 # Only needed if ECHIDRA_PORT/ECHIDRA_HTTP_PORT/etc. are set to privileged
 # ports (80/21/23/22) instead of the non-privileged defaults
 # (8080/2121/2323/2222). Uncomment if you need a privileged port -- left
