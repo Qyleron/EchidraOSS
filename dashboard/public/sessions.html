@@ -52,6 +52,24 @@
             <h1 id="sessionsTitle">Captured Attacker Sessions</h1>
           </div>
           <div class="page-panel-actions">
+            <select id="riskLevelFilter" class="form-select" style="width:150px;flex-shrink:0;" aria-label="Filter by risk level">
+              <option value="">All risk levels</option>
+              <option value="critical">Critical</option>
+              <option value="high">High</option>
+              <option value="medium">Medium</option>
+              <option value="low">Low</option>
+            </select>
+            <select id="actorLabelFilter" class="form-select" style="width:190px;flex-shrink:0;" aria-label="Filter by actor">
+              <option value="">All actors</option>
+              <option value="automated_scanner">Automated Scanner</option>
+              <option value="brute_force_bot">Brute-Force Bot</option>
+              <option value="commodity_bot">Commodity Bot</option>
+              <option value="script_kiddie">Script Kiddie</option>
+              <option value="skilled_human_operator">Skilled Human Operator</option>
+            </select>
+            <select id="personaFilter" class="form-select" style="width:190px;flex-shrink:0;" aria-label="Filter by persona">
+              <option value="">All personas</option>
+            </select>
             <div class="time-range-control">
               <button id="timeRangeButton" class="text-button" type="button">Loading range...</button>
               <div id="timeRangePanel" class="time-range-panel">
@@ -241,9 +259,12 @@
 
     function renderSessions(sessionsToRender) {
       if (sessionsToRender.length === 0) {
+        const filtersActive = Boolean(riskLevelFilter.value || actorLabelFilter.value || personaFilter.value);
         const message = sessionsLoadFailed
           ? "Could not load sessions. Is the database configured?"
-          : "No sessions in this range.";
+          : filtersActive
+            ? "No sessions match the current filters in this range."
+            : "No sessions in this range.";
         tableBody.innerHTML = `<tr><td colspan="8" class="empty-state" style="text-align: center;">${message}</td></tr>`;
         renderPagination(0);
         return;
@@ -508,12 +529,42 @@
     // to_ts), not filtered client-side out of a flat, most-recent-500 fetch
     // -- a client-side filter over a capped list would silently drop older
     // in-range sessions once the honeypot has more than 500 total, with no
-    // indication anything was missing.
+    // indication anything was missing. Risk/actor/persona filters follow the
+    // same rule: they're sent to /classifier/runs as query params (the API
+    // already supports them) instead of filtering the capped client-side
+    // list, for the same reason.
     async function applyRange() {
       const { from, to } = readRange();
       document.getElementById("timeRangeButton").textContent = formatRangeLabel(from, to);
       await loadSessions(from, to);
     }
+
+    const riskLevelFilter = document.getElementById("riskLevelFilter");
+    const actorLabelFilter = document.getElementById("actorLabelFilter");
+    const personaFilter = document.getElementById("personaFilter");
+
+    // Populated from both preset and custom personas so a persona created
+    // via section 2's "custom_demo" flow shows up here too, not just the
+    // four built-in presets.
+    async function initPersonaFilterOptions() {
+      const [presets, customConfigs] = await Promise.all([
+        fetchJSON("/personas").catch(() => []),
+        fetchJSON("/persona-configs").catch(() => [])
+      ]);
+      const ids = new Set([
+        ...presets.map((p) => p.persona_id),
+        ...customConfigs.map((c) => c.id)
+      ]);
+      const options = Array.from(ids)
+        .sort()
+        .map((id) => `<option value="${escHtml(id)}">${escHtml(personaDisplay(id))}</option>`)
+        .join("");
+      personaFilter.insertAdjacentHTML("beforeend", options);
+    }
+
+    [riskLevelFilter, actorLabelFilter, personaFilter].forEach((select) => {
+      select.addEventListener("change", applyRange);
+    });
 
     function initTimeRangeControl() {
       const fromDateInput = document.getElementById("rangeFromDate");
@@ -635,9 +686,11 @@
       try {
         const fromTs = from.getTime() / 1000;
         const toTs = to.getTime() / 1000;
-        runs = await fetchJSON(
-          `/classifier/runs?from_ts=${fromTs}&to_ts=${toTs}&limit=${SESSIONS_FETCH_LIMIT}`
-        );
+        let url = `/classifier/runs?from_ts=${fromTs}&to_ts=${toTs}&limit=${SESSIONS_FETCH_LIMIT}`;
+        if (riskLevelFilter.value) url += `&risk_level=${encodeURIComponent(riskLevelFilter.value)}`;
+        if (actorLabelFilter.value) url += `&actor_label=${encodeURIComponent(actorLabelFilter.value)}`;
+        if (personaFilter.value) url += `&persona_id=${encodeURIComponent(personaFilter.value)}`;
+        runs = await fetchJSON(url);
       } catch (error) {
         console.error(error);
       }
@@ -685,6 +738,7 @@
       }
     });
     initTimeRangeControl();
+    initPersonaFilterOptions();
   </script>
 </body>
 </html>
