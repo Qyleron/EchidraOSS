@@ -23,4 +23,11 @@ TBD.txt
 TBD2.txt
 personas.txt
 
+# Test/scratch artifacts that can carry a live session token or key material
+cookies.txt
+*.cookies
+*.pem
+*.key
+*.p12
+
 
