@@ -205,11 +205,14 @@
         trigger.setAttribute("role", "combobox");
         trigger.setAttribute("aria-haspopup", "listbox");
         trigger.setAttribute("aria-expanded", "false");
+        trigger.setAttribute("aria-label", select.getAttribute("aria-label") || "");
         wrapper.appendChild(trigger);
 
         var listbox = document.createElement("div");
         listbox.className = "custom-select-listbox";
         listbox.setAttribute("role", "listbox");
+        listbox.id = select.id + "-listbox";
+        trigger.setAttribute("aria-controls", listbox.id);
         wrapper.appendChild(listbox);
 
         // Single source of truth for open/closed state -- keeps the
@@ -227,8 +230,9 @@
 
         function renderOptions() {
           listbox.innerHTML = "";
-          Array.prototype.forEach.call(select.options, function(opt) {
+          Array.prototype.forEach.call(select.options, function(opt, index) {
             var item = document.createElement("div");
+            item.id = listbox.id + "-option-" + index;
             var selected = opt.value === select.value;
             item.className = "custom-select-option" + (selected ? " is-selected" : "");
             item.setAttribute("role", "option");
@@ -251,6 +255,7 @@
             var selected = i === select.selectedIndex;
             item.classList.toggle("is-selected", selected);
             item.setAttribute("aria-selected", selected ? "true" : "false");
+            if (selected) trigger.setAttribute("aria-activedescendant", item.id);
           });
         }
 
@@ -294,6 +299,12 @@
             select.dispatchEvent(new Event("change", { bubbles: true }));
             syncTrigger();
           } else if (evt.key === "Escape") {
+            setOpen(false);
+          }
+        });
+
+        wrapper.addEventListener("focusout", function(evt) {
+          if (!wrapper.contains(evt.relatedTarget)) {
             setOpen(false);
           }
         });
