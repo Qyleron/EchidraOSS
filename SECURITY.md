@@ -32,7 +32,7 @@ release:
 | CVE-2026-48817 | PYSEC-2026-2280 | Arbitrary method execution via unrestricted `getattr` dispatch in `HTTPEndpoint` | 1.1.0 |
 | CVE-2026-54282 | PYSEC-2026-248 | Host/URL confusion via unvalidated path concatenation in `request.url` | 1.3.0 |
 | CVE-2026-54283 | PYSEC-2026-249 | Denial of service via unbounded `request.form()` field count/size | 1.3.1 |
-| (unassigned) | PYSEC-2026-161 | HTTP request smuggling via unvalidated `Host` header reconstruction | 1.0.1 |
+| CVE-2026-48710 | PYSEC-2026-161 | HTTP request smuggling via unvalidated `Host` header reconstruction | 1.0.1 |
 
 Fixing them requires upgrading to `starlette>=1.3.1`, which requires
 `fastapi>=0.133.0` (every fastapi release that supports starlette 1.x
