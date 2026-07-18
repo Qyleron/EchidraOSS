@@ -67,8 +67,11 @@ services:
       ECHIDRA_SESSION_SECRET: ${ECHIDRA_SESSION_SECRET:?set ECHIDRA_SESSION_SECRET in your .env}
       ECHIDRA_COOKIE_SECURE: ${ECHIDRA_COOKIE_SECURE:-false}
       ECHIDRA_ALLOW_SIGNUPS: ${ECHIDRA_ALLOW_SIGNUPS:-false}
+    # Bound to the host's loopback only -- unlike the four decoy ports above,
+    # the dashboard isn't meant for the same audience. Reach it via an SSH
+    # tunnel or your own reverse proxy (see DEPLOYMENT.md), not directly.
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     volumes:
       - echidra_logs:/app/logs
     depends_on:
