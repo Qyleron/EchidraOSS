@@ -40,7 +40,10 @@ sudo journalctl -u echidra-honeypot -f                # instead of terminal 1's 
 ```
 Run the guide's `curl`/`nc`/`telnet`/`psql` commands from the VM itself (or
 against its public IP/hostname if the ports are reachable), and
-`tail -1 /opt/echidra/logs/sessions.jsonl` for the JSONL checks.
+`tail -1 /opt/echidra/logs/sessions.jsonl` for the JSONL checks. Any bare
+`python3 -c "..."` command below (section 5) needs the venv active first —
+`source /opt/echidra/venv/bin/activate` — or it'll import against the
+system Python instead, which doesn't have `classifier` installed.
 
 ---
 
@@ -60,7 +63,7 @@ Type these one at a time:
 
 | Command | Expected output |
 |---|---|
-| (connect) | `Linux ip-10-0-0-12 5.15.0-91-generic x86_64` banner, then `Last login: ...`, then a `root@ip-10-0-0-12:~#`-style prompt |
+| (connect) | `Linux ip-10-0-0-12 5.15.0-91-generic x86_64` banner, then `Last login: ...`, then a `root@ip-10-0-0-12:/home/admin#`-style prompt |
 | `whoami` | `root` |
 | `pwd` | `/home/admin` |
 | `id` | `uid=0(root) gid=0(root) groups=0(root)` |
@@ -340,6 +343,13 @@ Expect: `dashboard_users`, `login_failures`, `sessions`, `session_events`,
 `classifier_runs`, `classifier_signals`, `manual_labels`, `issues`,
 `issue_mitre_techniques`, `persona_configs`, `alert_config`, `alert_events`
 (12 tables — `login_failures` backs the dashboard login rate limit).
+
+**Docker Compose**: `db`'s `5432` isn't published to the host, and neither
+the `honeypot` nor `api` image has the `psql` client installed — run every
+`psql` command in this section against the `db` container instead, e.g.:
+```bash
+docker compose exec db psql -U echidra -d echidra -c "\dt"
+```
 
 After a `/classify/session/store` call (section 3/5):
 ```bash
