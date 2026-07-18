@@ -239,8 +239,10 @@
             item.setAttribute("aria-selected", selected ? "true" : "false");
             item.textContent = opt.textContent;
             item.addEventListener("click", function() {
-              select.value = opt.value;
-              select.dispatchEvent(new Event("change", { bubbles: true }));
+              if (select.value !== opt.value) {
+                select.value = opt.value;
+                select.dispatchEvent(new Event("change", { bubbles: true }));
+              }
               syncTrigger();
               setOpen(false);
             });
@@ -294,9 +296,11 @@
             positionAndOpen();
             var items = Array.prototype.slice.call(listbox.children);
             var idx = items.findIndex(function(i) { return i.classList.contains("is-selected"); });
-            idx = evt.key === "ArrowDown" ? Math.min(idx + 1, items.length - 1) : Math.max(idx - 1, 0);
-            select.selectedIndex = idx;
-            select.dispatchEvent(new Event("change", { bubbles: true }));
+            var nextIdx = evt.key === "ArrowDown" ? Math.min(idx + 1, items.length - 1) : Math.max(idx - 1, 0);
+            if (nextIdx !== idx) {
+              select.selectedIndex = nextIdx;
+              select.dispatchEvent(new Event("change", { bubbles: true }));
+            }
             syncTrigger();
           } else if (evt.key === "Escape") {
             setOpen(false);
@@ -328,7 +332,13 @@
       }
     });
 
-    window.addEventListener("scroll", function() {
+    window.addEventListener("scroll", function(evt) {
+      if (
+        evt.target instanceof Element &&
+        evt.target.closest(".custom-select-listbox")
+      ) {
+        return;
+      }
       Array.prototype.forEach.call(document.querySelectorAll(".custom-select.open"), function(w) {
         if (w._setOpen) w._setOpen(false);
       });
