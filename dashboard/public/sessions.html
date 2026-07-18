@@ -176,6 +176,130 @@
         .replace(/>/g, "&gt;");
     }
 
+    // ── Custom-styled dropdowns (native <select> popups can't be restyled via
+    // CSS) -- ported from personas.html's Customize modal so the Sessions
+    // filters match its rounded corners/grey hover/pointer cursor treatment.
+    function initCustomSelects(root) {
+      var selects = root.querySelectorAll("select.form-select:not([data-custom-select-init])");
+      Array.prototype.forEach.call(selects, function(select) {
+        select.setAttribute("data-custom-select-init", "true");
+
+        var wrapper = document.createElement("div");
+        wrapper.className = "custom-select";
+        // The native select is hidden once wrapped (.custom-select-native),
+        // so its own inline width/flex-shrink (used here to size the three
+        // filter dropdowns in the flex header row) would otherwise have
+        // nothing left to apply to -- carry it onto the wrapper instead.
+        if (select.style.width) wrapper.style.width = select.style.width;
+        if (select.style.flexShrink) wrapper.style.flexShrink = select.style.flexShrink;
+        select.parentNode.insertBefore(wrapper, select);
+        wrapper.appendChild(select);
+        select.classList.add("custom-select-native");
+
+        var trigger = document.createElement("div");
+        trigger.className = "custom-select-trigger";
+        trigger.setAttribute("tabindex", "0");
+        trigger.setAttribute("role", "combobox");
+        trigger.setAttribute("aria-haspopup", "listbox");
+        trigger.setAttribute("aria-expanded", "false");
+        wrapper.appendChild(trigger);
+
+        var listbox = document.createElement("div");
+        listbox.className = "custom-select-listbox";
+        listbox.setAttribute("role", "listbox");
+        wrapper.appendChild(listbox);
+
+        function renderOptions() {
+          listbox.innerHTML = "";
+          Array.prototype.forEach.call(select.options, function(opt) {
+            var item = document.createElement("div");
+            item.className = "custom-select-option" + (opt.value === select.value ? " is-selected" : "");
+            item.setAttribute("role", "option");
+            item.textContent = opt.textContent;
+            item.addEventListener("click", function() {
+              select.value = opt.value;
+              select.dispatchEvent(new Event("change", { bubbles: true }));
+              syncTrigger();
+              wrapper.classList.remove("open");
+            });
+            listbox.appendChild(item);
+          });
+        }
+
+        function syncTrigger() {
+          var current = select.options[select.selectedIndex];
+          trigger.textContent = current ? current.textContent : "";
+          Array.prototype.forEach.call(listbox.children, function(item, i) {
+            item.classList.toggle("is-selected", i === select.selectedIndex);
+          });
+        }
+
+        select._refreshCustomSelect = function() {
+          renderOptions();
+          syncTrigger();
+        };
+
+        trigger.addEventListener("click", function() {
+          if (wrapper.classList.contains("open")) {
+            wrapper.classList.remove("open");
+            return;
+          }
+          var rect = trigger.getBoundingClientRect();
+          listbox.style.left = rect.left + "px";
+          listbox.style.top = (rect.bottom + 4) + "px";
+          listbox.style.width = rect.width + "px";
+          wrapper.classList.add("open");
+        });
+
+        trigger.addEventListener("keydown", function(evt) {
+          if (evt.key === "Enter" || evt.key === " ") {
+            evt.preventDefault();
+            trigger.click();
+          } else if (evt.key === "ArrowDown" || evt.key === "ArrowUp") {
+            evt.preventDefault();
+            wrapper.classList.add("open");
+            var items = Array.prototype.slice.call(listbox.children);
+            var idx = items.findIndex(function(i) { return i.classList.contains("is-selected"); });
+            idx = evt.key === "ArrowDown" ? Math.min(idx + 1, items.length - 1) : Math.max(idx - 1, 0);
+            select.selectedIndex = idx;
+            select.dispatchEvent(new Event("change", { bubbles: true }));
+            syncTrigger();
+          } else if (evt.key === "Escape") {
+            wrapper.classList.remove("open");
+          }
+        });
+
+        renderOptions();
+        syncTrigger();
+      });
+    }
+
+    document.addEventListener("click", function(evt) {
+      Array.prototype.forEach.call(document.querySelectorAll(".custom-select.open"), function(w) {
+        if (!w.contains(evt.target)) w.classList.remove("open");
+      });
+    });
+
+    document.addEventListener("keydown", function(evt) {
+      if (evt.key === "Escape") {
+        Array.prototype.forEach.call(document.querySelectorAll(".custom-select.open"), function(w) {
+          w.classList.remove("open");
+        });
+      }
+    });
+
+    window.addEventListener("scroll", function() {
+      Array.prototype.forEach.call(document.querySelectorAll(".custom-select.open"), function(w) {
+        w.classList.remove("open");
+      });
+    }, true);
+
+    window.addEventListener("resize", function() {
+      Array.prototype.forEach.call(document.querySelectorAll(".custom-select.open"), function(w) {
+        w.classList.remove("open");
+      });
+    });
+
     const PERSONA_LABEL_OVERRIDES = {
       ubuntu_web_server: "Ubuntu Web Server",
       debian_mail_gateway: "Debian Mail Gateway",
@@ -738,7 +862,11 @@
       }
     });
     initTimeRangeControl();
-    initPersonaFilterOptions();
+    // initCustomSelects wraps each <select> and snapshots its current
+    // options into the overlay listbox -- it must run after personaFilter's
+    // options are populated, or newly-added personas would never appear in
+    // the custom dropdown despite being real <option>s on the native select.
+    initPersonaFilterOptions().then(() => initCustomSelects(document));
   </script>
 </body>
 </html>
