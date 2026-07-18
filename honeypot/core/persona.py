@@ -66,11 +66,11 @@ def _credential(username: str, password: str) -> FakeCredential:
 PRESET_PERSONAS: dict[str, Persona] = {
     "generic_linux": Persona(
         persona_id="generic_linux",
-        os_banner="Linux fake-host 5.15.0-91-generic x86_64",
+        os_banner="Linux ip-10-0-0-12 5.15.0-91-generic x86_64",
         ssh_banner="SSH-2.0-OpenSSH_8.9p1 Ubuntu-3ubuntu0.6",
-        hostname="fake-host",
+        hostname="ip-10-0-0-12",
         uname_output=(
-            "Linux fake-host 5.15.0-91-generic #101-Ubuntu SMP "
+            "Linux ip-10-0-0-12 5.15.0-91-generic #101-Ubuntu SMP "
             "x86_64 GNU/Linux"
         ),
         timezone="UTC",

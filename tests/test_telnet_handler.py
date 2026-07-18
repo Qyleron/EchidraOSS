@@ -87,8 +87,8 @@ async def test_telnet_banner_and_login_prompt(tmp_path):
     await handler.handle()
 
     output = writer.buffer.decode("latin-1")
-    assert "Linux fake-host 5.15.0-91-generic x86_64" in output
-    assert "fake-host login:" in output
+    assert "Linux ip-10-0-0-12 5.15.0-91-generic x86_64" in output
+    assert "ip-10-0-0-12 login:" in output
     assert "Login incorrect" in output
 
 

@@ -22,7 +22,7 @@ def test_banner():
     banner = engine.build_banner(session)
 
     assert "Linux" in banner
-    assert "root@fake-host:/home/admin# " in banner
+    assert "root@ip-10-0-0-12:/home/admin# " in banner
 
 
 def test_whoami():

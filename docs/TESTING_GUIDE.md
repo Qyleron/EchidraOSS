@@ -60,11 +60,11 @@ Type these one at a time:
 
 | Command | Expected output |
 |---|---|
-| (connect) | `Linux fake-host 5.15.0-91-generic x86_64` banner, then `Last login: ...`, then a `root@fake-host:~#`-style prompt |
+| (connect) | `Linux ip-10-0-0-12 5.15.0-91-generic x86_64` banner, then `Last login: ...`, then a `root@ip-10-0-0-12:~#`-style prompt |
 | `whoami` | `root` |
 | `pwd` | `/home/admin` |
 | `id` | `uid=0(root) gid=0(root) groups=0(root)` |
-| `uname -a` | `Linux fake-host 5.15.0-91-generic #101-Ubuntu SMP x86_64 GNU/Linux` |
+| `uname -a` | `Linux ip-10-0-0-12 5.15.0-91-generic #101-Ubuntu SMP x86_64 GNU/Linux` |
 | `ls` | `bin  boot  dev  etc  home  tmp  var` |
 | `ls /home/admin` | `notes.txt  readme.txt` |
 | `cat /home/admin/readme.txt` | `Welcome to the system.` |
@@ -143,7 +143,7 @@ gets eaten by that drain window instead of reaching the login prompt.
 ```bash
 telnet 127.0.0.1 2323
 ```
-Expect the persona's OS banner, then `fake-host login: `. Type `root`, Enter,
+Expect the persona's OS banner, then `ip-10-0-0-12 login: `. Type `root`, Enter,
 then `Password:`, type `toor`, Enter. Expect a ~1s pause, then
 `Login incorrect`, then the login prompt again.
 
