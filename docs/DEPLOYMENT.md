@@ -1,11 +1,21 @@
 # Deployment
 
-Three supported paths: the local dev Quick Start, a Docker Compose stack, and
-systemd units for a bare VM. Docker Compose and systemd both require
-`ECHIDRA_INGEST_API_KEY`. `ECHIDRA_SESSION_SECRET` is required for Compose;
-for a bare-metal systemd run it's optional only if you're running a single
-API process — set it explicitly if you run more than one, so they all
-sign/verify the same dashboard session cookies (see below).
+Three supported paths:
+
+- **Local machine** — run directly from your terminal during development
+  or evaluation. Suitable for trying Echidra out; not for unattended use.
+- **systemd (bare VM)** — the same direct Python install as local machine,
+  but managed as OS services that start on boot and restart on crash.
+  The right choice for a dedicated server without Docker.
+- **Docker Compose** — the entire stack (honeypot, API, Postgres) in
+  containers. The right choice if Docker is available and you want
+  a self-contained deployment without managing Python or Postgres directly.
+
+Docker Compose and systemd both require `ECHIDRA_INGEST_API_KEY`.
+`ECHIDRA_SESSION_SECRET` is required for Compose; for a bare-metal systemd
+run it's optional only if you're running a single API process — set it
+explicitly if you run more than one, so they all sign/verify the same
+dashboard session cookies (see below).
 
 ## Local machine
 
@@ -13,9 +23,7 @@ Covered in full in the [README Quick Start](../README.md#quick-start)
 (`echidra init` / `echidra serve` / `echidra status`) and in
 [TESTING_GUIDE.md](TESTING_GUIDE.md#manual-testing-guide) if you'd rather run
 each service in its own terminal. No systemd units, containers, or a
-dedicated `echidra` user — just a clone, a virtualenv, and `.env`. This is
-the right choice for trying Echidra out or actively developing on it; move to
-Docker Compose or systemd once you want it running unattended.
+dedicated `echidra` user — just a clone, a virtualenv, and `.env`.
 
 ## Secrets you need either way
 
