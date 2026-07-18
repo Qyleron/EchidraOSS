@@ -173,31 +173,27 @@ sudo -u echidra venv/bin/python -m classifier.storage.cli init-db
 sudo systemctl enable --now echidra-honeypot echidra-api
 ```
 
-Do not bind Postgres to `0.0.0.0` — keep it on `localhost` (the default)
-or firewall port 5432 explicitly if your Postgres config overrides this.
-
 Check status:
 
 ```bash
 sudo systemctl status echidra-honeypot echidra-api
-sudo journalctl -u echidra-honeypot -f
+sudo journalctl -u echidra-honeypot -u echidra-api -f
 ```
 
-**Firewall port 8000 on bare-metal deployments**
-
-Unlike Compose (which binds 8000 to loopback in `docker-compose.yml`), a
-systemd deployment has no such binding built in — `echidra-api.service`
-listens on `0.0.0.0:8000` by default, same as the four honeypot ports.
-After starting the services, restrict dashboard access to localhost only
-at the firewall:
+`echidra-api.service` binds `0.0.0.0:8000` like the four honeypot ports —
+unlike Compose's loopback binding, systemd relies entirely on the firewall
+below for port 8000 access control, so don't skip it:
 
 ```bash
 # ufw
+sudo ufw allow <admin-ssh-port>/tcp
 sudo ufw deny 8000
 sudo ufw allow 2222
 sudo ufw allow 8080
 sudo ufw allow 2121
 sudo ufw allow 2323
+sudo ufw enable
+sudo ufw status verbose
 ```
 
 Access the dashboard remotely via SSH tunnel as described above.
