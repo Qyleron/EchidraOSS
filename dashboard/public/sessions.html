@@ -105,6 +105,9 @@
         <p id="rangeTruncatedNotice" style="display:none;padding:0 22px 12px;font-size:12px;color:var(--muted);">
           Showing the most recent 500 sessions in this range — narrow the date range to see the rest.
         </p>
+        <p id="personaFilterWarning" style="display:none;padding:0 22px 12px;font-size:12px;color:var(--muted);" role="alert">
+          Persona filter list may be incomplete — some personas failed to load. Reload the page to retry.
+        </p>
 
         <div class="table-shell">
           <table class="data-table" aria-describedby="sessionsTitle">
@@ -209,18 +212,33 @@
         listbox.setAttribute("role", "listbox");
         wrapper.appendChild(listbox);
 
+        // Single source of truth for open/closed state -- keeps the
+        // trigger's aria-expanded in sync with the visible "open" class
+        // instead of the half-dozen call sites (click, Escape, option
+        // click, outside click, scroll, resize) toggling the class
+        // directly and letting the two drift apart. Exposed on the
+        // wrapper so the global document/window listeners below -- which
+        // only have a wrapper element, not this closure -- can reach it.
+        function setOpen(open) {
+          wrapper.classList.toggle("open", open);
+          trigger.setAttribute("aria-expanded", open ? "true" : "false");
+        }
+        wrapper._setOpen = setOpen;
+
         function renderOptions() {
           listbox.innerHTML = "";
           Array.prototype.forEach.call(select.options, function(opt) {
             var item = document.createElement("div");
-            item.className = "custom-select-option" + (opt.value === select.value ? " is-selected" : "");
+            var selected = opt.value === select.value;
+            item.className = "custom-select-option" + (selected ? " is-selected" : "");
             item.setAttribute("role", "option");
+            item.setAttribute("aria-selected", selected ? "true" : "false");
             item.textContent = opt.textContent;
             item.addEventListener("click", function() {
               select.value = opt.value;
               select.dispatchEvent(new Event("change", { bubbles: true }));
               syncTrigger();
-              wrapper.classList.remove("open");
+              setOpen(false);
             });
             listbox.appendChild(item);
           });
@@ -230,7 +248,9 @@
           var current = select.options[select.selectedIndex];
           trigger.textContent = current ? current.textContent : "";
           Array.prototype.forEach.call(listbox.children, function(item, i) {
-            item.classList.toggle("is-selected", i === select.selectedIndex);
+            var selected = i === select.selectedIndex;
+            item.classList.toggle("is-selected", selected);
+            item.setAttribute("aria-selected", selected ? "true" : "false");
           });
         }
 
@@ -239,16 +259,25 @@
           syncTrigger();
         };
 
-        trigger.addEventListener("click", function() {
-          if (wrapper.classList.contains("open")) {
-            wrapper.classList.remove("open");
-            return;
-          }
+        // Shared by the click and ArrowUp/ArrowDown paths so keyboard-only
+        // opening (no prior click) -- or reopening after a scroll/resize
+        // shifted the trigger since the last open -- always positions the
+        // listbox against the trigger's current rect instead of an unset
+        // or stale one.
+        function positionAndOpen() {
           var rect = trigger.getBoundingClientRect();
           listbox.style.left = rect.left + "px";
           listbox.style.top = (rect.bottom + 4) + "px";
           listbox.style.width = rect.width + "px";
-          wrapper.classList.add("open");
+          setOpen(true);
+        }
+
+        trigger.addEventListener("click", function() {
+          if (wrapper.classList.contains("open")) {
+            setOpen(false);
+            return;
+          }
+          positionAndOpen();
         });
 
         trigger.addEventListener("keydown", function(evt) {
@@ -257,7 +286,7 @@
             trigger.click();
           } else if (evt.key === "ArrowDown" || evt.key === "ArrowUp") {
             evt.preventDefault();
-            wrapper.classList.add("open");
+            positionAndOpen();
             var items = Array.prototype.slice.call(listbox.children);
             var idx = items.findIndex(function(i) { return i.classList.contains("is-selected"); });
             idx = evt.key === "ArrowDown" ? Math.min(idx + 1, items.length - 1) : Math.max(idx - 1, 0);
@@ -265,7 +294,7 @@
             select.dispatchEvent(new Event("change", { bubbles: true }));
             syncTrigger();
           } else if (evt.key === "Escape") {
-            wrapper.classList.remove("open");
+            setOpen(false);
           }
         });
 
@@ -276,27 +305,27 @@
 
     document.addEventListener("click", function(evt) {
       Array.prototype.forEach.call(document.querySelectorAll(".custom-select.open"), function(w) {
-        if (!w.contains(evt.target)) w.classList.remove("open");
+        if (!w.contains(evt.target) && w._setOpen) w._setOpen(false);
       });
     });
 
     document.addEventListener("keydown", function(evt) {
       if (evt.key === "Escape") {
         Array.prototype.forEach.call(document.querySelectorAll(".custom-select.open"), function(w) {
-          w.classList.remove("open");
+          if (w._setOpen) w._setOpen(false);
         });
       }
     });
 
     window.addEventListener("scroll", function() {
       Array.prototype.forEach.call(document.querySelectorAll(".custom-select.open"), function(w) {
-        w.classList.remove("open");
+        if (w._setOpen) w._setOpen(false);
       });
     }, true);
 
     window.addEventListener("resize", function() {
       Array.prototype.forEach.call(document.querySelectorAll(".custom-select.open"), function(w) {
-        w.classList.remove("open");
+        if (w._setOpen) w._setOpen(false);
       });
     });
 
@@ -669,12 +698,19 @@
 
     // Populated from both preset and custom personas so a persona created
     // via section 2's "custom_demo" flow shows up here too, not just the
-    // four built-in presets.
+    // four built-in presets. Promise.allSettled (not .catch(() => [])) so a
+    // failure on one source doesn't get silently conflated with "this
+    // source legitimately has zero personas" -- whichever source did
+    // succeed is still shown, and a failure on either surfaces a visible
+    // warning instead of a silently-incomplete filter list.
     async function initPersonaFilterOptions() {
-      const [presets, customConfigs] = await Promise.all([
-        fetchJSON("/personas").catch(() => []),
-        fetchJSON("/persona-configs").catch(() => [])
+      const [presetsResult, customConfigsResult] = await Promise.allSettled([
+        fetchJSON("/personas"),
+        fetchJSON("/persona-configs")
       ]);
+      const presets = presetsResult.status === "fulfilled" ? presetsResult.value : [];
+      const customConfigs = customConfigsResult.status === "fulfilled" ? customConfigsResult.value : [];
+
       const ids = new Set([
         ...presets.map((p) => p.persona_id),
         ...customConfigs.map((c) => c.id)
@@ -684,6 +720,15 @@
         .map((id) => `<option value="${escHtml(id)}">${escHtml(personaDisplay(id))}</option>`)
         .join("");
       personaFilter.insertAdjacentHTML("beforeend", options);
+
+      [presetsResult, customConfigsResult].forEach((result) => {
+        if (result.status === "rejected") {
+          console.error(result.reason);
+        }
+      });
+      if (presetsResult.status === "rejected" || customConfigsResult.status === "rejected") {
+        document.getElementById("personaFilterWarning").style.display = "";
+      }
     }
 
     [riskLevelFilter, actorLabelFilter, personaFilter].forEach((select) => {

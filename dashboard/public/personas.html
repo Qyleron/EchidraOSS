@@ -565,16 +565,25 @@
           syncTrigger();
         };
 
-        trigger.addEventListener("click", function() {
-          if (wrapper.classList.contains("open")) {
-            wrapper.classList.remove("open");
-            return;
-          }
+        // Shared by the click and ArrowUp/ArrowDown paths so keyboard-only
+        // opening (no prior click) -- or reopening after a scroll/resize
+        // shifted the trigger since the last open -- always positions the
+        // listbox against the trigger's current rect instead of an unset
+        // or stale one.
+        function positionAndOpen() {
           var rect = trigger.getBoundingClientRect();
           listbox.style.left = rect.left + "px";
           listbox.style.top = (rect.bottom + 4) + "px";
           listbox.style.width = rect.width + "px";
           wrapper.classList.add("open");
+        }
+
+        trigger.addEventListener("click", function() {
+          if (wrapper.classList.contains("open")) {
+            wrapper.classList.remove("open");
+            return;
+          }
+          positionAndOpen();
         });
 
         trigger.addEventListener("keydown", function(evt) {
@@ -583,7 +592,7 @@
             trigger.click();
           } else if (evt.key === "ArrowDown" || evt.key === "ArrowUp") {
             evt.preventDefault();
-            wrapper.classList.add("open");
+            positionAndOpen();
             var items = Array.prototype.slice.call(listbox.children);
             var idx = items.findIndex(function(i) { return i.classList.contains("is-selected"); });
             idx = evt.key === "ArrowDown" ? Math.min(idx + 1, items.length - 1) : Math.max(idx - 1, 0);
