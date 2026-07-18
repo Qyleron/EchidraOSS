@@ -46,6 +46,9 @@ python -c "import secrets; print(secrets.token_urlsafe(32))"   # ECHIDRA_SESSION
 
 ## Docker Compose
 
+> **Important:** Port 8000 (dashboard) must not be publicly accessible.
+> See "Accessing the dashboard remotely" below for SSH tunnel instructions.
+
 `docker-compose.yml` also requires `ECHIDRA_DB_PASSWORD` — it sets the
 Postgres container's password and is interpolated into both the `honeypot`
 and `api` services' `ECHIDRA_DATABASE_URL`, so the three stay in sync.
@@ -56,9 +59,15 @@ string.
 
 Unlike a bare-metal run, Compose also requires `ECHIDRA_SESSION_SECRET`
 explicitly rather than falling back to the auto-generated/persisted default
-described above — the `api` container's writable layer doesn't survive
-`docker compose down`/recreation, so an auto-generated secret would silently
-rotate and invalidate every dashboard session.
+described above. That fallback is actually stored on the `echidra_logs`
+named volume (`logs/.dashboard_session_secret`), so it does survive an
+ordinary `docker compose down`/`up` cycle — but Compose setups get torn
+down more destructively than a bare-metal install far more often (`docker
+compose down -v`, `docker volume prune`, migrating to a fresh host without
+carrying volumes over), each of which would silently rotate the secret and
+invalidate every dashboard session. Requiring it explicitly here removes
+that whole class of failure instead of depending on every operator
+remembering never to prune volumes.
 
 ```bash
 cp .env.example .env
@@ -116,13 +125,17 @@ port 8000 with TLS and restrict access by IP or client certificate.
 
 ## systemd (bare VM)
 
+> **Important:** Port 8000 (dashboard) must not be publicly accessible.
+> See "Accessing the dashboard remotely" above for SSH tunnel instructions.
+
 Two separate units — `echidra-honeypot.service` and `echidra-api.service` —
 so a crash or restart in one never takes down the other. Both live in
 [deploy/systemd/](../deploy/systemd/) — `echidra-honeypot.service` for the
 listeners and `echidra-api.service` for the dashboard and classifier API.
 
 Both unit files run as the unprivileged `echidra` user with
-`ProtectSystem=strict` (read-only filesystem outside `logs/`). The
+`ProtectSystem=strict` (read-only filesystem outside `logs/` and `data/` —
+the latter persists the SSH host key, see below). The
 `AmbientCapabilities=CAP_NET_BIND_SERVICE` line in
 `echidra-honeypot.service` is commented out by default, since it grants a
 capability the process doesn't otherwise need. Uncomment it only if you set
@@ -142,7 +155,9 @@ sudo ./venv/bin/pip install -e .
 sudo cp .env.example .env
 sudoedit /opt/echidra/.env   # set ECHIDRA_DATABASE_URL, ECHIDRA_INGEST_API_KEY, ECHIDRA_SESSION_SECRET
 sudo mkdir -p logs data      # data/ persists the SSH host key -- see echidra-honeypot.service's ReadWritePaths
-sudo chown -R echidra:echidra /opt/echidra
+sudo chown -R root:root /opt/echidra
+sudo chown echidra:echidra /opt/echidra/.env
+sudo chown -R echidra:echidra /opt/echidra/logs /opt/echidra/data
 sudo chmod 600 /opt/echidra/.env
 sudo chmod 700 /opt/echidra/logs /opt/echidra/data
 
@@ -157,6 +172,9 @@ sudo -u echidra venv/bin/python -m classifier.storage.cli init-db
 
 sudo systemctl enable --now echidra-honeypot echidra-api
 ```
+
+Do not bind Postgres to `0.0.0.0` — keep it on `localhost` (the default)
+or firewall port 5432 explicitly if your Postgres config overrides this.
 
 Check status:
 
