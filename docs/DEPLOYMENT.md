@@ -141,10 +141,10 @@ sudo python3 -m venv venv
 sudo ./venv/bin/pip install -e .
 sudo cp .env.example .env
 sudoedit /opt/echidra/.env   # set ECHIDRA_DATABASE_URL, ECHIDRA_INGEST_API_KEY, ECHIDRA_SESSION_SECRET
-sudo mkdir -p logs
+sudo mkdir -p logs data      # data/ persists the SSH host key -- see echidra-honeypot.service's ReadWritePaths
 sudo chown -R echidra:echidra /opt/echidra
 sudo chmod 600 /opt/echidra/.env
-sudo chmod 700 /opt/echidra/logs
+sudo chmod 700 /opt/echidra/logs /opt/echidra/data
 
 sudo cp deploy/systemd/echidra-honeypot.service deploy/systemd/echidra-api.service /etc/systemd/system/
 sudo systemctl daemon-reload
