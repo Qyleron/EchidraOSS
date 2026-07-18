@@ -117,6 +117,59 @@ _NGINX_NOT_FOUND = """\
 <hr><center>nginx/1.18.0</center>
 </body></html>"""
 
+# BusyBox's own httpd applet ships a genuinely different, much barer error
+# page than either nginx or Apache -- no <hr>/<address> server signature
+# line, no centered layout. Serving Apache's or nginx's page (or an
+# Apache/nginx Server header) from a "DLink-Router" persona is exactly the
+# same kind of tell those two mismatches were fixed for.
+_BUSYBOX_FORBIDDEN = """\
+<head><title>403 Forbidden</title></head>
+<body>
+<h1>Forbidden</h1>
+</body>"""
+
+_BUSYBOX_NOT_FOUND = """\
+<head><title>404 Not Found</title></head>
+<body>
+<h1>Not Found</h1>
+The requested URL was not found on this server.
+</body>"""
+
+_ROUTER_LOGIN = """\
+<html><head><title>D-Link Router</title></head>
+<body bgcolor="#FFFFFF">
+<form method="post" action="/login.cgi">
+<table>
+<tr><td>Login:</td><td><input type="text" name="username"/></td></tr>
+<tr><td>Password:</td><td><input type="password" name="password"/></td></tr>
+<tr><td colspan="2"><input type="submit" value="Login"/></td></tr>
+</table>
+</form>
+</body></html>"""
+
+
+_SERVER_HEADERS = {
+    "nginx": "nginx/1.18.0 (Ubuntu)",
+    "busybox": "BusyBox httpd",
+    "apache": "Apache/2.4.54 (Debian)",
+}
+
+
+def _server_kind(persona) -> str:
+    """Classify a persona's web stack so headers/bodies never mismatch.
+
+    Explicit per-kind classification, not a nginx-or-Apache boolean --
+    busybox_router runs neither (it's an embedded BusyBox httpd, per its
+    "busybox" entry in running_processes), and defaulting it to Apache
+    served "Apache2 Ubuntu Default Page" from a "DLink-Router" persona,
+    exactly the header/body mismatch already fixed once for nginx personas.
+    """
+    if "nginx" in persona.running_processes:
+        return "nginx"
+    if "busybox" in persona.running_processes:
+        return "busybox"
+    return "apache"
+
 
 def _apache_forbidden(hostname: str) -> bytes:
     return (
@@ -279,10 +332,10 @@ class HttpHandler:
 
     def _build_response(self, method: str, path: str) -> bytes:
         persona = self.session.persona
-        is_nginx = "nginx" in persona.running_processes
-        status, content_type, body_bytes = self._pick_body(persona, path, is_nginx)
+        server_kind = _server_kind(persona)
+        status, content_type, body_bytes = self._pick_body(persona, path, server_kind)
 
-        server_header = "nginx/1.18.0 (Ubuntu)" if is_nginx else "Apache/2.4.54 (Debian)"
+        server_header = _SERVER_HEADERS[server_kind]
         headers = (
             f"HTTP/1.1 {status}\r\n"
             f"Server: {server_header}\r\n"
@@ -298,7 +351,7 @@ class HttpHandler:
             return headers.encode()
         return headers.encode() + body_bytes
 
-    def _pick_body(self, persona, path: str, is_nginx: bool) -> tuple[str, str, bytes]:
+    def _pick_body(self, persona, path: str, server_kind: str) -> tuple[str, str, bytes]:
         p = path.lower().split("?")[0].rstrip("/") or "/"
 
         if p == "/favicon.ico":
@@ -309,9 +362,12 @@ class HttpHandler:
 
         # Sensitive probe paths — 403 to confirm existence without exposing content
         if any(x in p for x in ("/.env", "/wp-config", "/.git", "/config.php", "/.htaccess")):
-            forbidden_body = (
-                _NGINX_FORBIDDEN.encode() if is_nginx else _apache_forbidden(persona.hostname)
-            )
+            if server_kind == "nginx":
+                forbidden_body = _NGINX_FORBIDDEN.encode()
+            elif server_kind == "busybox":
+                forbidden_body = _BUSYBOX_FORBIDDEN.encode()
+            else:
+                forbidden_body = _apache_forbidden(persona.hostname)
             return "403 Forbidden", "text/html; charset=UTF-8", forbidden_body
 
         # WordPress credential capture paths
@@ -324,11 +380,18 @@ class HttpHandler:
 
         # Root and index variants
         if p in ("/", "/index.html", "/index.php"):
-            if is_nginx:
+            if server_kind == "nginx":
                 return "200 OK", "text/html; charset=UTF-8", _WP_HOME.encode()
+            if server_kind == "busybox":
+                return "200 OK", "text/html; charset=UTF-8", _ROUTER_LOGIN.encode()
             if persona.persona_id == "centos_database":
                 return "200 OK", "text/html; charset=UTF-8", _PHPMYADMIN.encode()
             return "200 OK", "text/html; charset=UTF-8", _APACHE_DEFAULT.encode()
 
-        not_found_body = _NGINX_NOT_FOUND.encode() if is_nginx else _apache_not_found(persona.hostname)
+        if server_kind == "nginx":
+            not_found_body = _NGINX_NOT_FOUND.encode()
+        elif server_kind == "busybox":
+            not_found_body = _BUSYBOX_NOT_FOUND.encode()
+        else:
+            not_found_body = _apache_not_found(persona.hostname)
         return "404 Not Found", "text/html; charset=UTF-8", not_found_body
