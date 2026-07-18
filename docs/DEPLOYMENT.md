@@ -84,9 +84,10 @@ port 8000). The `init-db` step only needs to run once — it's idempotent,
 so re-running it against an existing database is safe.
 
 Ports published on the host: `2222` (SSH-style shell), `8080` (HTTP),
-`2121` (FTP), `2323` (Telnet), `8000` (dashboard/API). Adjust the `ports:`
-mappings in `docker-compose.yml` if any of those collide with something else
-already running on the host.
+`2121` (FTP), `2323` (Telnet). Adjust the `ports:` mappings in
+`docker-compose.yml` if any of those collide with something else already
+running on the host. `8000` (dashboard/API) is bound to `127.0.0.1` only —
+see below.
 
 To seed the four demo Intelligence-page issues (useful for a first look at
 the dashboard before any real traffic arrives):
@@ -94,6 +95,24 @@ the dashboard before any real traffic arrives):
 ```bash
 docker compose exec api python -m classifier.storage.cli init-db --seed-demo-issues
 ```
+
+**Accessing the dashboard remotely**
+
+Port 8000 is bound to `127.0.0.1` only — it is not publicly accessible
+by default, unlike the four decoy ports above, which are meant for the
+same internet-facing exposure attackers reach. To reach the dashboard
+from your local machine, open an SSH tunnel:
+
+```bash
+ssh -L 8000:127.0.0.1:8000 user@your.server.ip
+```
+
+Then open http://localhost:8000 in your browser. The tunnel forwards
+your local port 8000 to the server's port 8000 over the encrypted SSH
+connection.
+
+If you need persistent remote access, put nginx or Caddy in front of
+port 8000 with TLS and restrict access by IP or client certificate.
 
 ## systemd (bare VM)
 
@@ -143,8 +162,27 @@ Check status:
 
 ```bash
 sudo systemctl status echidra-honeypot echidra-api
-journalctl -u echidra-honeypot -f
+sudo journalctl -u echidra-honeypot -f
 ```
+
+**Firewall port 8000 on bare-metal deployments**
+
+Unlike Compose (which binds 8000 to loopback in `docker-compose.yml`), a
+systemd deployment has no such binding built in — `echidra-api.service`
+listens on `0.0.0.0:8000` by default, same as the four honeypot ports.
+After starting the services, restrict dashboard access to localhost only
+at the firewall:
+
+```bash
+# ufw
+sudo ufw deny 8000
+sudo ufw allow 2222
+sudo ufw allow 8080
+sudo ufw allow 2121
+sudo ufw allow 2323
+```
+
+Access the dashboard remotely via SSH tunnel as described above.
 
 ## Any of these: confirm it's actually working
 
