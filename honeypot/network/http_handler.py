@@ -95,7 +95,13 @@ _PHPMYADMIN = """\
 </div>
 </body></html>"""
 
-_FORBIDDEN = """\
+# nginx and Apache ship structurally different default error pages, not
+# just a different Server header -- serving one server's page body next to
+# the other's Server header (or the same body regardless of which server is
+# "running") is exactly the kind of banner/body mismatch fingerprinting
+# tools like whatweb check for. Each variant here matches its real
+# counterpart's actual markup, not just a swapped-out name in one template.
+_NGINX_FORBIDDEN = """\
 <!DOCTYPE html>
 <html><head><title>403 Forbidden</title></head>
 <body>
@@ -103,13 +109,41 @@ _FORBIDDEN = """\
 <hr><center>nginx/1.18.0 (Ubuntu)</center>
 </body></html>"""
 
-_NOT_FOUND = """\
+_NGINX_NOT_FOUND = """\
 <!DOCTYPE html>
 <html><head><title>404 Not Found</title></head>
 <body>
 <center><h1>404 Not Found</h1></center>
 <hr><center>nginx/1.18.0</center>
 </body></html>"""
+
+
+def _apache_forbidden(hostname: str) -> bytes:
+    return (
+        "<!DOCTYPE HTML PUBLIC \"-//IETF//DTD HTML 2.0//EN\">\n"
+        "<html><head>\n"
+        "<title>403 Forbidden</title>\n"
+        "</head><body>\n"
+        "<h1>Forbidden</h1>\n"
+        "<p>You don't have permission to access this resource.</p>\n"
+        "<hr>\n"
+        f"<address>Apache/2.4.54 (Debian) Server at {hostname} Port 80</address>\n"
+        "</body></html>"
+    ).encode()
+
+
+def _apache_not_found(hostname: str) -> bytes:
+    return (
+        "<!DOCTYPE HTML PUBLIC \"-//IETF//DTD HTML 2.0//EN\">\n"
+        "<html><head>\n"
+        "<title>404 Not Found</title>\n"
+        "</head><body>\n"
+        "<h1>Not Found</h1>\n"
+        "<p>The requested URL was not found on this server.</p>\n"
+        "<hr>\n"
+        f"<address>Apache/2.4.54 (Debian) Server at {hostname} Port 80</address>\n"
+        "</body></html>"
+    ).encode()
 
 _ROBOTS_TXT = "User-agent: *\nDisallow: /wp-admin/\nDisallow: /admin/\n"
 
@@ -245,12 +279,10 @@ class HttpHandler:
 
     def _build_response(self, method: str, path: str) -> bytes:
         persona = self.session.persona
-        status, content_type, body_bytes = self._pick_body(persona, path)
+        is_nginx = "nginx" in persona.running_processes
+        status, content_type, body_bytes = self._pick_body(persona, path, is_nginx)
 
-        if "nginx" in persona.running_processes:
-            server_header = "nginx/1.18.0 (Ubuntu)"
-        else:
-            server_header = "Apache/2.4.54 (Debian)"
+        server_header = "nginx/1.18.0 (Ubuntu)" if is_nginx else "Apache/2.4.54 (Debian)"
         headers = (
             f"HTTP/1.1 {status}\r\n"
             f"Server: {server_header}\r\n"
@@ -266,7 +298,7 @@ class HttpHandler:
             return headers.encode()
         return headers.encode() + body_bytes
 
-    def _pick_body(self, persona, path: str) -> tuple[str, str, bytes]:
+    def _pick_body(self, persona, path: str, is_nginx: bool) -> tuple[str, str, bytes]:
         p = path.lower().split("?")[0].rstrip("/") or "/"
 
         if p == "/favicon.ico":
@@ -277,7 +309,10 @@ class HttpHandler:
 
         # Sensitive probe paths — 403 to confirm existence without exposing content
         if any(x in p for x in ("/.env", "/wp-config", "/.git", "/config.php", "/.htaccess")):
-            return "403 Forbidden", "text/html; charset=UTF-8", _FORBIDDEN.encode()
+            forbidden_body = (
+                _NGINX_FORBIDDEN.encode() if is_nginx else _apache_forbidden(persona.hostname)
+            )
+            return "403 Forbidden", "text/html; charset=UTF-8", forbidden_body
 
         # WordPress credential capture paths
         if any(x in p for x in ("/wp-login", "/wp-admin", "/wp-content", "/wp-includes")):
@@ -289,10 +324,11 @@ class HttpHandler:
 
         # Root and index variants
         if p in ("/", "/index.html", "/index.php"):
-            if "nginx" in persona.running_processes:
+            if is_nginx:
                 return "200 OK", "text/html; charset=UTF-8", _WP_HOME.encode()
             if persona.persona_id == "centos_database":
                 return "200 OK", "text/html; charset=UTF-8", _PHPMYADMIN.encode()
             return "200 OK", "text/html; charset=UTF-8", _APACHE_DEFAULT.encode()
 
-        return "404 Not Found", "text/html; charset=UTF-8", _NOT_FOUND.encode()
+        not_found_body = _NGINX_NOT_FOUND.encode() if is_nginx else _apache_not_found(persona.hostname)
+        return "404 Not Found", "text/html; charset=UTF-8", not_found_body
