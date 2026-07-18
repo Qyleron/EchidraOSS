@@ -345,8 +345,9 @@ Expect: `dashboard_users`, `login_failures`, `sessions`, `session_events`,
 (12 tables — `login_failures` backs the dashboard login rate limit).
 
 **Docker Compose**: `db`'s `5432` isn't published to the host, and neither
-the `honeypot` nor `api` image has the `psql` client installed — run every
-`psql` command in this section against the `db` container instead, e.g.:
+the `honeypot` nor `api` image has the `psql` client installed — every
+`psql` command in this section (and the two further down) has a
+`docker compose exec db` equivalent shown right below it, e.g.:
 ```bash
 docker compose exec db psql -U echidra -d echidra -c "\dt"
 ```
@@ -356,12 +357,21 @@ After a `/classify/session/store` call (section 3/5):
 psql "$ECHIDRA_DATABASE_URL" -c "SELECT id, protocol, peer_ip, country, persona_id FROM sessions ORDER BY started_at DESC LIMIT 1;"
 psql "$ECHIDRA_DATABASE_URL" -c "SELECT actor_label, risk_score, risk_level FROM classifier_runs ORDER BY id DESC LIMIT 1;"
 ```
+Docker Compose:
+```bash
+docker compose exec db psql -U echidra -d echidra -c "SELECT id, protocol, peer_ip, country, persona_id FROM sessions ORDER BY started_at DESC LIMIT 1;"
+docker compose exec db psql -U echidra -d echidra -c "SELECT actor_label, risk_score, risk_level FROM classifier_runs ORDER BY id DESC LIMIT 1;"
+```
 Expect one matching row in each, `country` = `United States` if you used
 `8.8.8.8`.
 
 Seeded demo data (present immediately after `init-db`, before anything else runs):
 ```bash
 psql "$ECHIDRA_DATABASE_URL" -c "SELECT title, severity, status FROM issues;"
+```
+Docker Compose:
+```bash
+docker compose exec db psql -U echidra -d echidra -c "SELECT title, severity, status FROM issues;"
 ```
 Expect 4 rows (3 `open`, 1 `closed`) — this is what the Intelligence page
 should show on a completely fresh install.

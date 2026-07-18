@@ -26,6 +26,8 @@ personas.txt
 # Test/scratch artifacts that can carry a live session token or key material
 cookies.txt
 *.cookies
+data/ssh_host_key
+data/ssh_host_key.*
 *.pem
 *.key
 *.p12
