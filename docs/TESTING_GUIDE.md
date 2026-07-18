@@ -48,8 +48,12 @@ against its public IP/hostname if the ports are reachable), and
 
 ### SSH-style fake shell (port 2222)
 
+This is a real SSH handshake (via `asyncssh`), not a raw text socket -- use an
+actual `ssh` client, not `nc`, or the connection will just sit there with no
+banner or prompt. Any username/password is accepted after a short delay:
+
 ```bash
-nc 127.0.0.1 2222
+ssh -p 2222 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@127.0.0.1
 ```
 
 Type these one at a time:
@@ -332,9 +336,10 @@ then check the `country` column (section 6).
 ```bash
 psql "$ECHIDRA_DATABASE_URL" -c "\dt"
 ```
-Expect: `dashboard_users`, `sessions`, `session_events`, `classifier_runs`,
-`classifier_signals`, `manual_labels`, `issues`, `issue_mitre_techniques`,
-`persona_configs`, `alert_config`, `alert_events`.
+Expect: `dashboard_users`, `login_failures`, `sessions`, `session_events`,
+`classifier_runs`, `classifier_signals`, `manual_labels`, `issues`,
+`issue_mitre_techniques`, `persona_configs`, `alert_config`, `alert_events`
+(12 tables — `login_failures` backs the dashboard login rate limit).
 
 After a `/classify/session/store` call (section 3/5):
 ```bash
