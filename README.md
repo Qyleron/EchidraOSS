@@ -145,8 +145,11 @@ per-service and per-page manual test commands.
   shell running `echidra serve` for a traceback; a common cause is a port in
   the table above already being in use, often a previous `echidra serve`
   that's still running (e.g. its terminal was closed instead of Ctrl+C'd).
-  Run `echidra stop` to stop it, or `ss -tulnp | grep <port>` to find and
-  kill whatever's holding it.
+  Run `echidra stop` to stop it. Otherwise, use `ss -tulnp | grep <port>` to
+  identify the PID and terminate it only if it is the stale Echidra process.
+  If it's a `docker compose` stack rather than a stale process, see the
+  "run only one deployment path at a time" note in
+  [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 - Working in a remote VS Code session (Remote-SSH, WSL, Codespaces, a dev
   container)? This workspace turns off `remote.autoForwardPorts` (see
   `.vscode/settings.json`), so port 8000 won't auto-forward to your local

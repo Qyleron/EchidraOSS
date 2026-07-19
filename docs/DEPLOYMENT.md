@@ -11,6 +11,15 @@ Three supported paths:
   containers. The right choice if Docker is available and you want
   a self-contained deployment without managing Python or Postgres directly.
 
+> **Important:** Run only one of these on a given host at a time. All three
+> bind the same ports (2222/8080/2121/2323, and 8000 for the dashboard) —
+> starting a second path while another is already running (e.g. `echidra
+> serve` on a machine that also has `docker compose up` running) fails with
+> "address already in use", or worse, silently binds whichever ports the
+> first one hadn't already claimed. `echidra stop` and `docker compose down`
+> stop their respective path; nothing currently detects the other one
+> running, so that's on you to track.
+
 Docker Compose and systemd both require `ECHIDRA_INGEST_API_KEY`.
 `ECHIDRA_SESSION_SECRET` is required for Compose; for a bare-metal systemd
 run it's optional only if you're running a single API process — set it

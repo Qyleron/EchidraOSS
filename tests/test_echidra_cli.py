@@ -387,6 +387,15 @@ def test_stop_terminates_a_real_process_and_removes_pidfile(monkeypatch, tmp_pat
     assert not pid_path.exists()
 
 
+def test_read_pid_file_rejects_zero_negative_and_out_of_range_values(monkeypatch, tmp_path):
+    pid_path = tmp_path / "echidra.pid"
+    monkeypatch.setattr(cli, "PID_PATH", pid_path)
+    monkeypatch.setattr(cli, "_max_pid", lambda: 4194304)
+    pid_path.write_text("0\n-1\n99999999999\n1234\n", encoding="utf-8")
+
+    assert cli._read_pid_file() == [1234]
+
+
 def test_stop_skips_a_stale_pid_that_no_longer_exists(monkeypatch, tmp_path):
     pid_path = tmp_path / "echidra.pid"
     monkeypatch.setattr(cli, "PID_PATH", pid_path)

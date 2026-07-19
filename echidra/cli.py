@@ -264,18 +264,36 @@ def _write_pid_file(pids) -> None:
     PID_PATH.write_text("\n".join(str(pid) for pid in pids) + "\n", encoding="utf-8")
 
 
+def _max_pid() -> int:
+    # /proc/sys/kernel/pid_max is Linux's own record of this limit; a
+    # non-Linux platform (no such file) falls back to the historical Linux
+    # default ceiling rather than trusting an unbounded value.
+    try:
+        with open("/proc/sys/kernel/pid_max", encoding="ascii") as f:
+            return int(f.read().strip())
+    except OSError:
+        return 2**22
+
+
 def _read_pid_file() -> list[int]:
     if not PID_PATH.exists():
         return []
+    max_pid = _max_pid()
     pids = []
     for line in PID_PATH.read_text(encoding="utf-8").splitlines():
         line = line.strip()
         if not line:
             continue
         try:
-            pids.append(int(line))
+            pid = int(line)
         except ValueError:
             continue
+        # os.kill() treats pid <= 0 specially (0 = your whole process group,
+        # -1 = every process you can signal) -- reject those, and anything
+        # above the platform's own PID ceiling, before they ever reach
+        # _pid_is_alive/_cmd_stop/_check_serve_process.
+        if 0 < pid <= max_pid:
+            pids.append(pid)
     return pids
 
 
@@ -316,6 +334,7 @@ def _cmd_stop(args: argparse.Namespace) -> int:
             os.kill(pid, signal.SIGKILL)
         except (ProcessLookupError, PermissionError):
             pass
+    time.sleep(0.5)
     signaled = [pid for pid in signaled if _pid_is_alive(pid)]
 
     if permission_denied or signaled:
