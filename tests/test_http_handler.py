@@ -4,8 +4,9 @@ import json
 import pytest
 
 import honeypot.logging.session_logger as session_logger_module
+from honeypot.core.persona import PRESET_PERSONAS
 from honeypot.logging.session_logger import SessionLogger
-from honeypot.network.http_handler import HttpHandler
+from honeypot.network.http_handler import HttpHandler, _server_kind
 
 
 """
@@ -84,6 +85,32 @@ def read_records(log_path):
         json.loads(line)
         for line in log_path.read_text(encoding="utf-8").splitlines()
     ]
+
+
+@pytest.mark.parametrize(
+    "persona_id,expected_kind",
+    [
+        ("generic_linux", "apache"),
+        ("ubuntu_web_server", "nginx"),
+        ("centos_database", "apache"),
+        ("debian_mail_server", "apache"),
+        ("busybox_router", "busybox"),
+    ],
+)
+def test_server_kind_maps_every_preset_persona_explicitly(persona_id, expected_kind):
+    assert _server_kind(PRESET_PERSONAS[persona_id]) == expected_kind
+
+
+def test_server_kind_rejects_a_persona_with_no_recognizable_web_server():
+    """A custom persona that never claims a web server must not silently get
+    an Apache page it doesn't run -- see the busybox_router/Apache mismatch
+    this same file used to have."""
+    class _FakePersona:
+        persona_id = "iot_camera"
+        running_processes = ("rtsp_server", "cron")
+
+    with pytest.raises(ValueError, match="iot_camera"):
+        _server_kind(_FakePersona())
 
 
 @pytest.mark.asyncio
