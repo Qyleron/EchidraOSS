@@ -155,6 +155,17 @@ _SERVER_HEADERS = {
 }
 
 
+_APACHE_PROCESS_NAMES = ("apache2", "httpd")
+# generic_linux, centos_database, and debian_mail_server don't list a web
+# server in running_processes at all -- they're plain Debian/Ubuntu/CentOS
+# boxes, whose stock default httpd (if any is installed) is Apache. Explicit
+# per persona_id, not a leftover "whatever didn't match nginx/busybox" catch
+# -all: a custom persona that names a different (or no) web server reaches
+# neither this nor the process-name check below, and is rejected rather than
+# silently handed an Apache page it never claimed to run.
+_APACHE_BY_DEFAULT_PERSONAS = {"generic_linux", "centos_database", "debian_mail_server"}
+
+
 def _server_kind(persona) -> str:
     """Classify a persona's web stack so headers/bodies never mismatch.
 
@@ -169,7 +180,14 @@ def _server_kind(persona) -> str:
         return "nginx"
     if "busybox" in persona.running_processes:
         return "busybox"
-    return "apache"
+    if any(name in persona.running_processes for name in _APACHE_PROCESS_NAMES):
+        return "apache"
+    if persona.persona_id in _APACHE_BY_DEFAULT_PERSONAS:
+        return "apache"
+    raise ValueError(
+        f"No server-kind mapping for persona {persona.persona_id!r} -- add "
+        "'nginx', 'busybox', 'apache2', or 'httpd' to its running_processes."
+    )
 
 
 def _apache_forbidden(hostname: str) -> bytes:
