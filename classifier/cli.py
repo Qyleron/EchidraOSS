@@ -23,7 +23,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "classify-jsonl":
         try:
-            _classify_jsonl_command(args.input_path, args.output_path)
+            _classify_jsonl_command(args.input_path, args.output_path, args.skip_invalid)
             return 0
         except (OSError, ValueError, ValidationError) as exc:
             print(f"error: {exc}", file=sys.stderr)
@@ -56,23 +56,39 @@ def _build_parser() -> argparse.ArgumentParser:
         type=Path,
         help="optional path for JSONL classifier summaries; defaults to stdout",
     )
+    classify_jsonl.add_argument(
+        "--skip-invalid",
+        action="store_true",
+        help=(
+            "skip lines that fail to parse or validate instead of aborting the "
+            "whole run -- a warning naming the line number is still printed to "
+            "stderr for each one skipped"
+        ),
+    )
 
     return parser
 
 
-def _classify_jsonl_command(input_path: Path, output_path: Path | None) -> None:
+def _classify_jsonl_command(input_path: Path, output_path: Path | None, skip_invalid: bool) -> None:
     """Write classifier summaries to stdout or the requested output file."""
     if output_path is None:
-        _write_jsonl_summaries(input_path, sys.stdout)
+        _write_jsonl_summaries(input_path, sys.stdout, skip_invalid)
         return
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with output_path.open("w", encoding="utf-8") as output:
-        _write_jsonl_summaries(input_path, output)
+        _write_jsonl_summaries(input_path, output, skip_invalid)
 
 
-def _write_jsonl_summaries(input_path: Path, output: TextIO) -> None:
-    """Write one JSON classifier summary per input session line."""
+def _write_jsonl_summaries(input_path: Path, output: TextIO, skip_invalid: bool = False) -> None:
+    """Write one JSON classifier summary per input session line.
+
+    By default a single malformed line aborts the whole run (see the
+    classify-jsonl --skip-invalid help) so corruption is never silently
+    missed. --skip-invalid instead logs which lines were skipped and keeps
+    going, for a large log where losing one bad line's worth of data is
+    preferable to being unable to classify anything else in the file.
+    """
     with input_path.open("r", encoding="utf-8") as input_file:
         for line_number, line in enumerate(input_file, start=1):
             if not line.strip():
@@ -81,10 +97,16 @@ def _write_jsonl_summaries(input_path: Path, output: TextIO) -> None:
             try:
                 summary = classify_session_jsonl(line)
             except json.JSONDecodeError as exc:
+                if skip_invalid:
+                    print(f"warning: skipping invalid JSON on line {line_number}: {exc}", file=sys.stderr)
+                    continue
                 raise ValueError(
                     f"invalid JSON on line {line_number}: {exc}"
                 ) from exc
             except ValidationError as exc:
+                if skip_invalid:
+                    print(f"warning: skipping invalid session record on line {line_number}: {exc}", file=sys.stderr)
+                    continue
                 raise ValueError(
                     f"invalid session record on line {line_number}: {exc}"
                 ) from exc
