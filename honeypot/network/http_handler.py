@@ -160,9 +160,10 @@ def _server_kind(persona) -> str:
 
     Explicit per-kind classification, not a nginx-or-Apache boolean --
     busybox_router runs neither (it's an embedded BusyBox httpd, per its
-    "busybox" entry in running_processes), and defaulting it to Apache
-    served "Apache2 Ubuntu Default Page" from a "DLink-Router" persona,
-    exactly the header/body mismatch already fixed once for nginx personas.
+    "busybox" entry in running_processes). Defaulting an unmatched persona
+    to Apache would serve an "Apache2 Ubuntu Default Page" from a
+    "DLink-Router" persona: a Server header and error-page body that
+    contradict each other, an obvious tell to anyone probing the honeypot.
     """
     if "nginx" in persona.running_processes:
         return "nginx"
