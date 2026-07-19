@@ -78,6 +78,25 @@ def test_cli_classify_jsonl_reports_malformed_line(tmp_path, capsys):
     assert "Traceback" not in captured.err
 
 
+def test_cli_classify_jsonl_skip_invalid_keeps_going_past_a_bad_line(tmp_path, capsys):
+    log_path = tmp_path / "sessions.jsonl"
+    log_path.write_text(
+        json.dumps(make_record()) + "\n"
+        '{"session_id": "truncated-no-closing\n'
+        + json.dumps(make_record()) + "\n",
+        encoding="utf-8",
+    )
+
+    exit_code = main(["classify-jsonl", str(log_path), "--skip-invalid"])
+
+    captured = capsys.readouterr()
+    summaries = [json.loads(line) for line in captured.out.splitlines()]
+    assert exit_code == 0
+    assert len(summaries) == 2
+    assert "warning: skipping invalid JSON on line 2" in captured.err
+    assert "Traceback" not in captured.err
+
+
 def test_cli_without_command_prints_help(capsys):
     exit_code = main([])
 

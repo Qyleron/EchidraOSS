@@ -88,6 +88,11 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="optional path for JSONL classifier summaries; defaults to stdout",
     )
+    classify_parser.add_argument(
+        "--skip-invalid",
+        action="store_true",
+        help="skip lines that fail to parse or validate instead of aborting the whole run",
+    )
 
     status_parser = subparsers.add_parser(
         "status",
@@ -372,6 +377,8 @@ def _cmd_classify(args: argparse.Namespace) -> int:
     argv = ["classify-jsonl", args.input_path]
     if args.output_path:
         argv += ["--output", args.output_path]
+    if args.skip_invalid:
+        argv.append("--skip-invalid")
     return classifier_cli_main(argv)
 
 
