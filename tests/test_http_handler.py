@@ -4,6 +4,7 @@ import json
 import pytest
 
 import honeypot.logging.session_logger as session_logger_module
+import honeypot.network.http_handler as http_handler_module
 from honeypot.core.persona import PRESET_PERSONAS
 from honeypot.logging.session_logger import SessionLogger
 from honeypot.network.http_handler import HttpHandler, _server_kind
@@ -111,6 +112,28 @@ def test_server_kind_rejects_a_persona_with_no_recognizable_web_server():
 
     with pytest.raises(ValueError, match="iot_camera"):
         _server_kind(_FakePersona())
+
+
+@pytest.mark.asyncio
+async def test_http_rejects_a_persona_with_no_web_server_without_leaking_a_traceback(tmp_path, monkeypatch):
+    """A persona _server_kind can't classify must close the connection with
+    zero bytes sent -- an unhandled exception's traceback reaching the wire
+    would fingerprint the honeypot to anyone who reads the response."""
+    class _FakePersona:
+        persona_id = "iot_camera"
+        running_processes = ("rtsp_server", "cron")
+        hostname = "iot-cam-01"
+
+    monkeypatch.setattr(http_handler_module, "get_active_persona", lambda: _FakePersona())
+    raw = b"GET / HTTP/1.1\r\nHost: example.com\r\n\r\n"
+    reader = FakeReader(raw)
+    writer = FakeWriter()
+    handler = HttpHandler(reader, writer, session_logger=SessionLogger(str(tmp_path / "sessions.jsonl")))
+
+    await handler.handle()
+
+    assert writer.buffer == b""
+    assert writer.closed is True
 
 
 @pytest.mark.asyncio
