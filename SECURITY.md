@@ -16,10 +16,10 @@ why that distinction matters).
 `pydantic` (1 ReDoS advisory in its `EmailStr` regex, tracked under two
 identifiers for the same fix: CVE-2024-3772 and PVE-2023-61416 —
 https://github.com/pydantic/pydantic/pull/7360) and `python-dotenv` (1
-arbitrary-file-overwrite-via-symlink CVE, PYSEC-2026-2270) were also
-found during this audit and are already remediated in this release —
-bumped to `pydantic==1.10.13` and `python-dotenv==1.2.2` respectively, both
-verified against the full test suite before release.
+arbitrary-file-overwrite-via-symlink CVE, PYSEC-2026-2270) are already
+remediated in this release — bumped to `pydantic==1.10.13` and
+`python-dotenv==1.2.2` respectively, both verified against the full test
+suite before release.
 
 ### Starlette CVEs (accepted, tracked)
 
