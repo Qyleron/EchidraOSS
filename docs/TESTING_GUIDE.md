@@ -173,7 +173,7 @@ once all processes are confirmed dead.
 
 If it reports permission denied, run with sudo:
 
-    sudo echidra stop
+    sudo "$(command -v echidra)" stop
 
 ---
 
