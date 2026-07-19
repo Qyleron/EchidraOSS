@@ -68,13 +68,14 @@ dashboard.
 
 ## Quick Start
 
-Four commands, no need to know the underlying modules:
+A handful of commands, no need to know the underlying modules:
 
 ```bash
 pip install -e .   # installs Echidra + puts the `echidra` command on your PATH
 echidra init        # creates .env, generates ECHIDRA_INGEST_API_KEY, initializes the schema (if ECHIDRA_DATABASE_URL is set)
 echidra serve        # runs the honeypot listeners and the API/dashboard together until Ctrl+C
 echidra status       # in a second shell: confirms listeners/API/database are actually up and reports session counts
+echidra stop         # in a second shell: stops a `serve`
 ```
 
 Then open **http://localhost:8000** in your browser — it takes you straight
@@ -142,7 +143,10 @@ per-service and per-page manual test commands.
   the CLI as `python -m echidra` instead.
 - `echidra status` shows a listener/API as unreachable — check the other
   shell running `echidra serve` for a traceback; a common cause is a port in
-  the table above already being in use.
+  the table above already being in use, often a previous `echidra serve`
+  that's still running (e.g. its terminal was closed instead of Ctrl+C'd).
+  Run `echidra stop` to stop it, or `ss -tulnp | grep <port>` to find and
+  kill whatever's holding it.
 - Working in a remote VS Code session (Remote-SSH, WSL, Codespaces, a dev
   container)? This workspace turns off `remote.autoForwardPorts` (see
   `.vscode/settings.json`), so port 8000 won't auto-forward to your local
