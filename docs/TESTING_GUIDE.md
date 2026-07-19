@@ -160,6 +160,21 @@ window:
 Then confirm capture: `tail -1 logs/sessions.jsonl` should show
 `"login: root"` and `"password: toor"`.
 
+### Stopping a running serve
+
+If `echidra serve` is running in the background or was orphaned by a
+closed terminal:
+
+    echidra stop
+
+This reads `logs/echidra.pid`, sends SIGTERM to both child processes,
+escalates to SIGKILL after 10 seconds if needed, and removes the pidfile
+once all processes are confirmed dead.
+
+If it reports permission denied, run with sudo:
+
+    sudo echidra stop
+
 ---
 
 ## 2. Fake files, decoys, and persona identity

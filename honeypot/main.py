@@ -55,12 +55,14 @@ async def main():
         start_classification_workers()
 
         remaining = list(tasks)
+        stopped_by_signal = False
         while remaining:
             done, _ = await asyncio.wait(
                 [stop_task, *remaining],
                 return_when=asyncio.FIRST_COMPLETED,
             )
             if stop_task in done:
+                stopped_by_signal = True
                 break
             for task in done:
                 try:
@@ -68,6 +70,16 @@ async def main():
                 except Exception:
                     logger.exception("A protocol listener terminated unexpectedly")
             remaining = [t for t in remaining if t not in done]
+
+        if not stopped_by_signal:
+            # Every listener task finished on its own without a shutdown
+            # signal -- since they otherwise run until cancelled, that only
+            # happens when every one of them has crashed. Exit with an error
+            # instead of a clean 0, so nothing keeps running unnoticed with
+            # no listeners actually up, and the wrapping `echidra serve`
+            # process reports the failure instead of looking successful.
+            logger.critical("All protocol listeners have failed -- nothing is listening.")
+            raise SystemExit(1)
     finally:
         logger.info("Shutting down gracefully...")
         await ssh_server.shutdown()

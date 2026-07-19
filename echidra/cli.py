@@ -1,4 +1,4 @@
-"""Operator-facing `echidra` command: init, serve, classify, status.
+"""Operator-facing `echidra` command: init, serve, stop, classify, status.
 
 This is a thin wrapper around existing entry points (honeypot.main,
 classifier.cli, classifier.storage.cli, uvicorn) -- it exists so a fresh
@@ -23,6 +23,10 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 ENV_PATH = REPO_ROOT / ".env"
 ENV_EXAMPLE_PATH = REPO_ROOT / ".env.example"
+# logs/ is already a writable runtime dir in every deployment path (systemd's
+# ReadWritePaths, Compose's echidra_logs volume, and locally) -- reusing it
+# avoids needing a new directory just for this.
+PID_PATH = REPO_ROOT / "logs" / "echidra.pid"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -41,6 +45,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_classify(args)
     if args.command == "status":
         return _cmd_status(args)
+    if args.command == "stop":
+        return _cmd_stop(args)
 
     parser.print_help()
     return 1
@@ -89,6 +95,11 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     status_parser.add_argument("--api-host", default="127.0.0.1", help="API host to check (default: 127.0.0.1)")
     status_parser.add_argument("--api-port", type=int, default=8000, help="API port to check (default: 8000)")
+
+    subparsers.add_parser(
+        "stop",
+        help="stop a running 'echidra serve' from another terminal (reads PIDs from logs/echidra.pid)",
+    )
 
     return parser
 
@@ -157,6 +168,14 @@ def _ensure_env_var(key: str, value_factory) -> None:
 
 
 def _cmd_serve(args: argparse.Namespace) -> int:
+    existing_pids = [pid for pid in _read_pid_file() if _pid_is_alive(pid)]
+    if existing_pids:
+        print(f"A previous 'echidra serve' still appears to be running (PID {', '.join(map(str, existing_pids))}).")
+        print("Run 'echidra stop' first (or 'sudo echidra stop' if that reports permission denied), "
+              "then try again.")
+        return 1
+    PID_PATH.unlink(missing_ok=True)  # clears a stale pidfile left by a process that's already gone
+
     procs: list[subprocess.Popen] = []
     try:
         honeypot_proc = subprocess.Popen([sys.executable, "-m", "honeypot.main"])
@@ -193,9 +212,10 @@ def _cmd_serve(args: argparse.Namespace) -> int:
         for proc in procs:
             proc.terminate()
         raise
+    _write_pid_file(proc.pid for proc in procs)
     print(f"Honeypot listeners: PID {honeypot_proc.pid}")
     print(f"API/dashboard:      PID {api_proc.pid} (http://{args.api_host}:{args.api_port})")
-    print("Press Ctrl+C to stop both.")
+    print("Press Ctrl+C to stop both, or run 'echidra stop' from another terminal.")
 
     # Ctrl+C sends SIGINT to this whole foreground process group, so both
     # children already receive it directly -- explicitly forwarding SIGINT
@@ -231,11 +251,95 @@ def _cmd_serve(args: argparse.Namespace) -> int:
             except subprocess.TimeoutExpired:
                 proc.kill()
                 proc.wait()
+        PID_PATH.unlink(missing_ok=True)
 
     # A negative returncode means the child was killed by a signal (eg. our
     # own SIGINT/SIGTERM forwarding, or the terminate() above) -- that's a
     # clean shutdown, not a failure, so only positive exit codes propagate.
     return max(max(proc.returncode or 0, 0) for proc in procs)
+
+
+def _write_pid_file(pids) -> None:
+    PID_PATH.parent.mkdir(parents=True, exist_ok=True)
+    PID_PATH.write_text("\n".join(str(pid) for pid in pids) + "\n", encoding="utf-8")
+
+
+def _read_pid_file() -> list[int]:
+    if not PID_PATH.exists():
+        return []
+    pids = []
+    for line in PID_PATH.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            pids.append(int(line))
+        except ValueError:
+            continue
+    return pids
+
+
+# ---------------------------------------------------------------------------
+# stop
+# ---------------------------------------------------------------------------
+
+
+def _cmd_stop(args: argparse.Namespace) -> int:
+    pids = _read_pid_file()
+    if not pids:
+        print(f"No PID file at {PID_PATH} -- 'echidra serve' doesn't appear to be running.")
+        return 0
+
+    signaled = []
+    permission_denied = []
+    for pid in pids:
+        if not _pid_is_alive(pid):
+            continue
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            continue
+        except PermissionError:
+            permission_denied.append(pid)
+            continue
+        print(f"Sent SIGTERM to PID {pid}.")
+        signaled.append(pid)
+
+    deadline = time.monotonic() + 10
+    while signaled and time.monotonic() < deadline:
+        time.sleep(0.2)
+        signaled = [pid for pid in signaled if _pid_is_alive(pid)]
+
+    for pid in signaled:
+        print(f"PID {pid} didn't exit within 10s -- sending SIGKILL.")
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            pass
+    signaled = [pid for pid in signaled if _pid_is_alive(pid)]
+
+    if permission_denied or signaled:
+        for pid in permission_denied:
+            print(f"PID {pid}: permission denied sending SIGTERM -- it was likely started "
+                  f"as a different user (e.g. via sudo). Try 'sudo echidra stop'.")
+        for pid in signaled:
+            print(f"PID {pid}: still running after SIGKILL.")
+        print("Not fully stopped -- pidfile left in place so a retry can find these PIDs.")
+        return 1
+
+    PID_PATH.unlink(missing_ok=True)
+    print("Stopped.")
+    return 0
+
+
+def _pid_is_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -261,10 +365,21 @@ def _cmd_status(args: argparse.Namespace) -> int:
     print("Echidra status")
     print("=" * 40)
 
+    _check_serve_process()
     _check_honeypot_listeners()
     _check_api(args.api_host, args.api_port)
     _check_database()
     return 0
+
+
+def _check_serve_process() -> None:
+    pids = [pid for pid in _read_pid_file() if _pid_is_alive(pid)]
+    if pids:
+        print(f"  echidra serve    running (PID {', '.join(map(str, pids))})")
+    else:
+        print("  echidra serve    not running (no active pidfile at "
+              f"{PID_PATH}) -- listeners below may still belong to a "
+              "process started outside 'echidra serve'")
 
 
 def _check_honeypot_listeners() -> None:

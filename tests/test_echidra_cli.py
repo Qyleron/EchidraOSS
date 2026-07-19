@@ -1,3 +1,8 @@
+import os
+import subprocess
+import sys
+import threading
+
 import pytest
 
 from echidra import cli
@@ -11,12 +16,12 @@ def test_echidra_cli_no_command_prints_help(capsys):
     assert "usage: echidra" in captured.out
 
 
-def test_echidra_cli_help_lists_all_four_subcommands(capsys):
+def test_echidra_cli_help_lists_all_subcommands(capsys):
     with pytest.raises(SystemExit):
         cli.main(["--help"])
 
     captured = capsys.readouterr()
-    for subcommand in ("init", "serve", "classify", "status"):
+    for subcommand in ("init", "serve", "stop", "classify", "status"):
         assert subcommand in captured.out
 
 
@@ -135,6 +140,27 @@ def test_port_is_open_returns_false_for_closed_port():
     assert cli._port_is_open("127.0.0.1", 1, timeout=0.2) is False
 
 
+def test_check_serve_process_reports_not_running_when_no_pidfile(monkeypatch, tmp_path, capsys):
+    monkeypatch.setattr(cli, "PID_PATH", tmp_path / "echidra.pid")
+
+    cli._check_serve_process()
+
+    captured = capsys.readouterr()
+    assert "not running" in captured.out
+
+
+def test_check_serve_process_reports_running_with_pids(monkeypatch, tmp_path, capsys):
+    pid_path = tmp_path / "echidra.pid"
+    monkeypatch.setattr(cli, "PID_PATH", pid_path)
+    pid_path.write_text(f"{os.getpid()}\n", encoding="utf-8")
+
+    cli._check_serve_process()
+
+    captured = capsys.readouterr()
+    assert "running" in captured.out
+    assert str(os.getpid()) in captured.out
+
+
 def test_check_honeypot_listeners_reports_disabled_ports(monkeypatch, capsys):
     monkeypatch.setattr("honeypot.network.config.HOST", "0.0.0.0")
     monkeypatch.setattr("honeypot.network.config.PORT", 2222)
@@ -230,7 +256,8 @@ class _FakeProcess:
         return self.returncode
 
 
-def test_cmd_serve_stops_both_processes_when_one_exits(monkeypatch):
+def test_cmd_serve_stops_both_processes_when_one_exits(monkeypatch, tmp_path):
+    monkeypatch.setattr(cli, "PID_PATH", tmp_path / "echidra.pid")
     processes = [_FakeProcess(pid=100), _FakeProcess(pid=200)]
     popen_calls = []
 
@@ -253,7 +280,8 @@ def test_cmd_serve_stops_both_processes_when_one_exits(monkeypatch):
     assert processes[1]._terminated is True
 
 
-def test_cmd_serve_returns_zero_for_signal_interrupts(monkeypatch):
+def test_cmd_serve_returns_zero_for_signal_interrupts(monkeypatch, tmp_path):
+    monkeypatch.setattr(cli, "PID_PATH", tmp_path / "echidra.pid")
     processes = [_FakeProcess(pid=100), _FakeProcess(pid=200)]
     popen_calls = []
 
@@ -274,3 +302,119 @@ def test_cmd_serve_returns_zero_for_signal_interrupts(monkeypatch):
     exit_code = cli._cmd_serve(args)
 
     assert exit_code == 0
+
+
+# ---------------------------------------------------------------------------
+# stop
+# ---------------------------------------------------------------------------
+
+
+def test_cmd_serve_refuses_to_start_over_a_still_running_previous_instance(monkeypatch, tmp_path, capsys):
+    pid_path = tmp_path / "echidra.pid"
+    monkeypatch.setattr(cli, "PID_PATH", pid_path)
+    proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
+    pid_path.write_text(f"{proc.pid}\n", encoding="utf-8")
+    popen_calls = []
+    monkeypatch.setattr(cli.subprocess, "Popen", lambda cmd, **kw: popen_calls.append(cmd))
+
+    try:
+        args = cli._build_parser().parse_args(["serve", "--api-port", "8123"])
+        exit_code = cli._cmd_serve(args)
+    finally:
+        proc.terminate()
+        proc.wait(timeout=5)
+
+    captured = capsys.readouterr()
+    assert exit_code == 1
+    assert "still appears to be running" in captured.out
+    # Must refuse before spawning anything new on top of the stuck ports.
+    assert popen_calls == []
+    # The still-running instance's pidfile is left alone, not clobbered.
+    assert pid_path.read_text(encoding="utf-8").strip() == str(proc.pid)
+
+
+def test_cmd_serve_clears_a_stale_pidfile_before_starting(monkeypatch, tmp_path):
+    pid_path = tmp_path / "echidra.pid"
+    monkeypatch.setattr(cli, "PID_PATH", pid_path)
+    pid_path.write_text("999999\n", encoding="utf-8")  # PID from a process that's long gone
+    processes = [_FakeProcess(pid=100), _FakeProcess(pid=200)]
+    popen_calls = []
+
+    def fake_popen(cmd, **kwargs):
+        popen_calls.append(cmd)
+        return processes[len(popen_calls) - 1]
+
+    monkeypatch.setattr(cli.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(cli.time, "sleep", lambda seconds: processes[0].__setattr__("returncode", 0))
+    monkeypatch.setattr(cli.signal, "signal", lambda *args, **kwargs: None)
+
+    args = cli._build_parser().parse_args(["serve", "--api-port", "8123"])
+    exit_code = cli._cmd_serve(args)
+
+    assert exit_code == 0
+    assert len(popen_calls) == 2
+
+
+def test_stop_reports_nothing_running_when_pidfile_is_missing(monkeypatch, tmp_path, capsys):
+    monkeypatch.setattr(cli, "PID_PATH", tmp_path / "echidra.pid")
+
+    exit_code = cli._cmd_stop(cli._build_parser().parse_args(["stop"]))
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert "doesn't appear to be running" in captured.out
+
+
+def test_stop_terminates_a_real_process_and_removes_pidfile(monkeypatch, tmp_path, capsys):
+    pid_path = tmp_path / "echidra.pid"
+    monkeypatch.setattr(cli, "PID_PATH", pid_path)
+    proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
+    pid_path.write_text(f"{proc.pid}\n", encoding="utf-8")
+    # os.kill(pid, 0) still succeeds on an exited-but-unreaped zombie, and this
+    # test is the process's real parent (unlike a real `echidra stop` reading
+    # a pidfile written by an unrelated process) -- reap it concurrently so
+    # _pid_is_alive() sees it disappear once SIGTERM lands.
+    reaper = threading.Thread(target=proc.wait)
+    reaper.start()
+
+    exit_code = cli._cmd_stop(cli._build_parser().parse_args(["stop"]))
+    reaper.join(timeout=5)
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert f"Sent SIGTERM to PID {proc.pid}" in captured.out
+    assert "Stopped." in captured.out
+    assert not pid_path.exists()
+
+
+def test_stop_skips_a_stale_pid_that_no_longer_exists(monkeypatch, tmp_path):
+    pid_path = tmp_path / "echidra.pid"
+    monkeypatch.setattr(cli, "PID_PATH", pid_path)
+    # A PID no live process will plausibly hold during the test run.
+    pid_path.write_text("999999\n", encoding="utf-8")
+
+    exit_code = cli._cmd_stop(cli._build_parser().parse_args(["stop"]))
+
+    assert exit_code == 0
+    assert not pid_path.exists()
+
+
+def test_stop_leaves_pidfile_when_permission_denied(monkeypatch, tmp_path, capsys):
+    pid_path = tmp_path / "echidra.pid"
+    monkeypatch.setattr(cli, "PID_PATH", pid_path)
+    pid_path.write_text("4242\n", encoding="utf-8")
+    monkeypatch.setattr(cli, "_pid_is_alive", lambda pid: True)
+
+    def fake_kill(pid, sig):
+        raise PermissionError()
+
+    monkeypatch.setattr(cli.os, "kill", fake_kill)
+
+    exit_code = cli._cmd_stop(cli._build_parser().parse_args(["stop"]))
+
+    captured = capsys.readouterr()
+    assert exit_code == 1
+    assert "permission denied" in captured.out
+    assert "Not fully stopped" in captured.out
+    # Left in place so a retry (e.g. with sudo) can find the PID again.
+    assert pid_path.exists()
