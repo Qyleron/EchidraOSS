@@ -223,6 +223,7 @@ def _apache_not_found(hostname: str) -> bytes:
 # the same page it would for GET -- treating every verb as GET is a tell any
 # careful scanner (or a batch of curl -X OPTIONS/TRACE/PUT/...) would notice.
 _ALLOWED_METHODS = ("GET", "HEAD", "POST", "OPTIONS")
+_SUPPORTED_HTTP_VERSIONS = ("HTTP/1.0", "HTTP/1.1")
 
 
 def _apache_error(code: str, message: str, description: str, hostname: str) -> bytes:
@@ -341,16 +342,30 @@ class HttpHandler:
                 self.session.log_command(request_line)
 
             header_map: dict[str, str] = {}
+            host_header_count = 0
             for line in lines[1:]:
                 if ":" in line:
                     key, _, val = line.partition(":")
-                    header_map[key.strip().lower()] = val.strip()
+                    key_lower = key.strip().lower()
+                    if key_lower == "host":
+                        # A dict entry can only ever show the last of several
+                        # same-named headers -- track occurrences separately
+                        # so a duplicate Host (a request-smuggling vector,
+                        # RFC 7230 §5.4 requires rejecting it) isn't silently
+                        # collapsed into what looks like exactly one valid
+                        # Host header.
+                        host_header_count += 1
+                    header_map[key_lower] = val.strip()
                     # Capture headers that reveal attacker tools and identity
-                    if key.strip().lower() in ("user-agent", "x-forwarded-for", "authorization"):
+                    if key_lower in ("user-agent", "x-forwarded-for", "authorization"):
                         self.session.log_command(line.strip())
 
             parts = request_line.split(" ", 2)
-            method = parts[0].upper() if parts else "GET"
+            # Method is a case-sensitive token (RFC 7230 §3.1.1) -- real
+            # Apache doesn't normalize "get" to "GET", so uppercasing here
+            # would make every lowercase-verb probe look like a normal
+            # request instead of reaching the unsupported-method response.
+            method = parts[0] if parts else "GET"
             path = parts[1] if len(parts) > 1 else "/"
             http_version = parts[2].strip() if len(parts) > 2 else "HTTP/1.1"
 
@@ -364,7 +379,7 @@ class HttpHandler:
                     if body_str.strip():
                         self.session.log_command(f"POST {path}: {body_str}")
 
-            response = self._build_response(method, path, http_version, header_map)
+            response = self._build_response(method, path, http_version, host_header_count)
             self.writer.write(response)
             await self.writer.drain()
             end_reason = "disconnect"
@@ -416,13 +431,23 @@ class HttpHandler:
         except asyncio.IncompleteReadError as exc:
             return exc.partial
 
-    def _build_response(self, method: str, path: str, http_version: str, header_map: dict[str, str]) -> bytes:
+    def _build_response(self, method: str, path: str, http_version: str, host_header_count: int) -> bytes:
         persona = self.session.persona
         server_kind = _server_kind(persona)
         server_header = _SERVER_HEADERS[server_kind]
         allow_header = ""
 
-        if http_version == "HTTP/1.1" and "host" not in header_map:
+        # An exact, case-sensitive match -- "HTTP/1.1 extra" or "http/1.1"
+        # must not be treated as HTTP/1.1 (or any supported version), or a
+        # malformed version token becomes a way to dodge the Host check
+        # below and get an ordinary response instead of a rejection.
+        malformed_request = (
+            http_version not in _SUPPORTED_HTTP_VERSIONS
+            or host_header_count > 1
+            or (http_version == "HTTP/1.1" and host_header_count == 0)
+        )
+
+        if malformed_request:
             status = "400 Bad Request"
             content_type = "text/html; charset=UTF-8"
             body_bytes = _bad_request_body(server_kind, persona.hostname)
