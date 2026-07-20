@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import importlib.resources
 import logging
 import os
 import re
@@ -49,11 +50,33 @@ from honeypot.core.persona import PRESET_PERSONAS, Persona
 
 
 logger = logging.getLogger(__name__)
-DASHBOARD_PUBLIC_PATH = Path(__file__).resolve().parents[2] / "dashboard/public"
+
+
+def _resolve_data_dir(package: str, relative: str, fallback: Path) -> Path:
+    """Prefer dashboard/assets' properly packaged copy (a real, non-editable
+    `pip install .`); fall back to the source-tree-relative path used before
+    they were packaged, so an editable install or any other layout where the
+    package lookup doesn't apply resolves exactly as it did before.
+    """
+    try:
+        packaged = importlib.resources.files(package)
+        candidate = Path(str(packaged)) / relative if relative else Path(str(packaged))
+        if candidate.is_dir():
+            return candidate
+    except (ModuleNotFoundError, TypeError, FileNotFoundError):
+        pass
+    return fallback
+
+
+DASHBOARD_PUBLIC_PATH = _resolve_data_dir(
+    "dashboard", "public", Path(__file__).resolve().parents[2] / "dashboard/public"
+)
 DASHBOARD_INDEX_PATH = DASHBOARD_PUBLIC_PATH / "index.html"
 AUTH_INDEX_PATH = DASHBOARD_PUBLIC_PATH / "auth.html"
 DASHBOARD_CSS_PATH = DASHBOARD_PUBLIC_PATH / "dashboard.css"
-ASSETS_PATH = Path(__file__).resolve().parents[2] / "assets"
+ASSETS_PATH = _resolve_data_dir(
+    "assets", "", Path(__file__).resolve().parents[2] / "assets"
+)
 DASHBOARD_PAGE_FILES = {
     "sessions": DASHBOARD_PUBLIC_PATH / "sessions.html",
     "analytics": DASHBOARD_PUBLIC_PATH / "analytics.html",
