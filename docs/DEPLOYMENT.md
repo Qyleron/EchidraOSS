@@ -182,6 +182,13 @@ sudo -u echidra venv/bin/python -m classifier.storage.cli init-db
 sudo systemctl enable --now echidra-honeypot echidra-api
 ```
 
+`echidra-honeypot.service` also auto-provisions `data/` itself on every
+start (an `ExecStartPre=+` line, root-run, bypassing the sandbox for that
+one line only) — so an upgrade or reinstall that skips the manual `mkdir -p
+logs data` step above still gets a writable, correctly-owned `data/` for the
+SSH host key. The manual step is still the one to run yourself the first
+time, since `logs/` isn't auto-provisioned the same way.
+
 Check status:
 
 ```bash

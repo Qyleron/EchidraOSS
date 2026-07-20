@@ -234,10 +234,14 @@ echidra_oss/
 │   ├── scoring/session.py
 │   └── storage/                 # repository, schema.sql, geolocation.py
 ├── dashboard/public/             # sessions/analytics/intelligence/personas/alerts.html
+├── echidra/cli.py                # `echidra` console script: init/serve/stop/classify/status
+├── deploy/systemd/               # echidra-honeypot.service, echidra-api.service
 ├── tests/
 ├── docs/
 ├── assets/
+├── docker-compose.yml
 ├── README.md
+├── SECURITY.md
 └── LICENSE.md
 ```
 
