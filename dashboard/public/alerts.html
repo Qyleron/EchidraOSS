@@ -220,7 +220,7 @@
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
         });
-        if (!r.ok) { var e = await r.json().catch(function(){return{};}); throw new Error(e.detail || "HTTP " + r.status); }
+        if (!r.ok) { var e = await r.json().catch(function(){return{};}); throw new Error(extractErrorDetail(e, "HTTP " + r.status)); }
         smtpStatus.textContent = "Saved.";
         smtpStatus.style.color = "var(--low)";
         document.getElementById("smtpPassword").value = "";
@@ -238,7 +238,7 @@
       btn.textContent = "Sending…";
       try {
         var r = await fetch("/alerts/test", { method: "POST" });
-        if (!r.ok) { var e = await r.json().catch(function(){return{};}); throw new Error(e.detail || "HTTP " + r.status); }
+        if (!r.ok) { var e = await r.json().catch(function(){return{};}); throw new Error(extractErrorDetail(e, "HTTP " + r.status)); }
         smtpStatus.textContent = "Test email sent.";
         smtpStatus.style.color = "var(--low)";
       } catch (err) {
@@ -319,6 +319,19 @@
       document.getElementById("metricLast24h").textContent = last24.length;
       document.getElementById("metricSuccess").textContent = success.length;
       document.getElementById("metricFailed").textContent = failed.length;
+    }
+
+    // FastAPI's automatic 422 validation response shapes `detail` as a list
+    // of {msg, loc, ...} objects, not a string -- passing that straight into
+    // `new Error(...)` stringifies the array to the useless "[object Object]"
+    // instead of the actual validation message.
+    function extractErrorDetail(body, fallback) {
+      var detail = body && body.detail;
+      if (typeof detail === "string") return detail;
+      if (Array.isArray(detail)) {
+        return detail.map(function(d) { return (d && d.msg) || JSON.stringify(d); }).join("; ");
+      }
+      return fallback;
     }
 
     function escHtml(str) {

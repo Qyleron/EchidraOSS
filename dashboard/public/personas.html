@@ -723,7 +723,7 @@
         });
         if (!resp.ok) {
           var err = await resp.json().catch(function() { return {}; });
-          throw new Error(err.detail || "HTTP " + resp.status);
+          throw new Error(extractErrorDetail(err, "HTTP " + resp.status));
         }
         var saved = await resp.json();
         allConfigs[targetId] = saved;
@@ -932,6 +932,20 @@
     }
 
     // ── Utilities ──────────────────────────────────────────────────────────────
+    // FastAPI's automatic 422 validation response shapes `detail` as a list
+    // of {msg, loc, ...} objects, not a string -- passing that straight into
+    // `new Error(...)` stringifies the array to the useless "[object Object]"
+    // instead of the actual validation message (e.g. "contact_email is
+    // required when alert_routing_level includes email").
+    function extractErrorDetail(body, fallback) {
+      var detail = body && body.detail;
+      if (typeof detail === "string") return detail;
+      if (Array.isArray(detail)) {
+        return detail.map(function(d) { return (d && d.msg) || JSON.stringify(d); }).join("; ");
+      }
+      return fallback;
+    }
+
     function escHtml(str) {
       return String(str == null ? "" : str)
         .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
