@@ -56,7 +56,7 @@ def test_http_handler_root_response_matches_persona_processes():
     handler = HttpHandler.__new__(HttpHandler)
     handler.session = type("Session", (), {"persona": type("Persona", (), {"running_processes": ("nginx", "php-fpm"), "persona_id": "ubuntu_web_server"})()})()
 
-    response = handler._build_response("GET", "/")
+    response = handler._build_response("GET", "/", "HTTP/1.1", {"host": "example.com"})
 
     assert b"Server: nginx/1.18.0 (Ubuntu)" in response
     assert b"WordPress" in response

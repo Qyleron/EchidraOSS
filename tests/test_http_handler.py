@@ -154,6 +154,70 @@ async def test_http_root_request_returns_persona_banner(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_http_options_returns_allow_header_and_no_body(tmp_path):
+    raw = b"OPTIONS / HTTP/1.1\r\nHost: example.com\r\n\r\n"
+    reader = FakeReader(raw)
+    writer = FakeWriter()
+    handler = HttpHandler(reader, writer, session_logger=SessionLogger(str(tmp_path / "sessions.jsonl")))
+
+    await handler.handle()
+
+    output = writer.buffer.decode()
+    assert output.startswith("HTTP/1.1 200 OK")
+    assert "Allow: GET, HEAD, POST, OPTIONS" in output
+    assert output.endswith("\r\n\r\n")
+
+
+@pytest.mark.parametrize("verb", ["TRACE", "PUT", "DELETE", "CONNECT", "PATCH"])
+@pytest.mark.asyncio
+async def test_http_unsupported_verbs_get_405_not_the_get_page(tmp_path, verb):
+    """A real server 405s these instead of silently treating every verb as
+    GET -- serving an identical response regardless of method is a tell a
+    careful scanner would notice (see the smoke-test finding this fixes)."""
+    raw = f"{verb} / HTTP/1.1\r\nHost: example.com\r\n\r\n".encode()
+    reader = FakeReader(raw)
+    writer = FakeWriter()
+    handler = HttpHandler(reader, writer, session_logger=SessionLogger(str(tmp_path / "sessions.jsonl")))
+
+    await handler.handle()
+
+    output = writer.buffer.decode()
+    assert output.startswith("HTTP/1.1 405 Method Not Allowed")
+    assert "Allow: GET, HEAD, POST, OPTIONS" in output
+    assert "Apache2 Ubuntu Default Page" not in output
+
+
+@pytest.mark.asyncio
+async def test_http_1_1_without_host_header_gets_400(tmp_path):
+    """RFC 7230 5.4 requires Host on HTTP/1.1 -- a real Apache/nginx 400s a
+    request missing it instead of serving the homepage."""
+    raw = b"GET / HTTP/1.1\r\n\r\n"
+    reader = FakeReader(raw)
+    writer = FakeWriter()
+    handler = HttpHandler(reader, writer, session_logger=SessionLogger(str(tmp_path / "sessions.jsonl")))
+
+    await handler.handle()
+
+    output = writer.buffer.decode()
+    assert output.startswith("HTTP/1.1 400 Bad Request")
+    assert "Apache2 Ubuntu Default Page" not in output
+
+
+@pytest.mark.asyncio
+async def test_http_1_0_without_host_header_still_gets_200(tmp_path):
+    """HTTP/1.0 never required Host -- only 1.1 requests should be gated."""
+    raw = b"GET / HTTP/1.0\r\n\r\n"
+    reader = FakeReader(raw)
+    writer = FakeWriter()
+    handler = HttpHandler(reader, writer, session_logger=SessionLogger(str(tmp_path / "sessions.jsonl")))
+
+    await handler.handle()
+
+    output = writer.buffer.decode()
+    assert output.startswith("HTTP/1.1 200 OK")
+
+
+@pytest.mark.asyncio
 async def test_http_session_schedules_auto_classification_after_logging(tmp_path, monkeypatch):
     """Every completed session should be handed to the auto-classification
     hook, not just written to JSONL -- otherwise nothing ever classifies an

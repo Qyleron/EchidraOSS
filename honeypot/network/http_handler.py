@@ -217,6 +217,72 @@ def _apache_not_found(hostname: str) -> bytes:
         "</body></html>"
     ).encode()
 
+
+# A real server rejects a method it doesn't support (405) or an HTTP/1.1
+# request missing Host (400, required by RFC 7230 §5.4) instead of serving
+# the same page it would for GET -- treating every verb as GET is a tell any
+# careful scanner (or a batch of curl -X OPTIONS/TRACE/PUT/...) would notice.
+_ALLOWED_METHODS = ("GET", "HEAD", "POST", "OPTIONS")
+
+
+def _apache_error(code: str, message: str, description: str, hostname: str) -> bytes:
+    return (
+        "<!DOCTYPE HTML PUBLIC \"-//IETF//DTD HTML 2.0//EN\">\n"
+        "<html><head>\n"
+        f"<title>{code} {message}</title>\n"
+        "</head><body>\n"
+        f"<h1>{message}</h1>\n"
+        f"<p>{description}</p>\n"
+        "<hr>\n"
+        f"<address>Apache/2.4.54 (Debian) Server at {hostname} Port 80</address>\n"
+        "</body></html>"
+    ).encode()
+
+
+def _nginx_error(code: str, message: str) -> bytes:
+    return (
+        f"<!DOCTYPE html>\n<html><head><title>{code} {message}</title></head>\n"
+        "<body>\n"
+        f"<center><h1>{code} {message}</h1></center>\n"
+        "<hr><center>nginx/1.18.0 (Ubuntu)</center>\n"
+        "</body></html>"
+    ).encode()
+
+
+def _busybox_error(code: str, message: str) -> bytes:
+    return (
+        f"<head><title>{code} {message}</title></head>\n"
+        "<body>\n"
+        f"<h1>{message}</h1>\n"
+        "</body>"
+    ).encode()
+
+
+def _bad_request_body(server_kind: str, hostname: str) -> bytes:
+    message = "Bad Request"
+    if server_kind == "nginx":
+        return _nginx_error("400", message)
+    if server_kind == "busybox":
+        return _busybox_error("400", message)
+    return _apache_error(
+        "400", message,
+        "Your browser sent a request that this server could not understand.",
+        hostname,
+    )
+
+
+def _method_not_allowed_body(server_kind: str, hostname: str) -> bytes:
+    message = "Method Not Allowed"
+    if server_kind == "nginx":
+        return _nginx_error("405", message)
+    if server_kind == "busybox":
+        return _busybox_error("405", message)
+    return _apache_error(
+        "405", message,
+        "The requested method is not allowed for this URL.",
+        hostname,
+    )
+
 _ROBOTS_TXT = "User-agent: *\nDisallow: /wp-admin/\nDisallow: /admin/\n"
 
 # A minimal, structurally valid 16x16 32bpp ICO -- scanners and browsers
@@ -286,6 +352,7 @@ class HttpHandler:
             parts = request_line.split(" ", 2)
             method = parts[0].upper() if parts else "GET"
             path = parts[1] if len(parts) > 1 else "/"
+            http_version = parts[2].strip() if len(parts) > 2 else "HTTP/1.1"
 
             if method == "POST":
                 body = await asyncio.wait_for(
@@ -297,7 +364,7 @@ class HttpHandler:
                     if body_str.strip():
                         self.session.log_command(f"POST {path}: {body_str}")
 
-            response = self._build_response(method, path)
+            response = self._build_response(method, path, http_version, header_map)
             self.writer.write(response)
             await self.writer.drain()
             end_reason = "disconnect"
@@ -349,17 +416,35 @@ class HttpHandler:
         except asyncio.IncompleteReadError as exc:
             return exc.partial
 
-    def _build_response(self, method: str, path: str) -> bytes:
+    def _build_response(self, method: str, path: str, http_version: str, header_map: dict[str, str]) -> bytes:
         persona = self.session.persona
         server_kind = _server_kind(persona)
-        status, content_type, body_bytes = self._pick_body(persona, path, server_kind)
-
         server_header = _SERVER_HEADERS[server_kind]
+        allow_header = ""
+
+        if http_version == "HTTP/1.1" and "host" not in header_map:
+            status = "400 Bad Request"
+            content_type = "text/html; charset=UTF-8"
+            body_bytes = _bad_request_body(server_kind, persona.hostname)
+        elif method == "OPTIONS":
+            status = "200 OK"
+            content_type = "text/html; charset=UTF-8"
+            body_bytes = b""
+            allow_header = f"Allow: {', '.join(_ALLOWED_METHODS)}\r\n"
+        elif method not in _ALLOWED_METHODS:
+            status = "405 Method Not Allowed"
+            content_type = "text/html; charset=UTF-8"
+            body_bytes = _method_not_allowed_body(server_kind, persona.hostname)
+            allow_header = f"Allow: {', '.join(_ALLOWED_METHODS)}\r\n"
+        else:
+            status, content_type, body_bytes = self._pick_body(persona, path, server_kind)
+
         headers = (
             f"HTTP/1.1 {status}\r\n"
             f"Server: {server_header}\r\n"
             f"Content-Type: {content_type}\r\n"
             f"Content-Length: {len(body_bytes)}\r\n"
+            f"{allow_header}"
             f"Connection: close\r\n"
             f"\r\n"
         )
