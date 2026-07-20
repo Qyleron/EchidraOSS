@@ -218,6 +218,72 @@ async def test_http_1_0_without_host_header_still_gets_200(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_http_malformed_version_token_gets_400_not_a_normal_response(tmp_path):
+    """A version token that isn't an exact "HTTP/1.1" match must not slip
+    past the Host check via string inequality -- "HTTP/1.1 extra" is not
+    "HTTP/1.1", so the old `==` comparison let a malformed version dodge the
+    missing-Host rejection entirely and get an ordinary 200."""
+    raw = b"GET / HTTP/1.1 extra\r\n\r\n"
+    reader = FakeReader(raw)
+    writer = FakeWriter()
+    handler = HttpHandler(reader, writer, session_logger=SessionLogger(str(tmp_path / "sessions.jsonl")))
+
+    await handler.handle()
+
+    output = writer.buffer.decode()
+    assert output.startswith("HTTP/1.1 400 Bad Request")
+    assert "Apache2 Ubuntu Default Page" not in output
+
+
+@pytest.mark.asyncio
+async def test_http_lowercase_version_token_gets_400(tmp_path):
+    raw = b"GET / http/1.1\r\nHost: example.com\r\n\r\n"
+    reader = FakeReader(raw)
+    writer = FakeWriter()
+    handler = HttpHandler(reader, writer, session_logger=SessionLogger(str(tmp_path / "sessions.jsonl")))
+
+    await handler.handle()
+
+    output = writer.buffer.decode()
+    assert output.startswith("HTTP/1.1 400 Bad Request")
+
+
+@pytest.mark.asyncio
+async def test_http_duplicate_host_header_gets_400(tmp_path):
+    """RFC 7230 5.4: a server MUST reject a request with more than one Host
+    header -- a dict silently collapses duplicates into whichever came
+    last, which would otherwise hide this entirely."""
+    raw = b"GET / HTTP/1.1\r\nHost: example.com\r\nHost: attacker.example\r\n\r\n"
+    reader = FakeReader(raw)
+    writer = FakeWriter()
+    handler = HttpHandler(reader, writer, session_logger=SessionLogger(str(tmp_path / "sessions.jsonl")))
+
+    await handler.handle()
+
+    output = writer.buffer.decode()
+    assert output.startswith("HTTP/1.1 400 Bad Request")
+
+
+@pytest.mark.asyncio
+async def test_http_lowercase_method_gets_405_not_treated_as_get(tmp_path):
+    """HTTP methods are case-sensitive tokens (RFC 7230 3.1.1) -- real
+    Apache doesn't normalize "get" to "GET", so uppercasing it here would
+    make a lowercase-verb probe look like a normal request instead of
+    reaching the unsupported-method response."""
+    raw = b"get / HTTP/1.1\r\nHost: example.com\r\n\r\n"
+    reader = FakeReader(raw)
+    writer = FakeWriter()
+    handler = HttpHandler(reader, writer, session_logger=SessionLogger(str(tmp_path / "sessions.jsonl")))
+
+    await handler.handle()
+
+    output = writer.buffer.decode()
+    assert output.startswith("HTTP/1.1 405 Method Not Allowed")
+    assert "Allow: GET, HEAD, POST, OPTIONS" in output
+    assert "Apache2 Ubuntu Default Page" not in output
+
+
+@pytest.mark.asyncio
 async def test_http_session_schedules_auto_classification_after_logging(tmp_path, monkeypatch):
     """Every completed session should be handed to the auto-classification
     hook, not just written to JSONL -- otherwise nothing ever classifies an
