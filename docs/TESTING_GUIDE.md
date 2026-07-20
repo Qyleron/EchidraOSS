@@ -111,6 +111,26 @@ curl -si http://127.0.0.1:8080/nonexistent-path
 Expect `404 Not Found`.
 
 ```bash
+curl -si -X OPTIONS http://127.0.0.1:8080/
+```
+Expect `200 OK`, `Allow: GET, HEAD, POST, OPTIONS`, empty body.
+
+```bash
+curl -si -X TRACE http://127.0.0.1:8080/
+curl -si -X PUT http://127.0.0.1:8080/
+curl -si -X DELETE http://127.0.0.1:8080/
+```
+Expect `405 Method Not Allowed` with the same `Allow:` header for each — a
+real Apache rejects these instead of serving the homepage regardless of
+method, so treating every verb as GET would be an easy fingerprinting tell.
+
+```bash
+curl -si --http1.1 -H "Host:" http://127.0.0.1:8080/
+```
+Expect `400 Bad Request` — HTTP/1.1 requires `Host` (RFC 7230 §5.4); HTTP/1.0
+requests are unaffected since `Host` was never required there.
+
+```bash
 curl -si -X POST http://127.0.0.1:8080/wp-login.php \
   -d "log=admin&pwd=letmein123"
 ```
