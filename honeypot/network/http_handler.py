@@ -171,6 +171,10 @@ def _server_kind(persona) -> str:
             f"Persona {persona.persona_id!r} has http_server_type='none' -- "
             "HTTP requests to it are rejected by design."
         )
+    if persona.http_server_type not in _SERVER_HEADERS:
+        raise ValueError(
+            f"Persona {persona.persona_id!r} has an unsupported http_server_type"
+        )
     return persona.http_server_type
 
 
