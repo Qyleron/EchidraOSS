@@ -1429,7 +1429,7 @@ def test_create_persona_config_endpoint_binds_persona_id_as_path_param(monkeypat
     """persona_id must be a path parameter, matching the GET/PUT/DELETE routes
     for the same resource, not an implicit query parameter."""
     route = route_for("/persona-configs/{persona_id}", "POST")
-    payload = PersonaConfigInput(name="Custom demo box")
+    payload = PersonaConfigInput(name="Custom demo box", running_processes=["nginx"])
 
     class FakeRepository(_SessionVersionMixin):
         def create_persona_config(self, persona_id, config):
@@ -1454,7 +1454,7 @@ def test_create_persona_config_endpoint_reports_conflict_on_duplicate_id(monkeyp
     """The repository's unique-constraint handling (not a prior existence
     check) is what produces this 409 -- see PersonaConfigAlreadyExistsError."""
     route = route_for("/persona-configs/{persona_id}", "POST")
-    payload = PersonaConfigInput(name="Custom demo box")
+    payload = PersonaConfigInput(name="Custom demo box", running_processes=["nginx"])
 
     class FakeRepository(_SessionVersionMixin):
         def create_persona_config(self, persona_id, config):

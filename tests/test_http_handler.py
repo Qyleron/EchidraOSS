@@ -102,13 +102,13 @@ def test_server_kind_maps_every_preset_persona_explicitly(persona_id, expected_k
     assert _server_kind(PRESET_PERSONAS[persona_id]) == expected_kind
 
 
-def test_server_kind_rejects_a_persona_with_no_recognizable_web_server():
-    """A custom persona that never claims a web server must not silently get
-    an Apache page it doesn't run -- see the busybox_router/Apache mismatch
-    this same file used to have."""
+def test_server_kind_rejects_a_persona_with_http_server_type_none():
+    """A persona explicitly configured with no web server must not silently
+    get an Apache page it doesn't run -- see the busybox_router/Apache
+    mismatch this same file used to have, before http_server_type existed."""
     class _FakePersona:
         persona_id = "iot_camera"
-        running_processes = ("rtsp_server", "cron")
+        http_server_type = "none"
 
     with pytest.raises(ValueError, match="iot_camera"):
         _server_kind(_FakePersona())
@@ -121,7 +121,7 @@ async def test_http_rejects_a_persona_with_no_web_server_without_leaking_a_trace
     would fingerprint the honeypot to anyone who reads the response."""
     class _FakePersona:
         persona_id = "iot_camera"
-        running_processes = ("rtsp_server", "cron")
+        http_server_type = "none"
         hostname = "iot-cam-01"
 
     monkeypatch.setattr(http_handler_module, "get_active_persona", lambda: _FakePersona())

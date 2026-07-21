@@ -155,39 +155,23 @@ _SERVER_HEADERS = {
 }
 
 
-_APACHE_PROCESS_NAMES = ("apache2", "httpd")
-# generic_linux, centos_database, and debian_mail_server don't list a web
-# server in running_processes at all -- they're plain Debian/Ubuntu/CentOS
-# boxes, whose stock default httpd (if any is installed) is Apache. Explicit
-# per persona_id, not a leftover "whatever didn't match nginx/busybox" catch
-# -all: a custom persona that names a different (or no) web server reaches
-# neither this nor the process-name check below, and is rejected rather than
-# silently handed an Apache page it never claimed to run.
-_APACHE_BY_DEFAULT_PERSONAS = {"generic_linux", "centos_database", "debian_mail_server"}
-
-
 def _server_kind(persona) -> str:
-    """Classify a persona's web stack so headers/bodies never mismatch.
-
-    Explicit per-kind classification, not a nginx-or-Apache boolean --
-    busybox_router runs neither (it's an embedded BusyBox httpd, per its
-    "busybox" entry in running_processes). Defaulting an unmatched persona
-    to Apache would serve an "Apache2 Ubuntu Default Page" from a
-    "DLink-Router" persona: a Server header and error-page body that
-    contradict each other, an obvious tell to anyone probing the honeypot.
+    """Return this persona's explicit http_server_type -- a deliberate
+    operator choice (schema-validated to one of "nginx"/"apache"/"busybox"/
+    "none" at save time by PersonaConfigInput, see classifier/storage/models.py),
+    not inferred from running_processes. Decoupling the two means the HTTP
+    handler can never mismatch a persona's claimed identity with a fake page
+    it never said it runs (the original bug: busybox_router defaulting to
+    Apache and serving an "Apache2 Ubuntu Default Page" from a DLink-Router
+    persona), and a persona can never be *saved* into a broken state either
+    -- there's no free-text spelling to get wrong.
     """
-    if "nginx" in persona.running_processes:
-        return "nginx"
-    if "busybox" in persona.running_processes:
-        return "busybox"
-    if any(name in persona.running_processes for name in _APACHE_PROCESS_NAMES):
-        return "apache"
-    if persona.persona_id in _APACHE_BY_DEFAULT_PERSONAS:
-        return "apache"
-    raise ValueError(
-        f"No server-kind mapping for persona {persona.persona_id!r} -- add "
-        "'nginx', 'busybox', 'apache2', or 'httpd' to its running_processes."
-    )
+    if persona.http_server_type == "none":
+        raise ValueError(
+            f"Persona {persona.persona_id!r} has http_server_type='none' -- "
+            "HTTP requests to it are rejected by design."
+        )
+    return persona.http_server_type
 
 
 def _apache_forbidden(hostname: str) -> bytes:

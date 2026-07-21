@@ -12,10 +12,12 @@ from tests.conftest import require_bound_server_address
 
 """Real-socket regression coverage for HttpHandler, complementing the mocked
 FakeReader-based unit tests in test_http_handler.py. A mocked reader can
-match whatever contract the code under test assumes, even a wrong one (see
-the readline()/ValueError bug caught elsewhere this session) -- these tests
-exercise the actual asyncio.StreamReader behavior a real TCP client
-triggers, such as a POST body arriving across multiple TCP writes."""
+match whatever contract the code under test assumes, even a wrong one --
+readline() documents that it catches its own internal LimitOverrunError and
+re-raises it as a plain ValueError, a contract a naive mock can easily get
+wrong (see connection.py's oversized-line handling). These tests exercise
+the actual asyncio.StreamReader behavior a real TCP client triggers, such as
+a POST body arriving across multiple TCP writes."""
 
 
 @pytest_asyncio.fixture
