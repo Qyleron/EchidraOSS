@@ -54,7 +54,7 @@ async def test_protocol_server_passes_shared_session_logger_to_handlers():
 def test_http_handler_root_response_matches_persona_processes():
     """Root-page content should follow the same persona signal as the advertised server header."""
     handler = HttpHandler.__new__(HttpHandler)
-    handler.session = type("Session", (), {"persona": type("Persona", (), {"running_processes": ("nginx", "php-fpm"), "persona_id": "ubuntu_web_server"})()})()
+    handler.session = type("Session", (), {"persona": type("Persona", (), {"running_processes": ("nginx", "php-fpm"), "persona_id": "ubuntu_web_server", "http_server_type": "nginx"})()})()
 
     response = handler._build_response("GET", "/", "HTTP/1.1", 1)
 

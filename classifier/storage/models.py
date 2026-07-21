@@ -276,6 +276,14 @@ class IssueStatusUpdate(BaseModel):
 
 PERSONA_ALERT_ROUTING_LEVELS = {"none", "email", "slack", "both"}
 PERSONA_INTERACTION_DEPTHS = {"minimal", "standard", "deep"}
+# The fake web server the HTTP listener presents for this persona -- an
+# explicit operator choice, decoupled from running_processes (which stays
+# free text purely for the fake `ps` output over the SSH shell, and is
+# never read by the HTTP handler). "none" means the HTTP listener rejects
+# every request for this persona instead of risking a page that
+# contradicts what running_processes/hostname claim about it. Single
+# source of truth with honeypot/network/http_handler.py's _server_kind().
+PERSONA_HTTP_SERVER_TYPES = {"nginx", "apache", "busybox", "none"}
 RISK_LEVELS_ORDERED = ("critical", "high", "medium", "low")
 
 # Same pattern as classifier/api/app.py's _EMAIL_RE -- duplicated rather than
@@ -321,6 +329,7 @@ class PersonaConfigInput(BaseModel):
     telnet_port: int | None = Field(default=None, ge=1, le=65535)
     fake_users: list[str] = Field(default_factory=list, max_items=100)
     running_processes: list[str] = Field(default_factory=list, max_items=100)
+    http_server_type: str = "nginx"
     decoy_files: list[DecoyFile] = Field(default_factory=list, max_items=50)
     alert_routing_level: str = "none"
     alert_min_risk_level: str | None = None
@@ -341,6 +350,14 @@ class PersonaConfigInput(BaseModel):
         paths = [f.path for f in value]
         if len(paths) != len(set(paths)):
             raise ValueError("decoy_files cannot contain duplicate paths")
+        return value
+
+    @validator("http_server_type")
+    def validate_http_server_type(cls, value: str) -> str:
+        if value not in PERSONA_HTTP_SERVER_TYPES:
+            raise ValueError(
+                f"http_server_type must be one of {sorted(PERSONA_HTTP_SERVER_TYPES)}"
+            )
         return value
 
     @validator("alert_routing_level")

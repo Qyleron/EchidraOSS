@@ -209,6 +209,7 @@ def _persona_from_config_record(record) -> Persona:
         home_dir=_DB_PERSONA_HOME_DIR,
         fake_filesystem=fake_filesystem,
         running_processes=tuple(record.running_processes),
+        http_server_type=record.http_server_type,
         fake_users=tuple(record.fake_users),
         suid_binaries=(),
         open_ports_visible=open_ports_visible,

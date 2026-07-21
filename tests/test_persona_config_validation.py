@@ -155,3 +155,23 @@ def test_none_routing_does_not_require_any_destination():
     config = PersonaConfigInput(**valid_fields(alert_routing_level="none"))
     assert config.contact_email is None
     assert config.slack_webhook is None
+
+
+def test_http_server_type_defaults_to_nginx():
+    config = PersonaConfigInput(**valid_fields())
+    assert config.http_server_type == "nginx"
+
+
+@pytest.mark.parametrize("value", ["nginx", "apache", "busybox", "none"])
+def test_accepts_every_valid_http_server_type(value):
+    config = PersonaConfigInput(**valid_fields(http_server_type=value))
+    assert config.http_server_type == value
+
+
+def test_rejects_an_unrecognized_http_server_type():
+    """A typo or unsupported value must be caught at save time -- the same
+    trust-boundary reasoning as every other enum-like field in this model.
+    See honeypot/network/http_handler.py's _server_kind(), which reads this
+    field directly and has no fallback for anything outside this set."""
+    with pytest.raises(ValidationError, match="http_server_type must be one of"):
+        PersonaConfigInput(**valid_fields(http_server_type="lighttpd"))

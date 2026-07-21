@@ -192,6 +192,13 @@ CREATE TABLE IF NOT EXISTS persona_configs (
     telnet_port INTEGER CHECK (telnet_port IS NULL OR (telnet_port >= 1 AND telnet_port <= 65535)),
     fake_users TEXT[] NOT NULL DEFAULT '{}',
     running_processes TEXT[] NOT NULL DEFAULT '{}',
+    -- The fake web server the HTTP listener presents for this persona --
+    -- an explicit choice, not inferred from running_processes (which stays
+    -- free text purely for the fake `ps` output over the SSH shell). 'none'
+    -- means the HTTP listener rejects every request for this persona
+    -- (closes the connection with no response) rather than risk serving a
+    -- page that contradicts what running_processes/hostname claim.
+    http_server_type TEXT NOT NULL DEFAULT 'nginx' CHECK (http_server_type IN ('nginx', 'apache', 'busybox', 'none')),
     decoy_files JSONB NOT NULL DEFAULT '[]',
     alert_routing_level TEXT NOT NULL DEFAULT 'none' CHECK (alert_routing_level IN ('none', 'email', 'slack', 'both')),
     alert_min_risk_level TEXT CHECK (alert_min_risk_level IN ('critical', 'high', 'medium', 'low')),
@@ -204,6 +211,9 @@ CREATE TABLE IF NOT EXISTS persona_configs (
 
 ALTER TABLE persona_configs ADD COLUMN IF NOT EXISTS
     alert_min_risk_level TEXT CHECK (alert_min_risk_level IN ('critical', 'high', 'medium', 'low'));
+
+ALTER TABLE persona_configs ADD COLUMN IF NOT EXISTS
+    http_server_type TEXT NOT NULL DEFAULT 'nginx' CHECK (http_server_type IN ('nginx', 'apache', 'busybox', 'none'));
 
 -- Singleton row holding global SMTP alert settings.
 CREATE TABLE IF NOT EXISTS alert_config (
