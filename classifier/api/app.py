@@ -202,6 +202,7 @@ class DashboardPersonaPreset(BaseModel):
     username: str
     home_dir: str
     running_processes: list[str]
+    http_server_type: str
     fake_users: list[str]
     suid_binaries: list[str]
     open_ports_visible: list[int]
@@ -1036,6 +1037,7 @@ def _dashboard_persona_from_preset(persona: Persona) -> DashboardPersonaPreset:
         username=persona.username,
         home_dir=persona.home_dir,
         running_processes=list(persona.running_processes),
+        http_server_type=persona.http_server_type,
         fake_users=list(persona.fake_users),
         suid_binaries=list(persona.suid_binaries),
         open_ports_visible=list(persona.open_ports_visible),
@@ -1059,6 +1061,7 @@ def _dashboard_request_is_authenticated(request: Request) -> bool:
 def _require_dashboard_auth(request: Request) -> None:
     if not _dashboard_request_is_authenticated(request):
         raise HTTPException(status_code=401, detail="dashboard auth required")
+
 
 
 def _dashboard_allow_multiple_signups() -> bool:

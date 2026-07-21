@@ -328,15 +328,11 @@
         + '<div class="form-row"><label class="form-label">Running Processes (one per line)</label>'
         + '<textarea class="form-textarea" name="running_processes" rows="3">'
         + escHtml((config.running_processes || preset.running_processes || []).join("\n"))
-        + '</textarea>'
-        + '<p style="margin:6px 0 0;color:var(--muted);font-size:13px;">The HTTP honeypot reads this list to '
-        + 'decide what web server to pretend to be: <code>nginx</code>, <code>apache2</code>/<code>httpd</code>, '
-        + 'or <code>busybox</code>. Exception: <code>generic_linux</code>, <code>centos_database</code>, and '
-        + '<code>debian_mail_server</code> use Apache by default even with none of those listed (their Debian/'
-        + 'Ubuntu/CentOS family ships it standard) -- for every other persona, custom ones included, none of '
-        + 'these appearing here closes HTTP probes with no response instead of serving a page that would '
-        + 'contradict it.</p>'
-        + '</div>'
+        + '</textarea></div>'
+        + '<div class="form-row"><label class="form-label">HTTP Server Type</label>'
+        + '<select class="form-select" name="http_server_type">'
+        + buildHttpServerTypeOptions(config.http_server_type || preset.http_server_type || "nginx")
+        + '</select></div>'
         + '<div class="form-row"><label class="form-label">Decoy Files</label>'
         + '<div class="decoy-file-list" id="decoy_list_' + escAttr(personaId) + '">'
         + (config.decoy_files || []).map(function(f, i) { return buildDecoyRow(personaId, i, f.path, f.content); }).join("")
@@ -433,15 +429,12 @@
         + '<div class="form-row"><label class="form-label">Fake Users (one per line)</label>'
         + '<textarea class="form-textarea" name="fake_users" rows="3"></textarea></div>'
         + '<div class="form-row"><label class="form-label">Running Processes (one per line)</label>'
-        + '<textarea class="form-textarea" name="running_processes" rows="3"></textarea>'
-        + '<p style="margin:6px 0 0;color:var(--muted);font-size:13px;">The HTTP honeypot reads this list to '
-        + 'decide what web server to pretend to be: <code>nginx</code>, <code>apache2</code>/<code>httpd</code>, '
-        + 'or <code>busybox</code>. Exception: <code>generic_linux</code>, <code>centos_database</code>, and '
-        + '<code>debian_mail_server</code> use Apache by default even with none of those listed (their Debian/'
-        + 'Ubuntu/CentOS family ships it standard) -- for every other persona, custom ones included, none of '
-        + 'these appearing here closes HTTP probes with no response instead of serving a page that would '
-        + 'contradict it.</p>'
+        + '<textarea class="form-textarea" name="running_processes" rows="3">nginx</textarea>'
         + '</div>'
+        + '<div class="form-row"><label class="form-label">HTTP Server Type</label>'
+        + '<select class="form-select" name="http_server_type">'
+        + buildHttpServerTypeOptions("nginx")
+        + '</select></div>'
         + '<div class="form-row"><label class="form-label">Decoy Files</label>'
         + '<div class="decoy-file-list" id="decoy_list_' + _CREATE_SENTINEL + '"></div>'
         + '<button type="button" class="text-button add-decoy-btn" data-id="' + _CREATE_SENTINEL + '" style="margin-top:8px;">+ Add Decoy File</button>'
@@ -519,6 +512,23 @@
     function buildOptions(values, selected) {
       return values.map(function(v) {
         return '<option value="' + escAttr(v) + '"' + (v === selected ? " selected" : "") + '>' + escHtml(v) + '</option>';
+      }).join("");
+    }
+
+    // The web server the HTTP listener presents for this persona -- an
+    // explicit choice read directly by _server_kind() (honeypot/network/
+    // http_handler.py), never inferred from Running Processes. "none"
+    // rejects every HTTP request for this persona instead of risking a
+    // page that contradicts what it claims to be.
+    function buildHttpServerTypeOptions(selected) {
+      var options = [
+        ["nginx", "nginx"],
+        ["apache", "Apache"],
+        ["busybox", "BusyBox (embedded/router devices)"],
+        ["none", "None — reject HTTP connections"],
+      ];
+      return options.map(function(pair) {
+        return '<option value="' + escAttr(pair[0]) + '"' + (pair[0] === selected ? " selected" : "") + '>' + escHtml(pair[1]) + '</option>';
       }).join("");
     }
 
@@ -688,6 +698,7 @@
         telnet_port: fi("telnet_port"),
         fake_users: fv("fake_users").split("\n").map(function(s) { return s.trim(); }).filter(Boolean),
         running_processes: fv("running_processes").split("\n").map(function(s) { return s.trim(); }).filter(Boolean),
+        http_server_type: fv("http_server_type"),
         decoy_files: decoyFiles,
         alert_routing_level: fv("alert_routing_level"),
         alert_min_risk_level: fv("alert_min_risk_level") || null,

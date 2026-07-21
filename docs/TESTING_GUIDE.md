@@ -210,6 +210,24 @@ Note: each preset persona also declares `suid_binaries` (e.g.
 interactive shell (`honeypot/core/engine.py`) has no `find`/`sudo` command
 that surfaces it yet, so there's nothing to test interactively here today.
 
+**`http_server_type` decides what the HTTP listener pretends to be — and
+whether it responds at all.** This is a dedicated field
+(`nginx`/`apache`/`busybox`/`none`, defaults to `nginx`), read directly by
+`honeypot/network/http_handler.py::_server_kind()` — it does not infer
+anything from `running_processes`, which stays free text purely for the
+fake `ps` output over the SSH shell and has no effect on HTTP behavior.
+`none` closes every HTTP connection for that persona with no response,
+instead of risking a page that contradicts what it claims to be (the same
+reasoning as the busybox_router fix above: a mismatched Server header/page
+body is exactly the kind of tell that gives a honeypot away) — this is a
+deliberate, explicit choice an operator makes, not a side effect of leaving
+a field blank, and (unlike free text) the API rejects anything outside
+those four values at save time. To test: create a custom persona (see
+below) with `"http_server_type": "none"`, then `curl -si
+http://127.0.0.1:8080/` against it — expect the connection to close with
+zero bytes returned, not an error page. Change it to `"nginx"` and the same
+request should return a normal `200 OK`.
+
 **A saved persona config now reaches the live honeypot.** This endpoint
 requires a logged-in dashboard session — run section 7's signup call first
 to create `cookies.txt` (on a fresh database, that signup must be the first
@@ -224,6 +242,7 @@ curl -s -b cookies.txt -X POST "http://127.0.0.1:8000/persona-configs/custom_dem
     "ssh_enabled": true,
     "ssh_port": 2222,
     "running_processes": ["nginx", "redis-server"],
+    "http_server_type": "nginx",
     "fake_users": ["deploy"],
     "decoy_files": []
   }'
