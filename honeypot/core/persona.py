@@ -41,6 +41,12 @@ class Persona:
     home_dir: str
     fake_filesystem: tuple[FakeFile, ...] = field(default_factory=tuple)
     running_processes: tuple[str, ...] = field(default_factory=tuple)
+    # The fake web server the HTTP listener presents for this persona -- an
+    # explicit choice read directly by honeypot/network/http_handler.py's
+    # _server_kind(), decoupled from running_processes (which stays free
+    # text purely for the fake `ps` output over the SSH shell). "none"
+    # means the HTTP listener rejects every request for this persona.
+    http_server_type: str = "apache"
     fake_users: tuple[str, ...] = field(default_factory=tuple)
     suid_binaries: tuple[str, ...] = field(default_factory=tuple)
     open_ports_visible: tuple[int, ...] = field(default_factory=tuple)
@@ -90,6 +96,7 @@ PRESET_PERSONAS: dict[str, Persona] = {
             _file("/var/log/auth.log", ""),
         ),
         running_processes=("sshd", "cron", "rsyslogd"),
+        http_server_type="apache",
         fake_users=("root", "admin"),
         suid_binaries=("/usr/bin/sudo", "/bin/su"),
         open_ports_visible=(22,),
@@ -123,6 +130,7 @@ PRESET_PERSONAS: dict[str, Persona] = {
             ),
         ),
         running_processes=("nginx", "php-fpm", "mysql", "sshd"),
+        http_server_type="nginx",
         fake_users=("www-data", "ubuntu", "deploy"),
         suid_binaries=("/usr/bin/sudo", "/bin/su"),
         open_ports_visible=(80, 443, 3306),
@@ -154,6 +162,7 @@ PRESET_PERSONAS: dict[str, Persona] = {
             ),
         ),
         running_processes=("mysqld", "postgres", "sshd", "crond"),
+        http_server_type="apache",
         fake_users=("mysql", "postgres", "centos"),
         suid_binaries=("/usr/bin/sudo", "/bin/su"),
         open_ports_visible=(3306, 5432),
@@ -181,6 +190,7 @@ PRESET_PERSONAS: dict[str, Persona] = {
             ),
         ),
         running_processes=("postfix", "dovecot", "rsyslogd", "sshd"),
+        http_server_type="apache",
         fake_users=("postfix", "dovecot", "vmail", "admin"),
         suid_binaries=("/usr/bin/sudo", "/bin/su"),
         open_ports_visible=(25, 110, 143, 587, 993),
@@ -214,6 +224,7 @@ PRESET_PERSONAS: dict[str, Persona] = {
             _file("/var/etc/passwd", "root:Zte521:0:0:root:/root:/bin/sh\n"),
         ),
         running_processes=("busybox", "udhcpd", "dnsmasq", "httpd", "telnetd"),
+        http_server_type="busybox",
         fake_users=("root", "admin", "guest", "support", "user"),
         suid_binaries=(),
         open_ports_visible=(23, 80),

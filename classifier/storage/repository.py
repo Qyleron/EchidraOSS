@@ -537,14 +537,14 @@ INSERT INTO persona_configs (
     id, name, os_banner, ssh_banner, hostname, timezone, internal_notes,
     ssh_enabled, ssh_port, http_enabled, http_port, ftp_enabled, ftp_port,
     telnet_enabled, telnet_port,
-    fake_users, running_processes, decoy_files,
+    fake_users, running_processes, http_server_type, decoy_files,
     alert_routing_level, alert_min_risk_level, contact_email, slack_webhook, interaction_depth,
     created_at, updated_at
 ) VALUES (
     %(id)s, %(name)s, %(os_banner)s, %(ssh_banner)s, %(hostname)s, %(timezone)s, %(internal_notes)s,
     %(ssh_enabled)s, %(ssh_port)s, %(http_enabled)s, %(http_port)s, %(ftp_enabled)s, %(ftp_port)s,
     %(telnet_enabled)s, %(telnet_port)s,
-    %(fake_users)s, %(running_processes)s, %(decoy_files)s::jsonb,
+    %(fake_users)s, %(running_processes)s, %(http_server_type)s, %(decoy_files)s::jsonb,
     %(alert_routing_level)s, %(alert_min_risk_level)s, %(contact_email)s, %(slack_webhook)s, %(interaction_depth)s,
     %(created_at)s, %(updated_at)s
 )
@@ -553,7 +553,7 @@ SELECT_PERSONA_CONFIG_COLS = """
     id, name, os_banner, ssh_banner, hostname, timezone, internal_notes,
     ssh_enabled, ssh_port, http_enabled, http_port, ftp_enabled, ftp_port,
     telnet_enabled, telnet_port,
-    fake_users, running_processes, decoy_files,
+    fake_users, running_processes, http_server_type, decoy_files,
     alert_routing_level, alert_min_risk_level, contact_email, slack_webhook, interaction_depth,
     created_at, updated_at
 """
@@ -577,6 +577,7 @@ UPDATE persona_configs SET
     telnet_port = %(telnet_port)s,
     fake_users = %(fake_users)s,
     running_processes = %(running_processes)s,
+    http_server_type = %(http_server_type)s,
     decoy_files = %(decoy_files)s::jsonb,
     alert_routing_level = %(alert_routing_level)s,
     alert_min_risk_level = %(alert_min_risk_level)s,
@@ -1883,6 +1884,7 @@ def _persona_config_params(record: PersonaConfigRecord) -> dict[str, Any]:
         "telnet_port": record.telnet_port,
         "fake_users": list(record.fake_users),
         "running_processes": list(record.running_processes),
+        "http_server_type": record.http_server_type,
         "decoy_files": json.dumps([f.dict() for f in record.decoy_files]),
         "alert_routing_level": record.alert_routing_level,
         "alert_min_risk_level": record.alert_min_risk_level,
@@ -1916,6 +1918,7 @@ def _persona_config_from_row(row: dict[str, Any]) -> PersonaConfigRecord:
         telnet_port=row["telnet_port"],
         fake_users=list(row["fake_users"] or []),
         running_processes=list(row["running_processes"] or []),
+        http_server_type=row["http_server_type"],
         decoy_files=decoy_files,
         alert_routing_level=row["alert_routing_level"],
         alert_min_risk_level=row.get("alert_min_risk_level"),

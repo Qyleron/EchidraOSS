@@ -102,6 +102,29 @@ def test_active_persona_prefers_saved_persona_config_over_preset(monkeypatch):
     assert persona.home_dir == "/home/admin"
 
 
+def test_active_persona_threads_http_server_type_from_saved_config(monkeypatch):
+    """A saved persona_configs row's http_server_type must reach the live
+    Persona object -- honeypot/network/http_handler.py's _server_kind()
+    reads it directly, with no fallback to running_processes anymore."""
+    config.clear_active_persona_cache()
+    monkeypatch.setenv("ECHIDRA_PERSONA", "custom_demo_box")
+    monkeypatch.setenv("ECHIDRA_DATABASE_URL", "postgresql://fake/fake")
+    record = make_persona_config_record(http_server_type="busybox")
+
+    class FakeRepository:
+        def __init__(self):
+            pass
+
+        def get_persona_config(self, persona_id):
+            return record
+
+    monkeypatch.setattr("classifier.storage.PostgresClassifierRepository", FakeRepository)
+
+    persona = config.get_active_persona()
+
+    assert persona.http_server_type == "busybox"
+
+
 def test_active_persona_injects_home_dir_file_when_config_has_none_there(monkeypatch):
     """validate_persona() requires >=1 file under home_dir; a config with no
     decoy files placed there must still produce a valid persona."""
