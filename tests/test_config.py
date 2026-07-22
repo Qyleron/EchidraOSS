@@ -49,12 +49,6 @@ def make_persona_config_record(*, validate=True, **overrides):
         "os_banner": "Linux custom-demo-box 6.1.0-custom x86_64",
         "ssh_banner": "SSH-2.0-OpenSSH_9.0",
         "hostname": "custom-demo-box",
-        "timezone": "America/New_York",
-        "ssh_enabled": True,
-        "ssh_port": 2222,
-        "http_enabled": False,
-        "ftp_enabled": False,
-        "telnet_enabled": False,
         "fake_users": ["deploy", "backup"],
         "running_processes": ["nginx", "redis-server"],
         "decoy_files": [DecoyFile(path="/home/admin/notes.txt", content="todo: rotate keys")],
@@ -92,10 +86,9 @@ def test_active_persona_prefers_saved_persona_config_over_preset(monkeypatch):
     assert persona.persona_id == "custom_demo_box"
     assert persona.hostname == "custom-demo-box"
     assert persona.os_banner == "Linux custom-demo-box 6.1.0-custom x86_64"
-    assert persona.timezone == "America/New_York"
     assert persona.fake_users == ("deploy", "backup")
     assert persona.running_processes == ("nginx", "redis-server")
-    assert persona.open_ports_visible == (2222,)
+    assert persona.open_ports_visible == ()
     assert any(f.path == "/home/admin/notes.txt" for f in persona.fake_filesystem)
     # Fields the config schema doesn't capture yet still default sensibly.
     assert persona.username == "root"

@@ -534,27 +534,21 @@ WHERE sessions.started_at >= EXTRACT(EPOCH FROM now()) - %(window_seconds)s
 
 INSERT_PERSONA_CONFIG_SQL = """
 INSERT INTO persona_configs (
-    id, name, os_banner, ssh_banner, hostname, timezone, internal_notes,
-    ssh_enabled, ssh_port, http_enabled, http_port, ftp_enabled, ftp_port,
-    telnet_enabled, telnet_port,
+    id, name, os_banner, ssh_banner, hostname, internal_notes,
     fake_users, running_processes, http_server_type, decoy_files,
-    alert_routing_level, alert_min_risk_level, contact_email, slack_webhook, interaction_depth,
+    alert_routing_level, alert_min_risk_level, contact_email, slack_webhook,
     created_at, updated_at
 ) VALUES (
-    %(id)s, %(name)s, %(os_banner)s, %(ssh_banner)s, %(hostname)s, %(timezone)s, %(internal_notes)s,
-    %(ssh_enabled)s, %(ssh_port)s, %(http_enabled)s, %(http_port)s, %(ftp_enabled)s, %(ftp_port)s,
-    %(telnet_enabled)s, %(telnet_port)s,
+    %(id)s, %(name)s, %(os_banner)s, %(ssh_banner)s, %(hostname)s, %(internal_notes)s,
     %(fake_users)s, %(running_processes)s, %(http_server_type)s, %(decoy_files)s::jsonb,
-    %(alert_routing_level)s, %(alert_min_risk_level)s, %(contact_email)s, %(slack_webhook)s, %(interaction_depth)s,
+    %(alert_routing_level)s, %(alert_min_risk_level)s, %(contact_email)s, %(slack_webhook)s,
     %(created_at)s, %(updated_at)s
 )
 """
 SELECT_PERSONA_CONFIG_COLS = """
-    id, name, os_banner, ssh_banner, hostname, timezone, internal_notes,
-    ssh_enabled, ssh_port, http_enabled, http_port, ftp_enabled, ftp_port,
-    telnet_enabled, telnet_port,
+    id, name, os_banner, ssh_banner, hostname, internal_notes,
     fake_users, running_processes, http_server_type, decoy_files,
-    alert_routing_level, alert_min_risk_level, contact_email, slack_webhook, interaction_depth,
+    alert_routing_level, alert_min_risk_level, contact_email, slack_webhook,
     created_at, updated_at
 """
 
@@ -565,16 +559,7 @@ UPDATE persona_configs SET
     os_banner = %(os_banner)s,
     ssh_banner = %(ssh_banner)s,
     hostname = %(hostname)s,
-    timezone = %(timezone)s,
     internal_notes = %(internal_notes)s,
-    ssh_enabled = %(ssh_enabled)s,
-    ssh_port = %(ssh_port)s,
-    http_enabled = %(http_enabled)s,
-    http_port = %(http_port)s,
-    ftp_enabled = %(ftp_enabled)s,
-    ftp_port = %(ftp_port)s,
-    telnet_enabled = %(telnet_enabled)s,
-    telnet_port = %(telnet_port)s,
     fake_users = %(fake_users)s,
     running_processes = %(running_processes)s,
     http_server_type = %(http_server_type)s,
@@ -583,7 +568,6 @@ UPDATE persona_configs SET
     alert_min_risk_level = %(alert_min_risk_level)s,
     contact_email = %(contact_email)s,
     slack_webhook = %(slack_webhook)s,
-    interaction_depth = %(interaction_depth)s,
     updated_at = %(updated_at)s
 WHERE id = %(id)s
 RETURNING
@@ -1872,16 +1856,7 @@ def _persona_config_params(record: PersonaConfigRecord) -> dict[str, Any]:
         "os_banner": record.os_banner,
         "ssh_banner": record.ssh_banner,
         "hostname": record.hostname,
-        "timezone": record.timezone,
         "internal_notes": record.internal_notes,
-        "ssh_enabled": record.ssh_enabled,
-        "ssh_port": record.ssh_port,
-        "http_enabled": record.http_enabled,
-        "http_port": record.http_port,
-        "ftp_enabled": record.ftp_enabled,
-        "ftp_port": record.ftp_port,
-        "telnet_enabled": record.telnet_enabled,
-        "telnet_port": record.telnet_port,
         "fake_users": list(record.fake_users),
         "running_processes": list(record.running_processes),
         "http_server_type": record.http_server_type,
@@ -1890,7 +1865,6 @@ def _persona_config_params(record: PersonaConfigRecord) -> dict[str, Any]:
         "alert_min_risk_level": record.alert_min_risk_level,
         "contact_email": record.contact_email,
         "slack_webhook": record.slack_webhook,
-        "interaction_depth": record.interaction_depth,
         "created_at": record.created_at,
         "updated_at": record.updated_at,
     }
@@ -1906,16 +1880,7 @@ def _persona_config_from_row(row: dict[str, Any]) -> PersonaConfigRecord:
         os_banner=row["os_banner"],
         ssh_banner=row["ssh_banner"],
         hostname=row["hostname"],
-        timezone=row["timezone"],
         internal_notes=row["internal_notes"],
-        ssh_enabled=row["ssh_enabled"],
-        ssh_port=row["ssh_port"],
-        http_enabled=row["http_enabled"],
-        http_port=row["http_port"],
-        ftp_enabled=row["ftp_enabled"],
-        ftp_port=row["ftp_port"],
-        telnet_enabled=row["telnet_enabled"],
-        telnet_port=row["telnet_port"],
         fake_users=list(row["fake_users"] or []),
         running_processes=list(row["running_processes"] or []),
         http_server_type=row["http_server_type"],
@@ -1924,7 +1889,6 @@ def _persona_config_from_row(row: dict[str, Any]) -> PersonaConfigRecord:
         alert_min_risk_level=row.get("alert_min_risk_level"),
         contact_email=row["contact_email"],
         slack_webhook=row["slack_webhook"],
-        interaction_depth=row["interaction_depth"],
         created_at=row["created_at"],
         updated_at=row["updated_at"],
     )

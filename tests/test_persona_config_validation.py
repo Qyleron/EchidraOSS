@@ -32,23 +32,11 @@ def test_rejects_name_over_max_length():
 
 @pytest.mark.parametrize(
     "field,limit",
-    [("os_banner", 256), ("ssh_banner", 256), ("hostname", 253), ("timezone", 64), ("internal_notes", 4_000)],
+    [("os_banner", 256), ("ssh_banner", 256), ("hostname", 253), ("internal_notes", 4_000)],
 )
 def test_rejects_string_fields_over_max_length(field, limit):
     with pytest.raises(ValidationError):
         PersonaConfigInput(**valid_fields(**{field: "a" * (limit + 1)}))
-
-
-@pytest.mark.parametrize("service", ["ssh", "http", "ftp", "telnet"])
-def test_rejects_enabled_service_without_a_port(service):
-    with pytest.raises(ValidationError, match=f"{service}_port is required"):
-        PersonaConfigInput(**valid_fields(**{f"{service}_enabled": True}))
-
-
-@pytest.mark.parametrize("service", ["ssh", "http", "ftp", "telnet"])
-def test_accepts_enabled_service_with_a_port(service):
-    config = PersonaConfigInput(**valid_fields(**{f"{service}_enabled": True, f"{service}_port": 2222}))
-    assert getattr(config, f"{service}_port") == 2222
 
 
 def test_rejects_too_many_fake_users():
@@ -126,17 +114,17 @@ def test_accepts_hooks_slack_com_webhook():
 
 
 def test_rejects_email_routing_without_contact_email():
-    with pytest.raises(ValidationError, match="contact_email is required"):
+    with pytest.raises(ValidationError, match="Contact email is required"):
         PersonaConfigInput(**valid_fields(alert_routing_level="email"))
 
 
 def test_rejects_slack_routing_without_webhook():
-    with pytest.raises(ValidationError, match="slack_webhook is required"):
+    with pytest.raises(ValidationError, match="Slack webhook is required"):
         PersonaConfigInput(**valid_fields(alert_routing_level="slack"))
 
 
 def test_rejects_both_routing_missing_either_destination():
-    with pytest.raises(ValidationError, match="slack_webhook is required"):
+    with pytest.raises(ValidationError, match="Slack webhook is required"):
         PersonaConfigInput(**valid_fields(alert_routing_level="both", contact_email="analyst@example.com"))
 
 
@@ -173,5 +161,5 @@ def test_rejects_an_unrecognized_http_server_type():
     trust-boundary reasoning as every other enum-like field in this model.
     See honeypot/network/http_handler.py's _server_kind(), which reads this
     field directly and has no fallback for anything outside this set."""
-    with pytest.raises(ValidationError, match="http_server_type must be one of"):
+    with pytest.raises(ValidationError, match="HTTP server type must be one of"):
         PersonaConfigInput(**valid_fields(http_server_type="lighttpd"))
