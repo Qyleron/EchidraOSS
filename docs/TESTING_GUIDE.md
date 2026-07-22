@@ -464,8 +464,8 @@ credentials, and walk each page:
 | Sessions | `/dashboard/sessions` | Table lists captured sessions; clicking one opens a session detail view with its command history |
 | Analytics | `/dashboard/analytics` | Aggregate charts render (not blank) once at least one session/classifier run exists |
 | Intelligence | `/dashboard/intelligence` | 4 seeded issues appear with title, severity, recommended fix, impact, MITRE tags; toggling status calls `PATCH /issues/{id}/status` |
-| Personas | `/dashboard/personas` | Table of preset + custom personas; "Customize"/"Edit Config" opens the modal — check all three dropdowns (Alert Routing, Min Risk Level, Interaction Depth) show rounded corners, grey hover, and a pointer cursor, not the browser's native blue highlight; save and confirm the row updates; switch to the Analytics tab and confirm the "N/A" placeholder shows until you pick a persona |
-| Alerts | `/dashboard/alerts` | SMTP config form saves via `PUT /alerts/config`; "Send test alert" only succeeds once `enabled`, `smtp_host`, and `smtp_from_email` are set — otherwise expect `400 alerts not enabled` or `400 smtp_host and smtp_from_email are required` |
+| Personas | `/dashboard/personas` | Table of preset + custom personas; "Customize"/"Edit Config" opens the modal — check all four dropdowns (HTTP Server Type, Alert Routing, Min Risk Level, Interaction Depth) show rounded corners, grey hover, and a pointer cursor, not the browser's native blue highlight; save and confirm the row updates; switch to the Analytics tab and confirm the "N/A" placeholder shows until you pick a persona. Alert Routing/Min Risk Level/Contact Email/Slack Webhook are per-persona fields inside this modal's Alerting section — not the same thing as the global SMTP config on the separate Alerts page below |
+| Alerts | `/dashboard/alerts` | SMTP config form saves via `PUT /alerts/config`; "Send test alert" only succeeds once `enabled`, `smtp_host`, and `smtp_from_email` are set — otherwise expect `400 alerts not enabled` or `400 SMTP Host and From Email are required` |
 
 ---
 
