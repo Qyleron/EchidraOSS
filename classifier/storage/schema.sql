@@ -180,16 +180,7 @@ CREATE TABLE IF NOT EXISTS persona_configs (
     os_banner TEXT NOT NULL DEFAULT '',
     ssh_banner TEXT NOT NULL DEFAULT '',
     hostname TEXT NOT NULL DEFAULT '',
-    timezone TEXT NOT NULL DEFAULT 'UTC',
     internal_notes TEXT NOT NULL DEFAULT '',
-    ssh_enabled BOOLEAN NOT NULL DEFAULT false,
-    ssh_port INTEGER CHECK (ssh_port IS NULL OR (ssh_port >= 1 AND ssh_port <= 65535)),
-    http_enabled BOOLEAN NOT NULL DEFAULT false,
-    http_port INTEGER CHECK (http_port IS NULL OR (http_port >= 1 AND http_port <= 65535)),
-    ftp_enabled BOOLEAN NOT NULL DEFAULT false,
-    ftp_port INTEGER CHECK (ftp_port IS NULL OR (ftp_port >= 1 AND ftp_port <= 65535)),
-    telnet_enabled BOOLEAN NOT NULL DEFAULT false,
-    telnet_port INTEGER CHECK (telnet_port IS NULL OR (telnet_port >= 1 AND telnet_port <= 65535)),
     fake_users TEXT[] NOT NULL DEFAULT '{}',
     running_processes TEXT[] NOT NULL DEFAULT '{}',
     -- The fake web server the HTTP listener presents for this persona --
@@ -204,7 +195,6 @@ CREATE TABLE IF NOT EXISTS persona_configs (
     alert_min_risk_level TEXT CHECK (alert_min_risk_level IN ('critical', 'high', 'medium', 'low')),
     contact_email TEXT,
     slack_webhook TEXT,
-    interaction_depth TEXT NOT NULL DEFAULT 'minimal' CHECK (interaction_depth IN ('minimal', 'standard', 'deep')),
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -214,6 +204,27 @@ ALTER TABLE persona_configs ADD COLUMN IF NOT EXISTS
 
 ALTER TABLE persona_configs ADD COLUMN IF NOT EXISTS
     http_server_type TEXT NOT NULL DEFAULT 'nginx' CHECK (http_server_type IN ('nginx', 'apache', 'busybox', 'none'));
+
+-- timezone/interaction_depth were accepted and stored but never consumed
+-- anywhere (interaction_depth's "Deep" option implied engagement-depth
+-- control that was never implemented); the ssh/http/ftp/telnet *_enabled
+-- and *_port pairs implied per-persona listener control that never existed
+-- either -- the four listener ports are controlled once, globally, by
+-- ECHIDRA_*_PORT env vars regardless of which persona is active. One
+-- statement, not ten, for the same reason the columns above were added one
+-- ALTER at a time: each represents a distinct historical change, but a
+-- single removal pass reads as one deliberate cleanup, not a pile of drops.
+ALTER TABLE persona_configs
+    DROP COLUMN IF EXISTS timezone,
+    DROP COLUMN IF EXISTS interaction_depth,
+    DROP COLUMN IF EXISTS ssh_enabled,
+    DROP COLUMN IF EXISTS ssh_port,
+    DROP COLUMN IF EXISTS http_enabled,
+    DROP COLUMN IF EXISTS http_port,
+    DROP COLUMN IF EXISTS ftp_enabled,
+    DROP COLUMN IF EXISTS ftp_port,
+    DROP COLUMN IF EXISTS telnet_enabled,
+    DROP COLUMN IF EXISTS telnet_port;
 
 -- Singleton row holding global SMTP alert settings.
 CREATE TABLE IF NOT EXISTS alert_config (

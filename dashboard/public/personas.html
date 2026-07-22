@@ -236,13 +236,13 @@
         var cfg = configsMap[preset.persona_id];
         var hasConfig = Boolean(cfg);
         var hostname = hasConfig ? (cfg.hostname || preset.hostname) : preset.hostname;
-        var ports = hasConfig ? enabledPorts(cfg) : preset.open_ports_visible;
+        var ports = preset.open_ports_visible;
         rows.push(buildPersonaRow(preset.persona_id, hostname, ports, "Preset", hasConfig));
       });
 
       Object.values(configsMap).forEach(function(cfg) {
         if (seenIds[cfg.id]) return;
-        rows.push(buildPersonaRow(cfg.id, cfg.hostname || "—", enabledPorts(cfg), "Custom", true));
+        rows.push(buildPersonaRow(cfg.id, cfg.hostname || "—", [], "Custom", true));
       });
 
       tbody.innerHTML = rows.join("");
@@ -261,11 +261,6 @@
         + '<td class="mono-cell">' + escHtml(portStr) + '</td>'
         + '<td><button type="button" class="text-button customize-btn" data-id="' + escAttr(id) + '">' + actionLabel + '</button>' + deleteBtn + '</td>'
         + '</tr>';
-    }
-
-    function enabledPorts(cfg) {
-      var pairs = [["ssh", cfg.ssh_port], ["http", cfg.http_port], ["ftp", cfg.ftp_port], ["telnet", cfg.telnet_port]];
-      return pairs.filter(function(p) { return cfg[p[0] + "_enabled"] && p[1] != null; }).map(function(p) { return p[1]; });
     }
 
     // ── Modal config form ──────────────────────────────────────────────────────
@@ -303,21 +298,11 @@
         + formInput(personaId, "hostname", "Hostname", "text", identitySource.hostname || "")
         + formInput(personaId, "os_banner", "OS Banner", "text", identitySource.os_banner || "")
         + formInput(personaId, "ssh_banner", "SSH Banner", "text", identitySource.ssh_banner || "")
-        + formInput(personaId, "timezone", "Timezone", "text", identitySource.timezone || "UTC")
         + '<div class="form-row" style="grid-column:1/-1;">'
         + '<label class="form-label">Internal Notes</label>'
         + '<textarea class="form-textarea" name="internal_notes" rows="2">' + escHtml(config.internal_notes || "") + '</textarea>'
         + '</div>'
         + '</div></div>'
-
-        + '<div class="config-section">'
-        + '<h3 class="config-section-title">Services</h3>'
-        + '<p style="margin:0 0 12px;color:var(--muted);font-size:13px;">Metadata only — wires to live listeners when the honeypot process reads this config.</p>'
-        + buildServiceRow(personaId, "ssh", "SSH", config.ssh_enabled, config.ssh_port != null ? config.ssh_port : 22)
-        + buildServiceRow(personaId, "http", "HTTP", config.http_enabled, config.http_port != null ? config.http_port : 80)
-        + buildServiceRow(personaId, "ftp", "FTP", config.ftp_enabled, config.ftp_port != null ? config.ftp_port : 21)
-        + buildServiceRow(personaId, "telnet", "Telnet", config.telnet_enabled, config.telnet_port != null ? config.telnet_port : 23)
-        + '</div>'
 
         + '<div class="config-section">'
         + '<h3 class="config-section-title">Deception</h3>'
@@ -351,12 +336,6 @@
         + '<select class="form-select" name="alert_min_risk_level">'
         + '<option value="">Use global default</option>'
         + buildOptions(["critical","high","medium","low"], config.alert_min_risk_level || "")
-        + '</select></div>'
-        + '<div class="form-row"><label class="form-label">Interaction Depth</label>'
-        + '<select class="form-select" name="interaction_depth">'
-        + '<option value="minimal"' + (config.interaction_depth === "minimal" || !config.interaction_depth ? " selected" : "") + '>Minimal — quick disconnect, less intelligence</option>'
-        + '<option value="standard"' + (config.interaction_depth === "standard" ? " selected" : "") + '>Standard — realistic shell, moderate engagement</option>'
-        + '<option value="deep"' + (config.interaction_depth === "deep" ? " selected" : "") + '>Deep — full engagement, maximum intelligence (Pro)</option>'
         + '</select></div>'
         + formInput(personaId, "contact_email", "Contact Email", "email", config.contact_email || "")
         + formInput(personaId, "slack_webhook", "Slack Webhook", "url", config.slack_webhook || "")
@@ -408,21 +387,11 @@
         + formInput(_CREATE_SENTINEL, "hostname", "Hostname", "text", "")
         + formInput(_CREATE_SENTINEL, "os_banner", "OS Banner", "text", "")
         + formInput(_CREATE_SENTINEL, "ssh_banner", "SSH Banner", "text", "")
-        + formInput(_CREATE_SENTINEL, "timezone", "Timezone", "text", "UTC")
         + '<div class="form-row" style="grid-column:1/-1;">'
         + '<label class="form-label">Internal Notes</label>'
         + '<textarea class="form-textarea" name="internal_notes" rows="2"></textarea>'
         + '</div>'
         + '</div></div>'
-
-        + '<div class="config-section">'
-        + '<h3 class="config-section-title">Services</h3>'
-        + '<p style="margin:0 0 12px;color:var(--muted);font-size:13px;">Metadata only — wires to live listeners when the honeypot process reads this config.</p>'
-        + buildServiceRow(_CREATE_SENTINEL, "ssh", "SSH", false, 22)
-        + buildServiceRow(_CREATE_SENTINEL, "http", "HTTP", false, 80)
-        + buildServiceRow(_CREATE_SENTINEL, "ftp", "FTP", false, 21)
-        + buildServiceRow(_CREATE_SENTINEL, "telnet", "Telnet", false, 23)
-        + '</div>'
 
         + '<div class="config-section">'
         + '<h3 class="config-section-title">Deception</h3>'
@@ -452,12 +421,6 @@
         + '<option value="">Use global default</option>'
         + buildOptions(["critical","high","medium","low"], "")
         + '</select></div>'
-        + '<div class="form-row"><label class="form-label">Interaction Depth</label>'
-        + '<select class="form-select" name="interaction_depth">'
-        + '<option value="minimal" selected>Minimal — quick disconnect, less intelligence</option>'
-        + '<option value="standard">Standard — realistic shell, moderate engagement</option>'
-        + '<option value="deep">Deep — full engagement, maximum intelligence (Pro)</option>'
-        + '</select></div>'
         + formInput(_CREATE_SENTINEL, "contact_email", "Contact Email", "email", "")
         + formInput(_CREATE_SENTINEL, "slack_webhook", "Slack Webhook", "url", "")
         + '</div></div>'
@@ -485,19 +448,6 @@
         + '<label class="form-label">' + escHtml(label) + '</label>'
         + '<input class="form-input" name="' + escAttr(name) + '" type="' + type + '" value="' + escAttr(value) + '"' + (required ? " required" : "") + ' />'
         + '</div>';
-    }
-
-    function buildServiceRow(personaId, key, label, enabled, port) {
-      return '<div class="service-row">'
-        + '<label class="toggle-switch" aria-label="Enable ' + label + '">'
-        + '<input type="checkbox" class="toggle-input" name="' + key + '_enabled"' + (enabled ? " checked" : "") + ' />'
-        + '<span class="toggle-visual"><span class="toggle-knob"></span></span>'
-        + '</label>'
-        + '<span class="service-name">' + label + '</span>'
-        + '<div style="display:flex;align-items:center;gap:6px;">'
-        + '<label style="font-size:12px;color:var(--muted);">Port</label>'
-        + '<input class="service-port-input" name="' + key + '_port" type="number" min="1" max="65535" value="' + port + '" />'
-        + '</div></div>';
     }
 
     function buildDecoyRow(personaId, index, path, content) {
@@ -678,24 +628,13 @@
       });
 
       function fv(name) { var el = form.querySelector("[name=" + name + "]"); return el ? el.value : ""; }
-      function fc(name) { var el = form.querySelector("[name=" + name + "]"); return el ? el.checked : false; }
-      function fi(name) { var v = parseInt(fv(name)); return isNaN(v) ? null : v; }
 
       var payload = {
         name: fv("name").trim(),
         os_banner: fv("os_banner").trim(),
         ssh_banner: fv("ssh_banner").trim(),
         hostname: fv("hostname").trim(),
-        timezone: fv("timezone").trim() || "UTC",
         internal_notes: fv("internal_notes"),
-        ssh_enabled: fc("ssh_enabled"),
-        ssh_port: fi("ssh_port"),
-        http_enabled: fc("http_enabled"),
-        http_port: fi("http_port"),
-        ftp_enabled: fc("ftp_enabled"),
-        ftp_port: fi("ftp_port"),
-        telnet_enabled: fc("telnet_enabled"),
-        telnet_port: fi("telnet_port"),
         fake_users: fv("fake_users").split("\n").map(function(s) { return s.trim(); }).filter(Boolean),
         running_processes: fv("running_processes").split("\n").map(function(s) { return s.trim(); }).filter(Boolean),
         http_server_type: fv("http_server_type"),
@@ -704,7 +643,6 @@
         alert_min_risk_level: fv("alert_min_risk_level") || null,
         contact_email: fv("contact_email").trim() || null,
         slack_webhook: fv("slack_webhook").trim() || null,
-        interaction_depth: fv("interaction_depth"),
       };
 
       // In create mode the slug comes from the form, not the sentinel personaId.
@@ -742,7 +680,19 @@
         statusEl.style.color = "var(--low)";
         renderPersonaRows(allPresets, allConfigs);
         populateSelector(allPresets, Object.values(allConfigs));
-        setTimeout(function() { openModal(targetId); }, 80);
+        // openModal() below rebuilds the whole form (including this status
+        // element) to reflect the saved values -- restore the message into
+        // the freshly-rendered element afterward, or it's visible for well
+        // under 100ms and looks like saving silently failed.
+        setTimeout(function() {
+          openModal(targetId);
+          var freshStatusEl = document.getElementById("status_" + targetId);
+          if (freshStatusEl) {
+            freshStatusEl.textContent = "Saved.";
+            freshStatusEl.style.color = "var(--low)";
+            setTimeout(function() { freshStatusEl.textContent = ""; }, 3000);
+          }
+        }, 80);
       } catch (err) {
         statusEl.textContent = "Error: " + err.message;
         statusEl.style.color = "var(--critical)";

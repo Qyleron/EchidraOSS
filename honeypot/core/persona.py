@@ -36,7 +36,6 @@ class Persona:
     ssh_banner: str
     hostname: str
     uname_output: str
-    timezone: str
     username: str
     home_dir: str
     fake_filesystem: tuple[FakeFile, ...] = field(default_factory=tuple)
@@ -79,7 +78,6 @@ PRESET_PERSONAS: dict[str, Persona] = {
             "Linux ip-10-0-0-12 5.15.0-91-generic #101-Ubuntu SMP "
             "x86_64 GNU/Linux"
         ),
-        timezone="UTC",
         # Generic Linux starts in an admin-looking home while exposing root
         # identity, a common honeypot lure for post-compromise exploration.
         username="root",
@@ -108,7 +106,6 @@ PRESET_PERSONAS: dict[str, Persona] = {
         ssh_banner="SSH-2.0-OpenSSH_8.2p1 Ubuntu-4ubuntu0.5",
         hostname="web-prod-01",
         uname_output="Linux web-prod-01 5.4.0-162-generic x86_64 GNU/Linux",
-        timezone="America/New_York",
         username="ubuntu",
         home_dir="/home/ubuntu",
         fake_filesystem=(
@@ -145,7 +142,6 @@ PRESET_PERSONAS: dict[str, Persona] = {
         ssh_banner="SSH-2.0-OpenSSH_7.4",
         hostname="db-primary-01",
         uname_output="Linux db-primary-01 3.10.0-1160.el7.x86_64 GNU/Linux",
-        timezone="America/Chicago",
         username="centos",
         home_dir="/home/centos",
         fake_filesystem=(
@@ -174,7 +170,6 @@ PRESET_PERSONAS: dict[str, Persona] = {
         ssh_banner="SSH-2.0-OpenSSH_9.2p1 Debian-2+deb12u2",
         hostname="mail-gw-01",
         uname_output="Linux mail-gw-01 6.1.0-18-amd64 x86_64 GNU/Linux",
-        timezone="Europe/London",
         username="admin",
         home_dir="/home/admin",
         fake_filesystem=(
@@ -205,7 +200,6 @@ PRESET_PERSONAS: dict[str, Persona] = {
         ssh_banner="SSH-2.0-dropbear_2019.78",
         hostname="DLink-Router",
         uname_output="Linux DLink-Router 2.6.36 mips GNU/Linux",
-        timezone="UTC",
         username="root",
         home_dir="/root",
         fake_filesystem=(
@@ -263,7 +257,6 @@ def validate_persona(persona: Persona) -> None:
         persona.ssh_banner,
         persona.hostname,
         persona.uname_output,
-        persona.timezone,
         persona.username,
         persona.home_dir,
     )

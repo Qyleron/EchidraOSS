@@ -181,21 +181,6 @@ def _persona_from_config_record(record) -> Persona:
             FakeFile(path=f"{_DB_PERSONA_HOME_DIR}/.bash_history", content=""),
         )
 
-    open_ports_visible = tuple(
-        sorted(
-            {
-                port
-                for enabled, port in (
-                    (record.ssh_enabled, record.ssh_port),
-                    (record.http_enabled, record.http_port),
-                    (record.ftp_enabled, record.ftp_port),
-                    (record.telnet_enabled, record.telnet_port),
-                )
-                if enabled and port
-            }
-        )
-    )
-
     return Persona(
         persona_id=record.id,
         os_banner=record.os_banner or f"Linux {hostname} 5.15.0-91-generic x86_64",
@@ -204,7 +189,6 @@ def _persona_from_config_record(record) -> Persona:
         uname_output=(
             f"Linux {hostname} 5.15.0-91-generic #101-Ubuntu SMP x86_64 GNU/Linux"
         ),
-        timezone=record.timezone or "UTC",
         username=_DB_PERSONA_USERNAME,
         home_dir=_DB_PERSONA_HOME_DIR,
         fake_filesystem=fake_filesystem,
@@ -212,6 +196,11 @@ def _persona_from_config_record(record) -> Persona:
         http_server_type=record.http_server_type,
         fake_users=tuple(record.fake_users),
         suid_binaries=(),
-        open_ports_visible=open_ports_visible,
+        # No source data for this anymore -- the ssh/http/ftp/telnet
+        # *_enabled+*_port pairs that used to derive it implied per-persona
+        # listener control that never existed (the four listeners are
+        # controlled once, globally, by ECHIDRA_*_PORT env vars). Presets
+        # still show their own real, hardcoded open_ports_visible.
+        open_ports_visible=(),
         fake_credentials=(),
     )

@@ -32,7 +32,7 @@ dashboard.
   and POST bodies (credential-harvesting probes)
 - FTP — vsFTPd-style banner, captures `USER`/`PASS` attempts
 - Telnet — Mirai-style login prompt, captures credential attempts
-- Every listener can be enabled/disabled and given its own port per persona
+- Each listener can be enabled/disabled globally by setting its port env var
 
 **Classification**
 - Deterministic, editable YAML rules (`classifier/rules/default_rules.yaml`)
@@ -60,8 +60,8 @@ dashboard.
 - **Analytics** — aggregate charts across all captured traffic
 - **Intelligence** — recurring-issue rollup with recommended fixes, MITRE tags,
   and open/closed status
-- **Personas** — per-persona identity, services/ports, fake users, decoy
-  files, alert routing, interaction depth, and per-persona analytics
+- **Personas** — per-persona identity, fake users, decoy files, alert routing,
+  and per-persona analytics
 - **Alerts** — global SMTP config, send-test-email, and alert event history
 
 ---
@@ -170,15 +170,6 @@ multiple servers, each with a different persona, all pointing at the
 same `ECHIDRA_DATABASE_URL`. The dashboard aggregates sessions from
 all of them, tagged by `persona_id`, so you can compare attack
 patterns across personas in the Analytics and Intelligence pages.
-
-**A custom persona's `ssh_enabled`/`http_enabled`/`ftp_enabled`/`telnet_enabled`
-and `*_port` fields don't start or stop listeners.** The four listeners are
-controlled once, globally, by `ECHIDRA_PORT`/`ECHIDRA_HTTP_PORT`/
-`ECHIDRA_FTP_PORT`/`ECHIDRA_TELNET_PORT` (see "Default listeners" above) —
-regardless of which persona is active. Those per-protocol fields only feed
-`open_ports_visible`, informational metadata shown for that persona; toggling
-`ssh_enabled` off on a persona does not disable the SSH listener while it's
-active.
 
 ---
 

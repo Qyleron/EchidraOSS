@@ -198,7 +198,6 @@ class DashboardPersonaPreset(BaseModel):
     ssh_banner: str
     hostname: str
     uname_output: str
-    timezone: str
     username: str
     home_dir: str
     running_processes: list[str]
@@ -258,17 +257,17 @@ def create_app() -> FastAPI:
     def dashboard_asset(filename: str) -> FileResponse:
         """Serve whitelisted dashboard image assets."""
         if filename not in {"Qyleron_Banner.png", "qyleron_logo.png"}:
-            raise HTTPException(status_code=404, detail="asset not found")
+            raise HTTPException(status_code=404, detail="Asset not found")
         path = ASSETS_PATH / filename
         if not path.exists():
-            raise HTTPException(status_code=404, detail="asset not found")
+            raise HTTPException(status_code=404, detail="Asset not found")
         return FileResponse(path)
 
     @api.get("/auth", response_class=FileResponse, tags=["dashboard"])
     def auth_page() -> FileResponse:
         """Serve the dashboard access page."""
         if not AUTH_INDEX_PATH.exists():
-            raise HTTPException(status_code=404, detail="auth page not found")
+            raise HTTPException(status_code=404, detail="Auth page not found")
         return FileResponse(
             AUTH_INDEX_PATH,
             media_type="text/html",
@@ -302,15 +301,15 @@ def create_app() -> FastAPI:
             # it documented in README.md/docs/DEPLOYMENT.md.
             raise HTTPException(
                 status_code=403,
-                detail="signup is currently unavailable.",
+                detail="Signups are currently unavailable.",
             )
         except DashboardEmailAlreadyRegisteredError:
-            raise HTTPException(status_code=409, detail="email already registered")
+            raise HTTPException(status_code=409, detail="Email already registered")
         except (DatabaseDriverMissingError, DatabaseNotConfiguredError) as exc:
-            raise HTTPException(status_code=503, detail=str(exc))
+            raise HTTPException(status_code=503, detail=_user_facing_error_detail(exc))
         except Exception as exc:
             logger.exception("Unhandled exception in signup_dashboard_user: %s", exc)
-            raise HTTPException(status_code=500, detail="internal server error")
+            raise HTTPException(status_code=500, detail="Internal server error")
 
         _set_dashboard_session_cookie(response, user)
         return {"authenticated": True, "email": user.email}
@@ -330,14 +329,14 @@ def create_app() -> FastAPI:
         except HTTPException:
             raise
         except (DatabaseDriverMissingError, DatabaseNotConfiguredError) as exc:
-            raise HTTPException(status_code=503, detail=str(exc))
+            raise HTTPException(status_code=503, detail=_user_facing_error_detail(exc))
         except Exception as exc:
             logger.exception("Unhandled exception in login_dashboard_user: %s", exc)
-            raise HTTPException(status_code=500, detail="internal server error")
+            raise HTTPException(status_code=500, detail="Internal server error")
 
         if user is None or not _verify_password(payload.password, user.password_hash):
             _record_login_failure(rate_limit_key, repository)
-            raise HTTPException(status_code=401, detail="invalid email or password")
+            raise HTTPException(status_code=401, detail="Invalid email or password")
 
         _clear_login_failures(rate_limit_key, repository)
         _set_dashboard_session_cookie(response, user)
@@ -360,10 +359,10 @@ def create_app() -> FastAPI:
                 repository.rotate_dashboard_user_session(user_id)
             except (DatabaseDriverMissingError, DatabaseNotConfiguredError) as exc:
                 logger.warning("Could not rotate session_version during logout: %s", exc)
-                raise HTTPException(status_code=503, detail="could not revoke dashboard session")
+                raise HTTPException(status_code=503, detail="Could not revoke dashboard session")
             except Exception:
                 logger.exception("Could not rotate session_version during logout")
-                raise HTTPException(status_code=503, detail="could not revoke dashboard session")
+                raise HTTPException(status_code=503, detail="Could not revoke dashboard session")
         response.delete_cookie(DASHBOARD_AUTH_COOKIE)
         return {"authenticated": False}
 
@@ -373,7 +372,7 @@ def create_app() -> FastAPI:
         if not _dashboard_request_is_authenticated(request):
             return RedirectResponse("/auth", status_code=303)
         if not DASHBOARD_INDEX_PATH.exists():
-            raise HTTPException(status_code=404, detail="dashboard not found")
+            raise HTTPException(status_code=404, detail="Dashboard not found")
         return FileResponse(
             DASHBOARD_INDEX_PATH,
             media_type="text/html",
@@ -391,7 +390,7 @@ def create_app() -> FastAPI:
         since (eg. .password-toggle-btn's positioning).
         """
         if not DASHBOARD_CSS_PATH.exists():
-            raise HTTPException(status_code=404, detail="dashboard stylesheet not found")
+            raise HTTPException(status_code=404, detail="Dashboard stylesheet not found")
         return FileResponse(
             DASHBOARD_CSS_PATH,
             media_type="text/css",
@@ -405,7 +404,7 @@ def create_app() -> FastAPI:
             return RedirectResponse("/auth", status_code=303)
         page_path = DASHBOARD_PAGE_FILES.get(page_name)
         if page_path is None or not page_path.exists():
-            raise HTTPException(status_code=404, detail="dashboard page not found")
+            raise HTTPException(status_code=404, detail="Dashboard page not found")
         return FileResponse(
             page_path,
             media_type="text/html",
@@ -478,13 +477,13 @@ def create_app() -> FastAPI:
             repository = PostgresClassifierRepository()
             run = repository.save_classifier_run(session, summary)
         except (DatabaseDriverMissingError, DatabaseNotConfiguredError) as exc:
-            raise HTTPException(status_code=503, detail=str(exc))
+            raise HTTPException(status_code=503, detail=_user_facing_error_detail(exc))
         except Exception as exc:
             logger.exception(
                 "Unhandled exception in classify_and_store_session_endpoint: %s",
                 exc,
             )
-            raise HTTPException(status_code=500, detail="internal server error")
+            raise HTTPException(status_code=500, detail="Internal server error")
 
         # Fire email alert asynchronously-ish — errors here never fail the run.
         try:
@@ -510,13 +509,13 @@ def create_app() -> FastAPI:
             repository = PostgresClassifierRepository()
             return repository.get_dashboard_report_summary()
         except (DatabaseDriverMissingError, DatabaseNotConfiguredError) as exc:
-            raise HTTPException(status_code=503, detail=str(exc))
+            raise HTTPException(status_code=503, detail=_user_facing_error_detail(exc))
         except Exception as exc:
             logger.exception(
                 "Unhandled exception in dashboard_report_summary_endpoint: %s",
                 exc,
             )
-            raise HTTPException(status_code=500, detail="internal server error")
+            raise HTTPException(status_code=500, detail="Internal server error")
 
     @api.get(
         "/analytics/summary",
@@ -534,13 +533,13 @@ def create_app() -> FastAPI:
             repository = PostgresClassifierRepository()
             return repository.get_analytics_summary(from_ts, to_ts)
         except (DatabaseDriverMissingError, DatabaseNotConfiguredError) as exc:
-            raise HTTPException(status_code=503, detail=str(exc))
+            raise HTTPException(status_code=503, detail=_user_facing_error_detail(exc))
         except Exception as exc:
             logger.exception(
                 "Unhandled exception in analytics_summary_endpoint: %s",
                 exc,
             )
-            raise HTTPException(status_code=500, detail="internal server error")
+            raise HTTPException(status_code=500, detail="Internal server error")
 
     @api.get(
         "/classifier/runs",
@@ -571,13 +570,13 @@ def create_app() -> FastAPI:
                 limit=limit,
             )
         except (DatabaseDriverMissingError, DatabaseNotConfiguredError) as exc:
-            raise HTTPException(status_code=503, detail=str(exc))
+            raise HTTPException(status_code=503, detail=_user_facing_error_detail(exc))
         except Exception as exc:
             logger.exception(
                 "Unhandled exception in list_classifier_runs_endpoint: %s",
                 exc,
             )
-            raise HTTPException(status_code=500, detail="internal server error")
+            raise HTTPException(status_code=500, detail="Internal server error")
 
     @api.get(
         "/classifier/runs/{run_id}",
@@ -594,16 +593,16 @@ def create_app() -> FastAPI:
             repository = PostgresClassifierRepository()
             run = repository.get_classifier_run(run_id)
         except (DatabaseDriverMissingError, DatabaseNotConfiguredError) as exc:
-            raise HTTPException(status_code=503, detail=str(exc))
+            raise HTTPException(status_code=503, detail=_user_facing_error_detail(exc))
         except Exception as exc:
             logger.exception(
                 "Unhandled exception in get_classifier_run_endpoint: %s",
                 exc,
             )
-            raise HTTPException(status_code=500, detail="internal server error")
+            raise HTTPException(status_code=500, detail="Internal server error")
 
         if run is None:
-            raise HTTPException(status_code=404, detail="classifier run not found")
+            raise HTTPException(status_code=404, detail="Classifier run not found")
         return run
 
     @api.get(
@@ -621,13 +620,13 @@ def create_app() -> FastAPI:
             repository = PostgresClassifierRepository()
             return repository.list_session_events(session_id)
         except (DatabaseDriverMissingError, DatabaseNotConfiguredError) as exc:
-            raise HTTPException(status_code=503, detail=str(exc))
+            raise HTTPException(status_code=503, detail=_user_facing_error_detail(exc))
         except Exception as exc:
             logger.exception(
                 "Unhandled exception in list_session_events_endpoint: %s",
                 exc,
             )
-            raise HTTPException(status_code=500, detail="internal server error")
+            raise HTTPException(status_code=500, detail="Internal server error")
 
     @api.get(
         "/manual-labels",
@@ -650,13 +649,13 @@ def create_app() -> FastAPI:
                 limit=limit,
             )
         except (DatabaseDriverMissingError, DatabaseNotConfiguredError) as exc:
-            raise HTTPException(status_code=503, detail=str(exc))
+            raise HTTPException(status_code=503, detail=_user_facing_error_detail(exc))
         except Exception as exc:
             logger.exception(
                 "Unhandled exception in list_manual_labels_endpoint: %s",
                 exc,
             )
-            raise HTTPException(status_code=500, detail="internal server error")
+            raise HTTPException(status_code=500, detail="Internal server error")
 
     @api.get(
         "/manual-labels/{label_id}",
@@ -673,16 +672,16 @@ def create_app() -> FastAPI:
             repository = PostgresClassifierRepository()
             label = repository.get_manual_label(label_id)
         except (DatabaseDriverMissingError, DatabaseNotConfiguredError) as exc:
-            raise HTTPException(status_code=503, detail=str(exc))
+            raise HTTPException(status_code=503, detail=_user_facing_error_detail(exc))
         except Exception as exc:
             logger.exception(
                 "Unhandled exception in get_manual_label_endpoint: %s",
                 exc,
             )
-            raise HTTPException(status_code=500, detail="internal server error")
+            raise HTTPException(status_code=500, detail="Internal server error")
 
         if label is None:
-            raise HTTPException(status_code=404, detail="manual label not found")
+            raise HTTPException(status_code=404, detail="Manual label not found")
         return label
 
     @api.get(
@@ -701,10 +700,10 @@ def create_app() -> FastAPI:
             repository = PostgresClassifierRepository()
             return repository.list_issues(status=status, limit=limit)
         except (DatabaseDriverMissingError, DatabaseNotConfiguredError) as exc:
-            raise HTTPException(status_code=503, detail=str(exc))
+            raise HTTPException(status_code=503, detail=_user_facing_error_detail(exc))
         except Exception as exc:
             logger.exception("Unhandled exception in list_issues_endpoint: %s", exc)
-            raise HTTPException(status_code=500, detail="internal server error")
+            raise HTTPException(status_code=500, detail="Internal server error")
 
     @api.patch(
         "/issues/{issue_id}/status",
@@ -722,13 +721,13 @@ def create_app() -> FastAPI:
             repository = PostgresClassifierRepository()
             issue = repository.update_issue_status(issue_id, payload.status)
         except (DatabaseDriverMissingError, DatabaseNotConfiguredError) as exc:
-            raise HTTPException(status_code=503, detail=str(exc))
+            raise HTTPException(status_code=503, detail=_user_facing_error_detail(exc))
         except Exception as exc:
             logger.exception("Unhandled exception in update_issue_status_endpoint: %s", exc)
-            raise HTTPException(status_code=500, detail="internal server error")
+            raise HTTPException(status_code=500, detail="Internal server error")
 
         if issue is None:
-            raise HTTPException(status_code=404, detail="issue not found")
+            raise HTTPException(status_code=404, detail="Issue not found")
         return issue
 
     @api.get(
@@ -743,10 +742,10 @@ def create_app() -> FastAPI:
             repository = PostgresClassifierRepository()
             return repository.list_persona_configs()
         except (DatabaseDriverMissingError, DatabaseNotConfiguredError) as exc:
-            raise HTTPException(status_code=503, detail=str(exc))
+            raise HTTPException(status_code=503, detail=_user_facing_error_detail(exc))
         except Exception as exc:
             logger.exception("Unhandled exception in list_persona_configs_endpoint: %s", exc)
-            raise HTTPException(status_code=500, detail="internal server error")
+            raise HTTPException(status_code=500, detail="Internal server error")
 
     @api.post(
         "/persona-configs/{persona_id}",
@@ -765,12 +764,12 @@ def create_app() -> FastAPI:
             repository = PostgresClassifierRepository()
             return repository.create_persona_config(persona_id, payload)
         except PersonaConfigAlreadyExistsError:
-            raise HTTPException(status_code=409, detail="persona config already exists")
+            raise HTTPException(status_code=409, detail="Persona config already exists")
         except (DatabaseDriverMissingError, DatabaseNotConfiguredError) as exc:
-            raise HTTPException(status_code=503, detail=str(exc))
+            raise HTTPException(status_code=503, detail=_user_facing_error_detail(exc))
         except Exception as exc:
             logger.exception("Unhandled exception in create_persona_config_endpoint: %s", exc)
-            raise HTTPException(status_code=500, detail="internal server error")
+            raise HTTPException(status_code=500, detail="Internal server error")
 
     @api.get(
         "/persona-configs/{persona_id}",
@@ -787,13 +786,13 @@ def create_app() -> FastAPI:
             repository = PostgresClassifierRepository()
             config = repository.get_persona_config(persona_id)
         except (DatabaseDriverMissingError, DatabaseNotConfiguredError) as exc:
-            raise HTTPException(status_code=503, detail=str(exc))
+            raise HTTPException(status_code=503, detail=_user_facing_error_detail(exc))
         except Exception as exc:
             logger.exception("Unhandled exception in get_persona_config_endpoint: %s", exc)
-            raise HTTPException(status_code=500, detail="internal server error")
+            raise HTTPException(status_code=500, detail="Internal server error")
 
         if config is None:
-            raise HTTPException(status_code=404, detail="persona config not found")
+            raise HTTPException(status_code=404, detail="Persona config not found")
         return config
 
     @api.put(
@@ -812,13 +811,13 @@ def create_app() -> FastAPI:
             repository = PostgresClassifierRepository()
             config = repository.update_persona_config(persona_id, payload)
         except (DatabaseDriverMissingError, DatabaseNotConfiguredError) as exc:
-            raise HTTPException(status_code=503, detail=str(exc))
+            raise HTTPException(status_code=503, detail=_user_facing_error_detail(exc))
         except Exception as exc:
             logger.exception("Unhandled exception in update_persona_config_endpoint: %s", exc)
-            raise HTTPException(status_code=500, detail="internal server error")
+            raise HTTPException(status_code=500, detail="Internal server error")
 
         if config is None:
-            raise HTTPException(status_code=404, detail="persona config not found")
+            raise HTTPException(status_code=404, detail="Persona config not found")
         return config
 
     @api.delete(
@@ -837,13 +836,13 @@ def create_app() -> FastAPI:
             repository = PostgresClassifierRepository()
             deleted = repository.delete_persona_config(persona_id)
         except (DatabaseDriverMissingError, DatabaseNotConfiguredError) as exc:
-            raise HTTPException(status_code=503, detail=str(exc))
+            raise HTTPException(status_code=503, detail=_user_facing_error_detail(exc))
         except Exception as exc:
             logger.exception("Unhandled exception in delete_persona_config_endpoint: %s", exc)
-            raise HTTPException(status_code=500, detail="internal server error")
+            raise HTTPException(status_code=500, detail="Internal server error")
 
         if not deleted:
-            raise HTTPException(status_code=404, detail="persona config not found")
+            raise HTTPException(status_code=404, detail="Persona config not found")
 
     @api.get(
         "/persona-configs/{persona_id}/analytics",
@@ -860,10 +859,10 @@ def create_app() -> FastAPI:
             repository = PostgresClassifierRepository()
             return repository.get_persona_analytics(persona_id)
         except (DatabaseDriverMissingError, DatabaseNotConfiguredError) as exc:
-            raise HTTPException(status_code=503, detail=str(exc))
+            raise HTTPException(status_code=503, detail=_user_facing_error_detail(exc))
         except Exception as exc:
             logger.exception("Unhandled exception in get_persona_analytics_endpoint: %s", exc)
-            raise HTTPException(status_code=500, detail="internal server error")
+            raise HTTPException(status_code=500, detail="Internal server error")
 
     @api.get(
         "/alerts/config",
@@ -887,10 +886,10 @@ def create_app() -> FastAPI:
                 global_min_risk_level="high",
             )
         except (DatabaseDriverMissingError, DatabaseNotConfiguredError) as exc:
-            raise HTTPException(status_code=503, detail=str(exc))
+            raise HTTPException(status_code=503, detail=_user_facing_error_detail(exc))
         except Exception as exc:
             logger.exception("Unhandled exception in get_alert_config_endpoint: %s", exc)
-            raise HTTPException(status_code=500, detail="internal server error")
+            raise HTTPException(status_code=500, detail="Internal server error")
 
     @api.put(
         "/alerts/config",
@@ -907,10 +906,10 @@ def create_app() -> FastAPI:
             repository = PostgresClassifierRepository()
             return repository.upsert_alert_config(payload)
         except (DatabaseDriverMissingError, DatabaseNotConfiguredError) as exc:
-            raise HTTPException(status_code=503, detail=str(exc))
+            raise HTTPException(status_code=503, detail=_user_facing_error_detail(exc))
         except Exception as exc:
             logger.exception("Unhandled exception in update_alert_config_endpoint: %s", exc)
-            raise HTTPException(status_code=500, detail="internal server error")
+            raise HTTPException(status_code=500, detail="Internal server error")
 
     @api.post(
         "/alerts/test",
@@ -923,15 +922,15 @@ def create_app() -> FastAPI:
             repository = PostgresClassifierRepository()
             config = repository.get_alert_config()
         except (DatabaseDriverMissingError, DatabaseNotConfiguredError) as exc:
-            raise HTTPException(status_code=503, detail=str(exc))
+            raise HTTPException(status_code=503, detail=_user_facing_error_detail(exc))
         except Exception as exc:
             logger.exception("Unhandled exception in send_test_alert_endpoint: %s", exc)
-            raise HTTPException(status_code=500, detail="internal server error")
+            raise HTTPException(status_code=500, detail="Internal server error")
 
         if config is None or not config.enabled:
-            raise HTTPException(status_code=400, detail="alerts not enabled")
+            raise HTTPException(status_code=400, detail="Alerts are not enabled")
         if not config.smtp_host or not config.smtp_from_email:
-            raise HTTPException(status_code=400, detail="SMTP Host and From Email are required")
+            raise HTTPException(status_code=400, detail="SMTP host and from email are required")
 
         err = _dispatch_test_email(config)
         if err:
@@ -953,10 +952,10 @@ def create_app() -> FastAPI:
             repository = PostgresClassifierRepository()
             return repository.list_alert_events(limit=limit)
         except (DatabaseDriverMissingError, DatabaseNotConfiguredError) as exc:
-            raise HTTPException(status_code=503, detail=str(exc))
+            raise HTTPException(status_code=503, detail=_user_facing_error_detail(exc))
         except Exception as exc:
             logger.exception("Unhandled exception in list_alert_events_endpoint: %s", exc)
-            raise HTTPException(status_code=500, detail="internal server error")
+            raise HTTPException(status_code=500, detail="Internal server error")
 
     @api.get(
         "/alerts/events/count",
@@ -973,10 +972,10 @@ def create_app() -> FastAPI:
             repository = PostgresClassifierRepository()
             return {"total": repository.count_alert_events()}
         except (DatabaseDriverMissingError, DatabaseNotConfiguredError) as exc:
-            raise HTTPException(status_code=503, detail=str(exc))
+            raise HTTPException(status_code=503, detail=_user_facing_error_detail(exc))
         except Exception as exc:
             logger.exception("Unhandled exception in count_alert_events_endpoint: %s", exc)
-            raise HTTPException(status_code=500, detail="internal server error")
+            raise HTTPException(status_code=500, detail="Internal server error")
 
     return api
 
@@ -995,13 +994,13 @@ def _classify_or_http_error(
     except ValueError as exc:
         raise HTTPException(
             status_code=400,
-            detail=str(exc) or "validation error",
+            detail=_user_facing_error_detail(exc) or "Validation error",
         )
     except Exception as exc:
         logger.exception("Unhandled exception in classify_session_endpoint: %s", exc)
         raise HTTPException(
             status_code=500,
-            detail="internal server error",
+            detail="Internal server error",
         )
 
 
@@ -1020,10 +1019,38 @@ def _dispatch_test_email(config: AlertConfigRecord) -> str | None:
     """Send a test email using the current alert config. Returns error or None."""
     recipient = config.smtp_from_email or ""
     if not recipient:
-        return "smtp_from_email must be set to receive the test email"
+        return "SMTP from email must be set to receive the test email"
     subject = "[Echidra] SMTP alert test"
     body = "This is a test alert from your Echidra OSS honeypot. SMTP is configured correctly."
     return _smtp_send(config, recipient, subject, body)
+
+
+def _user_facing_error_detail(exc: Exception) -> str:
+    """Return an API-safe message without internal snake_case identifiers."""
+    if isinstance(exc, DatabaseNotConfiguredError):
+        return "PostgreSQL storage is not configured"
+    if isinstance(exc, DatabaseDriverMissingError):
+        return "PostgreSQL driver is missing. Install psycopg to use PostgreSQL storage."
+
+    detail = str(exc).strip()
+    replacements = {
+        "ECHIDRA_DATABASE_URL": "database URL",
+        "ECHIDRA_INGEST_API_KEY": "ingest API key",
+        "ECHIDRA_ALERT_SECRET": "alert secret",
+        "ECHIDRA_SECRET_KEY": "secret key",
+        "smtp_from_email": "SMTP from email",
+        "classification_status": "classification status",
+        "http_server_type": "HTTP server type",
+        "alert_routing_level": "alert routing level",
+        "alert_min_risk_level": "alert minimum risk level",
+        "contact_email": "contact email",
+        "slack_webhook": "Slack webhook",
+        "global_min_risk_level": "global minimum risk level",
+        "decoy_files": "decoy files",
+    }
+    for raw, label in replacements.items():
+        detail = detail.replace(raw, label)
+    return detail[:1].upper() + detail[1:] if detail else detail
 
 
 def _dashboard_persona_from_preset(persona: Persona) -> DashboardPersonaPreset:
@@ -1033,7 +1060,6 @@ def _dashboard_persona_from_preset(persona: Persona) -> DashboardPersonaPreset:
         ssh_banner=persona.ssh_banner,
         hostname=persona.hostname,
         uname_output=persona.uname_output,
-        timezone=persona.timezone,
         username=persona.username,
         home_dir=persona.home_dir,
         running_processes=list(persona.running_processes),
@@ -1060,7 +1086,7 @@ def _dashboard_request_is_authenticated(request: Request) -> bool:
 
 def _require_dashboard_auth(request: Request) -> None:
     if not _dashboard_request_is_authenticated(request):
-        raise HTTPException(status_code=401, detail="dashboard auth required")
+        raise HTTPException(status_code=401, detail="Dashboard authentication required")
 
 
 
@@ -1084,7 +1110,7 @@ def _check_login_rate_limit(key: str, repository: PostgresClassifierRepository) 
     """
     recent = repository.count_recent_login_failures(key, LOGIN_RATE_LIMIT_WINDOW_SECONDS)
     if recent >= LOGIN_RATE_LIMIT_MAX_ATTEMPTS:
-        raise HTTPException(status_code=429, detail="too many login attempts — try again later")
+        raise HTTPException(status_code=429, detail="Too many login attempts — try again later")
 
 
 def _record_login_failure(key: str, repository: PostgresClassifierRepository) -> None:
@@ -1112,11 +1138,11 @@ def _require_ingest_api_key(request: Request) -> None:
     if not configured_key:
         raise HTTPException(
             status_code=503,
-            detail=f"{INGEST_API_KEY_ENV} is not configured on this server",
+            detail="Ingest API key is not configured on this server",
         )
     provided_key = request.headers.get(INGEST_API_KEY_HEADER, "")
     if not provided_key or not hmac.compare_digest(provided_key, configured_key):
-        raise HTTPException(status_code=401, detail="invalid or missing API key")
+        raise HTTPException(status_code=401, detail="Invalid or missing API key")
 
 
 def _normalize_email(value: str) -> str:
@@ -1131,28 +1157,28 @@ def _validate_email_format(value: str) -> str:
         or normalized.startswith(".")
         or ".." in normalized
     ):
-        raise ValueError("valid email address required")
+        raise ValueError("Valid email address required")
     local_part, domain = normalized.rsplit("@", 1)
     if (
         len(local_part) > 64
         or local_part.endswith(".")
         or any(label.startswith("-") or label.endswith("-") for label in domain.split("."))
     ):
-        raise ValueError("valid email address required")
+        raise ValueError("Valid email address required")
     return normalized
 
 
 def _validate_password_format(value: str) -> None:
     if len(value) < 8:
-        raise ValueError("password must be at least 8 characters")
+        raise ValueError("Password must be at least 8 characters")
     if len(value) > MAX_PASSWORD_LENGTH:
-        raise ValueError(f"password must be at most {MAX_PASSWORD_LENGTH} characters")
+        raise ValueError(f"Password must be at most {MAX_PASSWORD_LENGTH} characters")
     if any(character.isspace() for character in value):
-        raise ValueError("password must not contain whitespace")
+        raise ValueError("Password must not contain whitespace")
     if not re.search(r"[A-Za-z]", value):
-        raise ValueError("password must contain a letter")
+        raise ValueError("Password must contain a letter")
     if not re.search(r"\d", value):
-        raise ValueError("password must contain a number")
+        raise ValueError("Password must contain a number")
 
 
 def _hash_password(password: str) -> str:

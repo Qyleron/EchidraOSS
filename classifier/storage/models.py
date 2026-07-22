@@ -29,6 +29,11 @@ def _model_dict(model: BaseModel) -> dict[str, Any]:
 # StoredClassifierRun are also built from raw DB rows / direct construction,
 # not only from an already-validated ClassificationSummary.
 CLASSIFICATION_STATUSES = {"complete", "partial", "insufficient_data"}
+CLASSIFICATION_STATUS_LABELS = {
+    "complete": "Complete",
+    "partial": "Partial",
+    "insufficient_data": "Insufficient data",
+}
 
 
 class ClassifierRunRecord(BaseModel):
@@ -57,7 +62,10 @@ class ClassifierRunRecord(BaseModel):
     @validator("classification_status")
     def validate_classification_status(cls, value: str) -> str:
         if value not in CLASSIFICATION_STATUSES:
-            raise ValueError(f"classification_status must be one of {sorted(CLASSIFICATION_STATUSES)}")
+            raise ValueError(
+                "Classification status must be one of "
+                f"{_option_labels(CLASSIFICATION_STATUSES, CLASSIFICATION_STATUS_LABELS)}"
+            )
         return value
 
     @classmethod
@@ -181,7 +189,10 @@ class StoredClassifierRun(BaseModel):
     @validator("classification_status")
     def validate_classification_status(cls, value: str) -> str:
         if value not in CLASSIFICATION_STATUSES:
-            raise ValueError(f"classification_status must be one of {sorted(CLASSIFICATION_STATUSES)}")
+            raise ValueError(
+                "Classification status must be one of "
+                f"{_option_labels(CLASSIFICATION_STATUSES, CLASSIFICATION_STATUS_LABELS)}"
+            )
         return value
 
     class Config:
@@ -215,7 +226,16 @@ class ClassifyAndStoreResponse(BaseModel):
 
 
 ISSUE_SEVERITIES = {"high", "medium", "low"}
+ISSUE_SEVERITY_LABELS = {
+    "high": "High",
+    "medium": "Medium",
+    "low": "Low",
+}
 ISSUE_STATUSES = {"open", "closed"}
+ISSUE_STATUS_LABELS = {
+    "open": "Open",
+    "closed": "Closed",
+}
 
 
 class MitreTechnique(BaseModel):
@@ -246,13 +266,17 @@ class IssueRecord(BaseModel):
     @validator("severity")
     def validate_severity(cls, value: str) -> str:
         if value not in ISSUE_SEVERITIES:
-            raise ValueError(f"severity must be one of {sorted(ISSUE_SEVERITIES)}")
+            raise ValueError(
+                f"Severity must be one of {_option_labels(ISSUE_SEVERITIES, ISSUE_SEVERITY_LABELS)}"
+            )
         return value
 
     @validator("status")
     def validate_status(cls, value: str) -> str:
         if value not in ISSUE_STATUSES:
-            raise ValueError(f"status must be one of {sorted(ISSUE_STATUSES)}")
+            raise ValueError(
+                f"Status must be one of {_option_labels(ISSUE_STATUSES, ISSUE_STATUS_LABELS)}"
+            )
         return value
 
     class Config:
@@ -267,7 +291,9 @@ class IssueStatusUpdate(BaseModel):
     @validator("status")
     def validate_status(cls, value: str) -> str:
         if value not in ISSUE_STATUSES:
-            raise ValueError(f"status must be one of {sorted(ISSUE_STATUSES)}")
+            raise ValueError(
+                f"Status must be one of {_option_labels(ISSUE_STATUSES, ISSUE_STATUS_LABELS)}"
+            )
         return value
 
     class Config:
@@ -275,7 +301,12 @@ class IssueStatusUpdate(BaseModel):
 
 
 PERSONA_ALERT_ROUTING_LEVELS = {"none", "email", "slack", "both"}
-PERSONA_INTERACTION_DEPTHS = {"minimal", "standard", "deep"}
+PERSONA_ALERT_ROUTING_LABELS = {
+    "none": "None",
+    "email": "Email",
+    "slack": "Slack",
+    "both": "Both",
+}
 # The fake web server the HTTP listener presents for this persona -- an
 # explicit operator choice, decoupled from running_processes (which stays
 # free text purely for the fake `ps` output over the SSH shell, and is
@@ -284,7 +315,19 @@ PERSONA_INTERACTION_DEPTHS = {"minimal", "standard", "deep"}
 # contradicts what running_processes/hostname claim about it. Single
 # source of truth with honeypot/network/http_handler.py's _server_kind().
 PERSONA_HTTP_SERVER_TYPES = {"nginx", "apache", "busybox", "none"}
+PERSONA_HTTP_SERVER_TYPE_LABELS = {
+    "nginx": "Nginx",
+    "apache": "Apache",
+    "busybox": "BusyBox",
+    "none": "None",
+}
 RISK_LEVELS_ORDERED = ("critical", "high", "medium", "low")
+RISK_LEVEL_LABELS = {
+    "critical": "Critical",
+    "high": "High",
+    "medium": "Medium",
+    "low": "Low",
+}
 
 # Same pattern as classifier/api/app.py's _EMAIL_RE -- duplicated rather than
 # imported since models.py sits below app.py in the dependency direction.
@@ -292,6 +335,12 @@ _EMAIL_RE = re.compile(
     r"^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@"
     r"[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$"
 )
+
+
+def _option_labels(values: set[str] | tuple[str, ...], labels: dict[str, str]) -> str:
+    return ", ".join(
+        labels[value] for value in sorted(values, key=lambda value: labels[value])
+    )
 
 
 class DecoyFile(BaseModel):
@@ -303,7 +352,7 @@ class DecoyFile(BaseModel):
     @validator("path")
     def validate_path(cls, value: str) -> str:
         if not value.startswith("/") or ".." in PurePosixPath(value).parts:
-            raise ValueError("decoy file path must be a safe absolute path")
+            raise ValueError("Decoy file path must be a safe absolute path")
         return value
 
     class Config:
@@ -317,16 +366,7 @@ class PersonaConfigInput(BaseModel):
     os_banner: str = Field(default="", max_length=256)
     ssh_banner: str = Field(default="", max_length=256)
     hostname: str = Field(default="", max_length=253)
-    timezone: str = Field(default="UTC", max_length=64)
     internal_notes: str = Field(default="", max_length=4_000)
-    ssh_enabled: bool = False
-    ssh_port: int | None = Field(default=None, ge=1, le=65535)
-    http_enabled: bool = False
-    http_port: int | None = Field(default=None, ge=1, le=65535)
-    ftp_enabled: bool = False
-    ftp_port: int | None = Field(default=None, ge=1, le=65535)
-    telnet_enabled: bool = False
-    telnet_port: int | None = Field(default=None, ge=1, le=65535)
     fake_users: list[str] = Field(default_factory=list, max_items=100)
     running_processes: list[str] = Field(default_factory=list, max_items=100)
     http_server_type: str = "nginx"
@@ -335,28 +375,28 @@ class PersonaConfigInput(BaseModel):
     alert_min_risk_level: str | None = None
     contact_email: str | None = Field(default=None, max_length=254)
     slack_webhook: str | None = Field(default=None, max_length=512)
-    interaction_depth: str = "minimal"
 
     @validator("fake_users", "running_processes", each_item=True)
     def validate_list_item_length(cls, value: str) -> str:
         if not value.strip():
-            raise ValueError("entries cannot be blank")
+            raise ValueError("Entries cannot be blank")
         if len(value) > 128:
-            raise ValueError("entries must be 128 characters or fewer")
+            raise ValueError("Entries must be 128 characters or fewer")
         return value
 
     @validator("decoy_files")
     def validate_decoy_files_unique(cls, value: list[DecoyFile]) -> list[DecoyFile]:
         paths = [f.path for f in value]
         if len(paths) != len(set(paths)):
-            raise ValueError("decoy_files cannot contain duplicate paths")
+            raise ValueError("Decoy files cannot contain duplicate paths")
         return value
 
     @validator("http_server_type")
     def validate_http_server_type(cls, value: str) -> str:
         if value not in PERSONA_HTTP_SERVER_TYPES:
             raise ValueError(
-                f"http_server_type must be one of {sorted(PERSONA_HTTP_SERVER_TYPES)}"
+                "HTTP server type must be one of "
+                f"{_option_labels(PERSONA_HTTP_SERVER_TYPES, PERSONA_HTTP_SERVER_TYPE_LABELS)}"
             )
         return value
 
@@ -364,7 +404,8 @@ class PersonaConfigInput(BaseModel):
     def validate_routing(cls, value: str) -> str:
         if value not in PERSONA_ALERT_ROUTING_LEVELS:
             raise ValueError(
-                f"alert_routing_level must be one of {sorted(PERSONA_ALERT_ROUTING_LEVELS)}"
+                "Alert routing level must be one of "
+                f"{_option_labels(PERSONA_ALERT_ROUTING_LEVELS, PERSONA_ALERT_ROUTING_LABELS)}"
             )
         return value
 
@@ -372,41 +413,30 @@ class PersonaConfigInput(BaseModel):
     def validate_alert_min_risk_level(cls, value: str | None) -> str | None:
         if value is not None and value not in RISK_LEVELS_ORDERED:
             raise ValueError(
-                f"alert_min_risk_level must be one of {list(RISK_LEVELS_ORDERED)} or null"
+                "Alert minimum risk level must be one of "
+                f"{_option_labels(RISK_LEVELS_ORDERED, RISK_LEVEL_LABELS)} or empty"
             )
         return value
 
     @validator("contact_email")
     def validate_contact_email(cls, value: str | None) -> str | None:
         if value is not None and not _EMAIL_RE.match(value):
-            raise ValueError("contact_email must be a valid email address")
+            raise ValueError("Contact email must be a valid email address")
         return value
 
     @validator("slack_webhook")
     def validate_slack_webhook(cls, value: str | None) -> str | None:
         if value is not None and not value.startswith("https://hooks.slack.com/"):
-            raise ValueError("slack_webhook must be an https://hooks.slack.com/ URL")
-        return value
-
-    @validator("interaction_depth")
-    def validate_depth(cls, value: str) -> str:
-        if value not in PERSONA_INTERACTION_DEPTHS:
-            raise ValueError(
-                f"interaction_depth must be one of {sorted(PERSONA_INTERACTION_DEPTHS)}"
-            )
+            raise ValueError("Slack webhook must be an https://hooks.slack.com/ URL")
         return value
 
     @root_validator(skip_on_failure=True)
     def validate_cross_field_requirements(cls, values):
-        for service in ("ssh", "http", "ftp", "telnet"):
-            if values.get(f"{service}_enabled") and values.get(f"{service}_port") is None:
-                raise ValueError(f"{service}_port is required when {service}_enabled is true")
-
         routing = values.get("alert_routing_level")
         if routing in ("email", "both") and not values.get("contact_email"):
-            raise ValueError("contact_email is required when alert_routing_level includes email")
+            raise ValueError("Contact email is required when alert routing includes email")
         if routing in ("slack", "both") and not values.get("slack_webhook"):
-            raise ValueError("slack_webhook is required when alert_routing_level includes slack")
+            raise ValueError("Slack webhook is required when alert routing includes Slack")
 
         return values
 
@@ -468,7 +498,8 @@ class AlertConfigInput(BaseModel):
     def validate_global_min_risk_level(cls, value: str) -> str:
         if value not in RISK_LEVELS_ORDERED:
             raise ValueError(
-                f"global_min_risk_level must be one of {list(RISK_LEVELS_ORDERED)}"
+                "Global minimum risk level must be one of "
+                f"{_option_labels(RISK_LEVELS_ORDERED, RISK_LEVEL_LABELS)}"
             )
         return value
 
