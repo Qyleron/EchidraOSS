@@ -931,7 +931,7 @@ def create_app() -> FastAPI:
         if config is None or not config.enabled:
             raise HTTPException(status_code=400, detail="alerts not enabled")
         if not config.smtp_host or not config.smtp_from_email:
-            raise HTTPException(status_code=400, detail="smtp_host and smtp_from_email are required")
+            raise HTTPException(status_code=400, detail="SMTP Host and From Email are required")
 
         err = _dispatch_test_email(config)
         if err:
