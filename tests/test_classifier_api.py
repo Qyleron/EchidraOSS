@@ -162,7 +162,7 @@ def test_dashboard_route_reports_missing_asset(monkeypatch, tmp_path):
         route.endpoint(dashboard_request())
 
     assert exc_info.value.status_code == 404
-    assert exc_info.value.detail == "dashboard not found"
+    assert exc_info.value.detail == "Dashboard not found"
 
 
 def test_dashboard_route_redirects_to_auth_without_session_cookie():
@@ -333,7 +333,7 @@ def test_signup_dashboard_user_rejects_duplicate_email(monkeypatch):
         route.endpoint(payload, Response())
 
     assert exc_info.value.status_code == 409
-    assert exc_info.value.detail == "email already registered"
+    assert exc_info.value.detail == "Email already registered"
 
 
 def test_signup_dashboard_user_blocked_once_an_account_exists(monkeypatch):
@@ -354,7 +354,7 @@ def test_signup_dashboard_user_blocked_once_an_account_exists(monkeypatch):
         route.endpoint(payload, Response())
 
     assert exc_info.value.status_code == 403
-    assert exc_info.value.detail == "signup is currently unavailable."
+    assert exc_info.value.detail == "Signups are currently unavailable."
 
 
 def test_signup_dashboard_user_allowed_when_env_override_set(monkeypatch):
@@ -438,7 +438,7 @@ def test_login_dashboard_user_rejects_invalid_credentials(monkeypatch):
         route.endpoint(payload, FakeRequest(), Response())
 
     assert exc_info.value.status_code == 401
-    assert exc_info.value.detail == "invalid email or password"
+    assert exc_info.value.detail == "Invalid email or password"
 
 
 def test_login_dashboard_user_locks_out_after_repeated_failures(monkeypatch):
@@ -519,7 +519,7 @@ def test_dashboard_email_validation_rejects_invalid_format():
     ]
 
     for email in invalid_emails:
-        with pytest.raises(ValidationError, match="valid email"):
+        with pytest.raises(ValidationError, match="Valid email address required"):
             app_module.DashboardSignupInput(email=email, password="password1")
 
 
@@ -758,7 +758,7 @@ def test_classify_session_endpoint_maps_classify_session_value_error_to_http_exc
         route.endpoint(session)
 
     assert exc_info.value.status_code == 400
-    assert exc_info.value.detail == "unsupported feature evaluation"
+    assert exc_info.value.detail == "Unsupported feature evaluation"
 
 
 def test_classify_session_endpoint_hides_unhandled_exception_details(monkeypatch):
@@ -774,7 +774,7 @@ def test_classify_session_endpoint_hides_unhandled_exception_details(monkeypatch
         route.endpoint(session)
 
     assert exc_info.value.status_code == 500
-    assert exc_info.value.detail == "internal server error"
+    assert exc_info.value.detail == "Internal server error"
 
 
 def test_classify_and_store_endpoint_returns_run_id(monkeypatch):
@@ -823,7 +823,7 @@ def test_classify_and_store_endpoint_reports_missing_database(monkeypatch):
         route.endpoint(session, ingest_request("test-ingest-key"))
 
     assert exc_info.value.status_code == 503
-    assert exc_info.value.detail == "ECHIDRA_DATABASE_URL must be set"
+    assert exc_info.value.detail == "PostgreSQL storage is not configured"
 
 
 def test_classify_and_store_endpoint_hides_persistence_failures(monkeypatch):
@@ -847,7 +847,7 @@ def test_classify_and_store_endpoint_hides_persistence_failures(monkeypatch):
         route.endpoint(session, ingest_request("test-ingest-key"))
 
     assert exc_info.value.status_code == 500
-    assert exc_info.value.detail == "internal server error"
+    assert exc_info.value.detail == "Internal server error"
 
 
 def test_classify_and_store_endpoint_fails_closed_without_configured_key():
@@ -859,7 +859,7 @@ def test_classify_and_store_endpoint_fails_closed_without_configured_key():
         route.endpoint(session, ingest_request("anything"))
 
     assert exc_info.value.status_code == 503
-    assert app_module.INGEST_API_KEY_ENV in exc_info.value.detail
+    assert exc_info.value.detail == "Ingest API key is not configured on this server"
 
 
 def test_classify_and_store_endpoint_rejects_missing_or_wrong_key(monkeypatch):
@@ -927,7 +927,7 @@ def test_get_classifier_run_endpoint_reports_missing_run(monkeypatch):
         route.endpoint(run_id, dashboard_request())
 
     assert exc_info.value.status_code == 404
-    assert exc_info.value.detail == "classifier run not found"
+    assert exc_info.value.detail == "Classifier run not found"
 
 
 def test_get_classifier_run_endpoint_fails_auth_when_database_missing(monkeypatch):
@@ -951,7 +951,7 @@ def test_get_classifier_run_endpoint_fails_auth_when_database_missing(monkeypatc
         route.endpoint(run_id, dashboard_request())
 
     assert exc_info.value.status_code == 401
-    assert exc_info.value.detail == "dashboard auth required"
+    assert exc_info.value.detail == "Dashboard authentication required"
 
 
 def test_list_session_events_endpoint_returns_ordered_timeline(monkeypatch):
@@ -997,7 +997,7 @@ def test_list_session_events_endpoint_fails_auth_when_database_missing(monkeypat
         route.endpoint(session_id, dashboard_request())
 
     assert exc_info.value.status_code == 401
-    assert exc_info.value.detail == "dashboard auth required"
+    assert exc_info.value.detail == "Dashboard authentication required"
 
 
 def test_list_session_events_endpoint_requires_dashboard_auth():
@@ -1107,7 +1107,7 @@ def test_list_classifier_runs_endpoint_fails_auth_when_database_missing(monkeypa
         route.endpoint(dashboard_request(), limit=100)
 
     assert exc_info.value.status_code == 401
-    assert exc_info.value.detail == "dashboard auth required"
+    assert exc_info.value.detail == "Dashboard authentication required"
 
 
 def test_list_classifier_runs_endpoint_requires_dashboard_session():
@@ -1117,7 +1117,7 @@ def test_list_classifier_runs_endpoint_requires_dashboard_session():
         route.endpoint(dashboard_request(authenticated=False), limit=100)
 
     assert exc_info.value.status_code == 401
-    assert exc_info.value.detail == "dashboard auth required"
+    assert exc_info.value.detail == "Dashboard authentication required"
 
 
 def test_dashboard_report_summary_endpoint_returns_aggregates(monkeypatch):
@@ -1150,7 +1150,7 @@ def test_dashboard_report_summary_endpoint_requires_dashboard_session():
         route.endpoint(dashboard_request(authenticated=False))
 
     assert exc_info.value.status_code == 401
-    assert exc_info.value.detail == "dashboard auth required"
+    assert exc_info.value.detail == "Dashboard authentication required"
 
 
 def test_analytics_summary_endpoint_returns_aggregates(monkeypatch):
@@ -1205,7 +1205,7 @@ def test_analytics_summary_endpoint_fails_auth_when_database_missing(monkeypatch
         route.endpoint(dashboard_request(), from_ts=1000.0, to_ts=2000.0)
 
     assert exc_info.value.status_code == 401
-    assert exc_info.value.detail == "dashboard auth required"
+    assert exc_info.value.detail == "Dashboard authentication required"
 
 
 def test_get_manual_label_endpoint_returns_stored_label(monkeypatch):
@@ -1245,7 +1245,7 @@ def test_get_manual_label_endpoint_reports_missing_label(monkeypatch):
         route.endpoint(label_id, dashboard_request())
 
     assert exc_info.value.status_code == 404
-    assert exc_info.value.detail == "manual label not found"
+    assert exc_info.value.detail == "Manual label not found"
 
 
 def test_list_manual_labels_endpoint_passes_filters(monkeypatch):
@@ -1299,7 +1299,7 @@ def test_list_manual_labels_endpoint_fails_auth_when_database_missing(monkeypatc
         route.endpoint(dashboard_request(), limit=100)
 
     assert exc_info.value.status_code == 401
-    assert exc_info.value.detail == "dashboard auth required"
+    assert exc_info.value.detail == "Dashboard authentication required"
 
 
 def test_classify_session_route_accepts_session_record_body_model():
@@ -1348,7 +1348,7 @@ def test_list_issues_endpoint_requires_dashboard_session():
         route.endpoint(dashboard_request(authenticated=False), status=None, limit=100)
 
     assert exc_info.value.status_code == 401
-    assert exc_info.value.detail == "dashboard auth required"
+    assert exc_info.value.detail == "Dashboard authentication required"
 
 
 def test_list_issues_endpoint_fails_auth_when_database_missing(monkeypatch):
@@ -1367,7 +1367,7 @@ def test_list_issues_endpoint_fails_auth_when_database_missing(monkeypatch):
         route.endpoint(dashboard_request(), status=None, limit=100)
 
     assert exc_info.value.status_code == 401
-    assert exc_info.value.detail == "dashboard auth required"
+    assert exc_info.value.detail == "Dashboard authentication required"
 
 
 def test_update_issue_status_endpoint_returns_updated_issue(monkeypatch):
@@ -1402,7 +1402,7 @@ def test_update_issue_status_endpoint_reports_missing_issue(monkeypatch):
         route.endpoint(issue_id, IssueStatusUpdate(status="closed"), dashboard_request())
 
     assert exc_info.value.status_code == 404
-    assert exc_info.value.detail == "issue not found"
+    assert exc_info.value.detail == "Issue not found"
 
 
 def test_update_issue_status_endpoint_requires_dashboard_session():
@@ -1417,11 +1417,11 @@ def test_update_issue_status_endpoint_requires_dashboard_session():
         )
 
     assert exc_info.value.status_code == 401
-    assert exc_info.value.detail == "dashboard auth required"
+    assert exc_info.value.detail == "Dashboard authentication required"
 
 
 def test_issue_status_update_rejects_unsupported_status_value():
-    with pytest.raises(ValidationError, match="status must be one of"):
+    with pytest.raises(ValidationError, match="Status must be one of"):
         IssueStatusUpdate(status="archived")
 
 
@@ -1466,7 +1466,7 @@ def test_create_persona_config_endpoint_reports_conflict_on_duplicate_id(monkeyp
         route.endpoint(dashboard_request(), payload, persona_id="custom_demo_box")
 
     assert exc_info.value.status_code == 409
-    assert exc_info.value.detail == "persona config already exists"
+    assert exc_info.value.detail == "Persona config already exists"
 
 
 def test_persona_id_path_param_is_constrained_to_a_slug_on_every_route():
