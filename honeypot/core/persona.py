@@ -8,9 +8,10 @@ from pathlib import PurePosixPath
 Persona configuration for the fake machine shown to visitors.
 
 A persona groups the details that make the honeypot feel specific:
-hostname, OS banner, fake files, visible services, users, ports, and decoy
-credentials. These presets are hardcoded today, but the same Persona shape can
-later be filled from the HTML/UI for customer-specific deployments.
+hostname, OS banner, fake files, running processes, users, ports, and decoy
+credentials. These presets are hardcoded, but the same Persona shape can also
+be built from a dashboard-saved persona_configs row (see
+honeypot/network/config.py's get_active_persona()).
 """
 
 
@@ -66,8 +67,8 @@ def _credential(username: str, password: str) -> FakeCredential:
     return FakeCredential(username=username, password=password)
 
 
-# The five preset personas available in the OSS backend.
-# Later, paid/custom deployments can build the same Persona object from UI data.
+# The five preset personas shipped with Echidra. Custom personas saved via the
+# dashboard build the same Persona object from a persona_configs row instead.
 PRESET_PERSONAS: dict[str, Persona] = {
     "generic_linux": Persona(
         persona_id="generic_linux",
@@ -248,8 +249,8 @@ def validate_persona(persona: Persona) -> None:
     """
     Validate config before the honeypot uses it.
 
-    This is intentionally small for now. It protects the backend from broken
-    hardcoded configs today and will protect future UI-submitted configs later.
+    This is intentionally small. It protects the backend from broken
+    hardcoded configs and from dashboard-submitted (persona_configs) configs.
     """
     required = (
         persona.persona_id,

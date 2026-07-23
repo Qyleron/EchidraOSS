@@ -239,8 +239,6 @@ curl -s -b cookies.txt -X POST "http://127.0.0.1:8000/persona-configs/custom_dem
     "name": "Custom demo",
     "hostname": "custom-demo-01",
     "os_banner": "Linux custom-demo-01 6.1.0-custom x86_64",
-    "ssh_enabled": true,
-    "ssh_port": 2222,
     "running_processes": ["nginx", "redis-server"],
     "http_server_type": "nginx",
     "fake_users": ["deploy"],
