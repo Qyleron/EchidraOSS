@@ -47,6 +47,9 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_status(args)
     if args.command == "stop":
         return _cmd_stop(args)
+    if args.command == "help":
+        parser.print_help()
+        return 0
 
     parser.print_help()
     return 1
@@ -104,6 +107,11 @@ def _build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser(
         "stop",
         help="stop a running 'echidra serve' from another terminal (reads PIDs from logs/echidra.pid)",
+    )
+
+    subparsers.add_parser(
+        "help",
+        help="show this help message (same as --help)",
     )
 
     return parser

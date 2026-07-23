@@ -66,12 +66,51 @@ dashboard.
 
 ---
 
+## Prerequisites (local machine)
+
+You need Python 3.11+ and, for the dashboard/API/alerts, a local PostgreSQL
+server. The honeypot itself runs and logs to `logs/sessions.jsonl` without a
+database — Postgres only unlocks the dashboard, live classification storage,
+and alerts. Skip straight to [Quick Start](#quick-start) if you already have
+Postgres running and a database created.
+
+**Install PostgreSQL:**
+```bash
+# Debian/Ubuntu
+sudo apt update && sudo apt install -y postgresql
+
+# macOS (Homebrew)
+brew install postgresql@16 && brew services start postgresql@16
+```
+
+**Create a database and user for Echidra** (any name/password works, you'll
+reference them in `.env` next):
+```bash
+sudo -u postgres createuser --superuser "$USER"   # Linux; skip on macOS, your OS user is already a superuser
+createdb echidra
+```
+
+**Set up `.env`:**
+```bash
+cp .env.example .env
+```
+Open `.env` and set `ECHIDRA_DATABASE_URL`, e.g.:
+```
+ECHIDRA_DATABASE_URL=postgresql://localhost:5432/echidra
+```
+(add `user:password@` before `localhost` if you created a dedicated role
+instead of using your OS user). Everything else in `.env.example` has a
+working default — leave it as-is for a first run.
+
+---
+
 ## Quick Start
 
 A handful of commands, no need to know the underlying modules:
 
 ```bash
 pip install -e .   # installs Echidra + puts the `echidra` command on your PATH
+echidra help         # lists every subcommand (init/serve/stop/classify/status) with its own --help
 echidra init        # creates .env, generates ECHIDRA_INGEST_API_KEY, initializes the schema (if ECHIDRA_DATABASE_URL is set)
 echidra serve        # runs the honeypot listeners and the API/dashboard together until Ctrl+C
 echidra status       # in a second shell: confirms listeners/API/database are actually up and reports session counts
@@ -85,6 +124,22 @@ No PostgreSQL yet? `echidra init` skips the database step and tells you so;
 the honeypot still runs and logs to `logs/sessions.jsonl`, you just won't get
 the dashboard/API or live alerting until `ECHIDRA_DATABASE_URL` is set in
 `.env` and you re-run `echidra init`.
+
+### Resetting your local database
+
+To wipe all captured data and rebuild the schema fresh from
+[`classifier/storage/schema.sql`](classifier/storage/schema.sql) (useful after
+pulling schema changes, or if your local data just needs a clean slate):
+```bash
+dropdb echidra
+createdb echidra
+echidra init --seed-demo-issues   # re-creates every table; --seed-demo-issues also
+                                  # seeds 4 demo issues for the Intelligence page
+```
+`echidra init`'s schema step (and every statement in `schema.sql`) is
+idempotent, so you can also re-run just `echidra init` at any time against an
+existing, populated database to pick up new columns/tables without losing
+data — only `dropdb`/`createdb` above actually discards anything.
 
 **JSONL-only mode (no Postgres)?** Classify captured sessions on demand:
 
