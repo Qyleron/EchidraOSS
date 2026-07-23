@@ -205,6 +205,22 @@ ALTER TABLE persona_configs ADD COLUMN IF NOT EXISTS
 ALTER TABLE persona_configs ADD COLUMN IF NOT EXISTS
     http_server_type TEXT NOT NULL DEFAULT 'nginx' CHECK (http_server_type IN ('nginx', 'apache', 'busybox', 'none'));
 
+-- The ADD COLUMN above defaults every pre-existing row to 'nginx', but
+-- _server_kind() used to infer the fake web server from running_processes
+-- text before http_server_type existed -- reconcile existing rows to what
+-- they used to render as, or an already-saved "apache" persona silently
+-- starts serving nginx pages on upgrade. Guarded to rows still at the
+-- just-applied default: init-db is safe to re-run against a live database,
+-- and running_processes is pure flavor text now, so this must not keep
+-- re-overwriting an operator's later, explicit http_server_type choice.
+UPDATE persona_configs
+SET http_server_type = CASE
+    WHEN EXISTS (SELECT 1 FROM unnest(running_processes) p WHERE p ILIKE '%apache%') THEN 'apache'
+    WHEN EXISTS (SELECT 1 FROM unnest(running_processes) p WHERE p ILIKE '%busybox%') THEN 'busybox'
+    ELSE http_server_type
+END
+WHERE http_server_type = 'nginx';
+
 -- timezone/interaction_depth were accepted and stored but never consumed
 -- anywhere (interaction_depth's "Deep" option implied engagement-depth
 -- control that was never implemented); the ssh/http/ftp/telnet *_enabled
