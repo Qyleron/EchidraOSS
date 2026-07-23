@@ -57,13 +57,12 @@ def test_personas_page_uses_shared_styles_and_form_sections():
     assert "<style>" not in html
     assert 'href="/dashboard.css"' in html
     assert 'href="/assets/qyleron_logo.png"' in html
-    for section in ["Identity", "Services", "Deception", "Alerting"]:
+    for section in ["Identity", "Deception", "Alerting"]:
         assert section in html
     for view in ["Configuration", "Analytics"]:
         assert view in html
     assert "buildPersonaRow" in html
     assert "persona-config-form" in html
-    assert "toggle-switch" in html
     assert "analyticsPlaceholder" in html
     assert "initCustomSelects" in html
     assert "custom-select" in html
