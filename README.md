@@ -134,8 +134,10 @@ endpoint) similarly refuses all requests until you set
 `ECHIDRA_INGEST_API_KEY` and send it back as the `X-Api-Key` header —
 `echidra init` generates this for you; see `.env.example` if you're setting
 it up manually. See [CONTEXT.md](CONTEXT.md) for current build status and
-architecture notes, and [docs/TESTING_GUIDE.md](docs/TESTING_GUIDE.md) for
-per-service and per-page manual test commands.
+architecture notes, [docs/CONCEPTS.md](docs/CONCEPTS.md) for the core domain
+model (persona, session, classification, issues, alerts), and
+[docs/TESTING_GUIDE.md](docs/TESTING_GUIDE.md) for per-service and per-page
+manual test commands.
 
 **Troubleshooting**
 - `echidra: command not found` — your PATH doesn't include the environment
