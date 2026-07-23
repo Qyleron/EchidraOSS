@@ -468,12 +468,12 @@ def test_classifier_run_record_rejects_invalid_classification_status():
     summary = classify_session_record(make_record())
     valid = ClassifierRunRecord.from_session_summary(session, summary)
 
-    with pytest.raises(ValidationError, match="classification_status must be one of"):
+    with pytest.raises(ValidationError, match="Classification status must be one of"):
         ClassifierRunRecord(**{**valid.dict(), "classification_status": "bogus_status"})
 
 
 def test_stored_classifier_run_rejects_invalid_classification_status():
-    with pytest.raises(ValidationError, match="classification_status must be one of"):
+    with pytest.raises(ValidationError, match="Classification status must be one of"):
         StoredClassifierRun(
             id=uuid4(),
             session_id=uuid4(),
