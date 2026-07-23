@@ -70,7 +70,7 @@ MAX_CONNECTIONS = _positive_int_from_env("ECHIDRA_MAX_CONNECTIONS", 100)
 # Seconds to wait for a client command before closing the session
 READ_TIMEOUT = _positive_int_from_env("ECHIDRA_READ_TIMEOUT", 60)
 
-# Append-only structured records consumed by the future classifier
+# Append-only structured records consumed by the classifier
 SESSION_LOG_PATH = os.getenv("ECHIDRA_SESSION_LOG", "logs/sessions.jsonl")
 
 DEFAULT_PERSONA_ID = "generic_linux"
