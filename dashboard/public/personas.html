@@ -684,13 +684,19 @@
         // element) to reflect the saved values -- restore the message into
         // the freshly-rendered element afterward, or it's visible for well
         // under 100ms and looks like saving silently failed.
+        var savedModalId = personaId;
         setTimeout(function() {
+          if (modalBackdrop.hidden || expandedPersonaId !== savedModalId) return;
           openModal(targetId);
           var freshStatusEl = document.getElementById("status_" + targetId);
           if (freshStatusEl) {
             freshStatusEl.textContent = "Saved.";
             freshStatusEl.style.color = "var(--low)";
-            setTimeout(function() { freshStatusEl.textContent = ""; }, 3000);
+            setTimeout(function() {
+              if (!modalBackdrop.hidden && expandedPersonaId === targetId) {
+                freshStatusEl.textContent = "";
+              }
+            }, 3000);
           }
         }, 80);
       } catch (err) {
