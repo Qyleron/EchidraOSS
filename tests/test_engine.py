@@ -46,13 +46,17 @@ def test_pwd():
 
 
 def test_cd_into_known_directory_updates_cwd_and_prints_nothing():
-    """A successful cd is silent, matching real bash, and moves session.cwd."""
+    """A successful cd is silent, matching real bash, and moves session.cwd.
+
+    Targets /home, not /home/admin -- session.cwd already starts at
+    /home/admin (the persona's home_dir), so cd'ing there wouldn't actually
+    exercise a move; the assertion would pass even if cd were a no-op."""
     engine = InteractionEngine()
     session = create_session()
 
-    response = engine.process("cd /home/admin", session)
+    response = engine.process("cd /home", session)
 
-    assert session.cwd == "/home/admin"
+    assert session.cwd == "/home"
     assert response == session.prompt()
 
 
