@@ -238,6 +238,16 @@
             item.setAttribute("role", "option");
             item.setAttribute("aria-selected", selected ? "true" : "false");
             item.textContent = opt.textContent;
+            // Options aren't focusable, so a plain click's mousedown would
+            // otherwise blur the trigger and fire the wrapper's focusout
+            // handler (below) synchronously -- closing/hiding the listbox
+            // before the click itself fires, which then gets silently
+            // suppressed by the browser since its target just went
+            // display:none mid-gesture. preventDefault() here keeps focus on
+            // the trigger throughout the click, so this never races.
+            item.addEventListener("mousedown", function(evt) {
+              evt.preventDefault();
+            });
             item.addEventListener("click", function() {
               if (select.value !== opt.value) {
                 select.value = opt.value;
