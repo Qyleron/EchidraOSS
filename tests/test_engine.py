@@ -103,6 +103,18 @@ def test_cd_into_a_file_reports_not_a_directory():
     assert session.cwd == session.persona.home_dir
 
 
+def test_cd_with_multiple_operands_is_rejected():
+    """Real bash refuses cd with more than one argument instead of silently
+    using the first and ignoring the rest."""
+    engine = InteractionEngine()
+    session = create_session()
+
+    response = engine.process("cd /home /etc", session)
+
+    assert "bash: cd: too many arguments" in response
+    assert session.cwd == session.persona.home_dir
+
+
 def test_unknown_command():
     """Unknown commands should look like normal bash command-not-found errors."""
     engine = InteractionEngine()

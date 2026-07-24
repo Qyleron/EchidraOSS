@@ -84,6 +84,8 @@ class InteractionEngine:
         # honeypot tell: real bash never says "command not found" for its
         # own builtin, even on a bad path).
         if cmd == "cd":
+            if len(args) > 1:
+                return f"bash: cd: too many arguments\n{session.prompt()}"
             target = self._resolve_path(session, args[0] if args else "~")
             if target in self._build_listings(session):
                 session.cwd = target
