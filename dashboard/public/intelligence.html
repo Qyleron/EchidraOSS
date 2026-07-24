@@ -245,6 +245,12 @@
     });
 
     loadIssues();
+    // Skip a tick while an issue's detail row is expanded -- the table body
+    // gets rebuilt from scratch, which would otherwise collapse it out from
+    // under someone mid-read.
+    setInterval(() => {
+      if (!document.querySelector(".issue-detail-row")) loadIssues();
+    }, 30000);
 
     const logoutButton = document.getElementById("logoutButton");
     const logoutConfirmModal = document.getElementById("logoutConfirmModal");

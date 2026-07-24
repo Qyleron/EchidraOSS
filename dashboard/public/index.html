@@ -330,6 +330,10 @@
     });
     loadOverviewMetrics();
     loadRecentActivity();
+    setInterval(() => {
+      loadOverviewMetrics();
+      loadRecentActivity();
+    }, 30000);
   </script>
 </body>
 </html>

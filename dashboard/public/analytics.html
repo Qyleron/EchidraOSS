@@ -546,6 +546,7 @@
     });
 
     initTimeRangeControl();
+    setInterval(applyRange, 30000);
     logoutButton.addEventListener("click", openLogoutConfirm);
     document.getElementById("logoutConfirmCloseBtn").addEventListener("click", closeLogoutConfirm);
     document.getElementById("logoutCancelBtn").addEventListener("click", closeLogoutConfirm);

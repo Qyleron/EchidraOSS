@@ -943,6 +943,12 @@
     // options are populated, or newly-added personas would never appear in
     // the custom dropdown despite being real <option>s on the native select.
     initPersonaFilterOptions().then(() => initCustomSelects(document));
+    // Skip a tick while a session's detail row is expanded -- renderSessions()
+    // rebuilds the whole table body from scratch, which would otherwise
+    // collapse it out from under someone mid-read of its command timeline.
+    setInterval(() => {
+      if (!document.querySelector(".session-detail-row")) applyRange();
+    }, 30000);
   </script>
 </body>
 </html>
