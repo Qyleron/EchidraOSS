@@ -125,6 +125,12 @@ echidra stop         # in a second shell: stops a `serve`
 Then open **http://localhost:8000** in your browser — it takes you straight
 to the dashboard (sign up on first visit).
 
+**Only the first signup succeeds.** Echidra is single-operator by default —
+once one dashboard account exists, signup closes (403 for anyone else) so an
+internet-reachable instance doesn't stay open to public registration. Use
+Login for that account from then on; see `ECHIDRA_ALLOW_SIGNUPS` in
+`.env.example` if you deliberately want more than one dashboard user.
+
 No PostgreSQL yet? `echidra init` skips the database step and tells you so;
 the honeypot still runs and logs to `logs/sessions.jsonl`, you just won't get
 the dashboard/API or live alerting until `ECHIDRA_DATABASE_URL` is set in
