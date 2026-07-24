@@ -423,11 +423,20 @@
     // still open and start there instead so a first-time visitor isn't stuck
     // guessing why "Invalid email or password" keeps showing up.
     fetch("/auth/signup-allowed")
-      .then((r) => (r.ok ? r.json() : null))
+      .then((r) => {
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        return r.json();
+      })
       .then((data) => {
         if (data && data.signup_allowed) setMode("signup");
       })
-      .catch(() => {});
+      .catch((err) => {
+        // Falling back to the markup's default (Login) tab is fine -- Signup
+        // is still one manual click away -- but a silent failure here would
+        // otherwise hide a real problem (eg. the database being down) from
+        // anyone who happens to check the console.
+        console.error("Could not check signup availability:", err);
+      });
 
     loginForm.addEventListener("submit", async (event) => {
       event.preventDefault();
