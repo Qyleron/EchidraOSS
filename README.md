@@ -74,38 +74,46 @@ database — Postgres only unlocks the dashboard, live classification storage,
 and alerts. Skip straight to [Quick Start](#quick-start) if you already have
 Postgres running and a database created.
 
-**Install PostgreSQL:**
+Both platforms below create a dedicated `echidra` Postgres role, scoped to
+just owning its own `echidra` database — not a superuser, since the
+application only ever needs to create/alter its own tables, never
+cluster-wide admin rights.
+
+**Debian/Ubuntu:**
 ```bash
-# Debian/Ubuntu
 sudo apt update && sudo apt install -y postgresql
-
-# macOS (Homebrew)
-brew install postgresql@16 && brew services start postgresql@16
+sudo -u postgres createuser echidra
+sudo -u postgres psql -c "ALTER ROLE echidra WITH PASSWORD 'echidra';"
+sudo -u postgres createdb -O echidra echidra
 ```
 
-**Create a database and user for Echidra** (any password works, you'll
-reference it in `.env` next; setting a password explicitly, rather than
-relying on peer/trust auth, avoids connection failures that vary by how your
-local `pg_hba.conf` is configured):
+**macOS (Homebrew):**
 ```bash
-sudo -u postgres createuser --superuser "$USER"           # Linux; skip on macOS, your OS user is already a superuser
-sudo -u postgres psql -c "ALTER ROLE \"$USER\" WITH PASSWORD 'echidra';"
-createdb echidra
+brew install postgresql@16 && brew services start postgresql@16
+createuser echidra
+psql postgres -c "ALTER ROLE echidra WITH PASSWORD 'echidra';"
+createdb -O echidra echidra
 ```
+
+(Any password works — `echidra` above is just a placeholder; set your own and
+use it in `.env` next. An explicit password, rather than relying on
+peer/trust auth, avoids connection failures that vary by how your local
+`pg_hba.conf` is configured.)
 
 **Set up `.env`:**
 ```bash
 cp .env.example .env
 ```
-Open `.env` and set `ECHIDRA_DATABASE_URL` to that exact user/password (check
-only the *uncommented* line if `.env.example` also left a commented-out
-example above it — `dotenv` ignores commented lines, so a stray uncommented
-placeholder is easy to miss and silently wrong):
+Open `.env` and check only the *uncommented* `ECHIDRA_DATABASE_URL` line if
+`.env.example` also left a commented-out example above it — `dotenv` ignores
+commented lines, so a stray uncommented placeholder is easy to miss and
+silently wrong. With the role/database above, it should read:
 ```
-ECHIDRA_DATABASE_URL=postgresql://YOUR_USERNAME:echidra@localhost:5432/echidra
+ECHIDRA_DATABASE_URL=postgresql://echidra:echidra@localhost:5432/echidra
 ```
-Everything else in `.env.example` has a working default — leave it as-is for
-a first run.
+(matching `.env.example`'s own commented default exactly, if you used the same
+password). Everything else in `.env.example` has a working default — leave it
+as-is for a first run.
 
 ---
 
