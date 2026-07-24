@@ -415,8 +415,18 @@
     const formSubtitle = document.getElementById("formSubtitle");
     const authMessage = document.getElementById("authMessage");
 
-    loginTab.addEventListener("click", () => setMode("login"));
-    signupTab.addEventListener("click", () => setMode("signup"));
+    // Set only by an actual click, not by the signup-availability probe below
+    // -- guards against the probe's async response landing after the visitor
+    // already picked a tab themselves and silently overriding that choice.
+    let userSelectedTab = false;
+    loginTab.addEventListener("click", () => {
+      userSelectedTab = true;
+      setMode("login");
+    });
+    signupTab.addEventListener("click", () => {
+      userSelectedTab = true;
+      setMode("signup");
+    });
 
     // A fresh install has no dashboard account yet, so Login (the default
     // tab in the markup) can't succeed for anyone -- check whether signup is
@@ -428,7 +438,7 @@
         return r.json();
       })
       .then((data) => {
-        if (data && data.signup_allowed) setMode("signup");
+        if (data && data.signup_allowed && !userSelectedTab) setMode("signup");
       })
       .catch((err) => {
         // Falling back to the markup's default (Login) tab is fine -- Signup
