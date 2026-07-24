@@ -418,6 +418,17 @@
     loginTab.addEventListener("click", () => setMode("login"));
     signupTab.addEventListener("click", () => setMode("signup"));
 
+    // A fresh install has no dashboard account yet, so Login (the default
+    // tab in the markup) can't succeed for anyone -- check whether signup is
+    // still open and start there instead so a first-time visitor isn't stuck
+    // guessing why "Invalid email or password" keeps showing up.
+    fetch("/auth/signup-allowed")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (data && data.signup_allowed) setMode("signup");
+      })
+      .catch(() => {});
+
     loginForm.addEventListener("submit", async (event) => {
       event.preventDefault();
       const email = document.getElementById("loginEmail").value.trim();

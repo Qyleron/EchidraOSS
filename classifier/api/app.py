@@ -274,6 +274,24 @@ def create_app() -> FastAPI:
             headers=_DASHBOARD_NO_STORE_HEADERS,
         )
 
+    @api.get("/auth/signup-allowed", tags=["dashboard"])
+    def signup_allowed_status() -> dict[str, bool]:
+        """Whether any dashboard account exists yet -- lets the auth page
+        default to the Signup tab on a fresh install instead of Login, which
+        no account can pass yet. Deliberately ignores ECHIDRA_ALLOW_SIGNUPS:
+        a multi-user deployment that already has accounts should still land
+        on Login by default for a returning user, even though signup stays
+        open for them too. Not new exposure: POST /auth/signup's 403 already
+        reveals whether an account exists once signup is closed."""
+        try:
+            repository = PostgresClassifierRepository()
+            no_accounts_yet = repository.count_dashboard_users() == 0
+        except (DatabaseDriverMissingError, DatabaseNotConfiguredError):
+            no_accounts_yet = False
+        except Exception:
+            no_accounts_yet = False
+        return {"signup_allowed": no_accounts_yet}
+
     @api.post("/auth/signup", tags=["dashboard"])
     def signup_dashboard_user(
         payload: DashboardSignupInput,
