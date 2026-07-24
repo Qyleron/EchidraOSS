@@ -63,7 +63,7 @@ class InteractionEngine:
         # Help system
         if cmd in ("help", "?"):
             return (
-                "Available commands: ls, cat, pwd, whoami, id, uname -a, "
+                "Available commands: ls, cd, cat, pwd, whoami, id, uname -a, "
                 "hostname, ps, netstat, help, exit\n"
                 f"{session.prompt()}"
             )
@@ -76,6 +76,21 @@ class InteractionEngine:
         # Directory simulation using the session's current fake directory
         if cmd == "pwd":
             return f"{session.cwd}\n{session.prompt()}"
+
+        # Change the session's fake working directory -- resolved and
+        # validated against the same virtual filesystem `ls` already uses,
+        # so `cd` only succeeds into a directory that actually shows up in a
+        # listing (a bare unimplemented `cd` would otherwise be an easy
+        # honeypot tell: real bash never says "command not found" for its
+        # own builtin, even on a bad path).
+        if cmd == "cd":
+            target = self._resolve_path(session, args[0] if args else "~")
+            if target in self._build_listings(session):
+                session.cwd = target
+                return session.prompt()
+            if target in session.files:
+                return f"bash: cd: {target}: Not a directory\n{session.prompt()}"
+            return f"bash: cd: {target}: No such file or directory\n{session.prompt()}"
 
         # Permission simulation
         if cmd == "id":

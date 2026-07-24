@@ -45,6 +45,60 @@ def test_pwd():
     assert "/home/admin" in response
 
 
+def test_cd_into_known_directory_updates_cwd_and_prints_nothing():
+    """A successful cd is silent, matching real bash, and moves session.cwd."""
+    engine = InteractionEngine()
+    session = create_session()
+
+    response = engine.process("cd /home/admin", session)
+
+    assert session.cwd == "/home/admin"
+    assert response == session.prompt()
+
+
+def test_cd_dotdot_moves_up_one_directory():
+    engine = InteractionEngine()
+    session = create_session()
+
+    engine.process("cd /home/admin", session)
+    engine.process("cd ..", session)
+
+    assert session.cwd == "/home"
+
+
+def test_cd_with_no_args_goes_home():
+    engine = InteractionEngine()
+    session = create_session()
+
+    engine.process("cd /home", session)
+    response = engine.process("cd", session)
+
+    assert session.cwd == session.persona.home_dir
+    assert response == session.prompt()
+
+
+def test_cd_into_unknown_path_reports_bash_style_error():
+    engine = InteractionEngine()
+    session = create_session()
+
+    response = engine.process("cd /nope", session)
+
+    assert "bash: cd: /nope: No such file or directory" in response
+    assert session.cwd == session.persona.home_dir
+
+
+def test_cd_into_a_file_reports_not_a_directory():
+    """cd on a path that resolves to a known file (not a directory) should
+    say "Not a directory", matching real bash's distinct error for that case."""
+    engine = InteractionEngine()
+    session = create_session()
+
+    response = engine.process("cd /etc/passwd", session)
+
+    assert "bash: cd: /etc/passwd: Not a directory" in response
+    assert session.cwd == session.persona.home_dir
+
+
 def test_unknown_command():
     """Unknown commands should look like normal bash command-not-found errors."""
     engine = InteractionEngine()
