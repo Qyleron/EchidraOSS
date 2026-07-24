@@ -314,7 +314,13 @@
     }
 
     function renderAnalytics(summary) {
-      const attacksByHour = Object.entries(summary.attacks_by_hour).map(([hour, count]) => [hour, count]);
+      // Object.entries() reorders integer-like string keys ("10".."23") to the
+      // front in ascending order before non-canonical ones ("00".."09", which
+      // have a leading zero) -- sort explicitly by hour or the chart renders
+      // 10,11,...,23,00,01,...,09 instead of 00..23.
+      const attacksByHour = Object.entries(summary.attacks_by_hour)
+        .map(([hour, count]) => [hour, count])
+        .sort((a, b) => Number(a[0]) - Number(b[0]));
       const riskTrend = summary.risk_trend.map((point) => ({ ...point, label: formatTrendLabel(point.date) }));
 
       renderBars("attacksByHourChart", attacksByHour);
@@ -522,7 +528,7 @@
         ["Interactive Operation", currentSummary.intent_counts.interactive_operation || 0],
         [],
         ["Hour", "Attacks"],
-        ...Object.entries(currentSummary.attacks_by_hour),
+        ...Object.entries(currentSummary.attacks_by_hour).sort((a, b) => Number(a[0]) - Number(b[0])),
         [],
         ["Date", "High", "Medium", "Low"],
         ...currentSummary.risk_trend.map((point) => [point.date, point.high, point.medium, point.low]),
