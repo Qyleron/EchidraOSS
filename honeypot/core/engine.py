@@ -64,7 +64,7 @@ class InteractionEngine:
         if cmd in ("help", "?"):
             return (
                 "Available commands: ls, cd, cat, pwd, whoami, id, uname -a, "
-                "hostname, ps, netstat, help, exit\n"
+                "hostname, ps, netstat, clear, help, exit\n"
                 f"{session.prompt()}"
             )
         
