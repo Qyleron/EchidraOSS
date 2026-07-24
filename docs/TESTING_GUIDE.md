@@ -73,6 +73,10 @@ Type these one at a time:
 | `cat /home/admin/readme.txt` | `Welcome to the system.` |
 | `cat /etc/passwd` | `root:x:0:0:root:/root:/bin/bash` / `admin:x:1000:1000:admin:/home/admin:/bin/bash` |
 | `cat /nope` | `cat: /nope: No such file or directory` |
+| `cd /etc` | (nothing printed, matching real bash) then the prompt shows `.../etc#` |
+| `pwd` (right after) | `/etc` |
+| `cd /nope` | `bash: cd: /nope: No such file or directory` |
+| `cd /etc/passwd` | `bash: cd: /etc/passwd: Not a directory` |
 | `ps` | header row + `sshd`, `cron`, `rsyslogd` as fake PIDs |
 | `whatever123` | `bash: whatever123: command not found` |
 | `exit` | connection closes |
