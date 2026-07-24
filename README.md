@@ -133,9 +133,13 @@ pulling schema changes, or if your local data just needs a clean slate):
 ```bash
 dropdb echidra
 createdb echidra
-echidra init --seed-demo-issues   # re-creates every table; --seed-demo-issues also
-                                  # seeds 4 demo issues for the Intelligence page
+echidra init   # re-creates every table
 ```
+Add `--seed-demo-issues` only if you're manually testing the Intelligence
+page and want its 4 synthetic issues to check against (see
+[docs/TESTING_GUIDE.md](docs/TESTING_GUIDE.md)) — skip it for normal use, or
+those fabricated issues will sit in your dashboard next to real captured
+data with nothing distinguishing them as fake.
 `echidra init`'s schema step (and every statement in `schema.sql`) is
 idempotent, so you can also re-run just `echidra init` at any time against an
 existing, populated database to pick up new columns/tables without losing
