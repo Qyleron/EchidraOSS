@@ -448,6 +448,10 @@
     // ── Boot ───────────────────────────────────────────────────────────────────
     loadAlertConfig();
     loadAlertEvents();
+    // Only the read-only event history auto-refreshes -- re-fetching
+    // loadAlertConfig() on a timer would silently overwrite an in-progress,
+    // unsaved edit to the SMTP form underneath the person editing it.
+    setInterval(loadAlertEvents, 30000);
   </script>
 </body>
 </html>
