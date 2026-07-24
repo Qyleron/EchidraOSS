@@ -338,9 +338,15 @@ _EMAIL_RE = re.compile(
 
 
 def _option_labels(values: set[str] | tuple[str, ...], labels: dict[str, str]) -> str:
-    return ", ".join(
-        labels[value] for value in sorted(values, key=lambda value: labels[value])
-    )
+    """Render values as a comma-separated label list for a validation message.
+
+    A set has no meaningful order, so those are alphabetized by label for a
+    deterministic, readable message. A tuple/list (eg. RISK_LEVELS_ORDERED)
+    is deliberately pre-ordered by the caller (severity rank, not alphabetical)
+    -- alphabetizing it too would silently scramble that order.
+    """
+    ordered = sorted(values, key=lambda value: labels[value]) if isinstance(values, set) else values
+    return ", ".join(labels[value] for value in ordered)
 
 
 class DecoyFile(BaseModel):
