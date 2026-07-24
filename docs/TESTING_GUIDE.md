@@ -449,7 +449,7 @@ the cookie, and reuse it:
 ```bash
 curl -s -c cookies.txt -X POST http://127.0.0.1:8000/auth/signup \
   -H "Content-Type: application/json" \
-  -d '{"email": "test@example.com", "password": "correct horse battery staple"}'
+  -d '{"email": "test@example.com", "password": "CorrectHorse1"}'
 ```
 Expect `{"authenticated": true, "email": "test@example.com"}`. A second signup
 with the same email should 409 (`"Email already registered"`). Signup is also
