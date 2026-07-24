@@ -105,6 +105,11 @@ def _init_db_command(schema_path: Path, seed_demo_issues_flag: bool) -> int:
         )
         return 2
 
+    # Printed before connecting so a wrong host/user/dbname in .env is visible
+    # immediately -- eg. if you reset a database with `dropdb`/`createdb` using
+    # different default connection args than this URL uses.
+    print(f"Connecting to {redact_database_url(database_url)} ...")
+
     try:
         apply_schema(database_url, schema_path)
         if seed_demo_issues_flag:
