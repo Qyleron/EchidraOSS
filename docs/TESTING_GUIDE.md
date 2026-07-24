@@ -448,11 +448,14 @@ curl -s -c cookies.txt -X POST http://127.0.0.1:8000/auth/signup \
   -d '{"email": "test@example.com", "password": "correct horse battery staple"}'
 ```
 Expect `{"authenticated": true, "email": "test@example.com"}`. A second signup
-with the same email should 409 (`"email already registered"`). Signup is also
-now first-account-only: once any dashboard user exists, a signup attempt with
-a *different* email 403s (`"signup is disabled ..."`) unless
-`ECHIDRA_ALLOW_SIGNUPS=true` is set. On a fresh database, run this section's
-signup before any other, since it's the one that gets to succeed.
+with the same email should 409 (`"Email already registered"`). Signup is also
+first-account-only: once any dashboard user exists, a signup attempt with a
+*different* email 403s (`"Signups are currently unavailable."`) unless
+`ECHIDRA_ALLOW_SIGNUPS=true` is set. `GET /auth/signup-allowed` reports
+whether any account exists yet, without requiring auth — it's what
+`auth.html` uses to default the page to the Signup tab on a fresh install.
+On a fresh database, run this section's signup before any other, since it's
+the one that gets to succeed.
 
 Then in a browser: visit `http://localhost:8000/auth`, log in with the same
 credentials, and walk each page:
