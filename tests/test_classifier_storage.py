@@ -1176,7 +1176,10 @@ def test_storage_cli_init_db_applies_schema_without_printing_url(
     captured = capsys.readouterr()
     assert exit_code == 0
     assert calls == [(database_url, schema_path)]
-    assert captured.out == "database initialized\n"
+    assert captured.out == (
+        "Connecting to postgresql://user:***@example.local:5432/echidra ...\n"
+        "database initialized\n"
+    )
     assert "secret" not in captured.out
     assert "secret" not in captured.err
 
@@ -1236,7 +1239,10 @@ def test_storage_cli_init_db_can_seed_demo_issues_when_requested(
     assert calls[0] == ("schema", database_url, schema_path)
     assert calls[1][0] == "seed"
     assert calls[1][1] == database_url
-    assert captured.out == "database initialized\n"
+    assert captured.out == (
+        "Connecting to postgresql://user:***@example.local:5432/echidra ...\n"
+        "database initialized\n"
+    )
     assert "secret" not in captured.out
 
 
