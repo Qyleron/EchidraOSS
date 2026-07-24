@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import threading
+import time
 from pathlib import Path
 from typing import Any
 from uuid import UUID, NAMESPACE_URL, uuid5
@@ -77,6 +79,57 @@ def sync_issues_from_classifier_runs(
         synced.append(repository.upsert_issue(issue))
 
     return synced
+
+
+# Debounce state for maybe_sync_issues_from_classifier_runs() -- process-local
+# only, like the login rate limiter's in-memory fallback path: fine for the
+# single honeypot process and the single API process this runs in today (no
+# `--workers` flag documented anywhere for uvicorn), but a multi-worker/
+# multi-replica deployment would need this
+# moved to something shared (eg. a DB timestamp) to actually debounce across
+# processes instead of once per process.
+_ISSUE_SYNC_MIN_INTERVAL_SECONDS = 30.0
+_issue_sync_lock = threading.Lock()
+_last_issue_sync_monotonic: float | None = None
+
+
+def maybe_sync_issues_from_classifier_runs(
+    *,
+    database_url: str | None = None,
+    playbook_path: str | Path = DEFAULT_ISSUE_PLAYBOOK_PATH,
+    mitre_catalog_path: str | Path = DEFAULT_MITRE_CATALOG_PATH,
+    min_interval_seconds: float = _ISSUE_SYNC_MIN_INTERVAL_SECONDS,
+) -> list[IssueRecord] | None:
+    """Debounced entry point for calling sync_issues_from_classifier_runs()
+    straight from the live per-session pipeline (auto_classify_and_store /
+    classify_and_store_session_endpoint), so Intelligence issues roll up
+    automatically instead of requiring someone to run the `sync-issues` CLI
+    command by hand.
+
+    sync_issues_from_classifier_runs() re-aggregates *all* stored classifier
+    runs every call -- cheap at low session volume, but its cost grows with
+    total session count over time. Debouncing here means a burst of sessions
+    (eg. a scanner hitting the honeypot repeatedly) triggers at most one
+    resync per min_interval_seconds, not one per session. Returns None
+    without syncing when called again inside that window.
+    """
+    global _last_issue_sync_monotonic
+
+    now = time.monotonic()
+    with _issue_sync_lock:
+        due = (
+            _last_issue_sync_monotonic is None
+            or now - _last_issue_sync_monotonic >= min_interval_seconds
+        )
+        if not due:
+            return None
+        _last_issue_sync_monotonic = now
+
+    return sync_issues_from_classifier_runs(
+        database_url=database_url,
+        playbook_path=playbook_path,
+        mitre_catalog_path=mitre_catalog_path,
+    )
 
 
 def _build_issue(
