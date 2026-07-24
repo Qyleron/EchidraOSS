@@ -83,10 +83,13 @@ sudo apt update && sudo apt install -y postgresql
 brew install postgresql@16 && brew services start postgresql@16
 ```
 
-**Create a database and user for Echidra** (any name/password works, you'll
-reference them in `.env` next):
+**Create a database and user for Echidra** (any password works, you'll
+reference it in `.env` next; setting a password explicitly, rather than
+relying on peer/trust auth, avoids connection failures that vary by how your
+local `pg_hba.conf` is configured):
 ```bash
-sudo -u postgres createuser --superuser "$USER"   # Linux; skip on macOS, your OS user is already a superuser
+sudo -u postgres createuser --superuser "$USER"           # Linux; skip on macOS, your OS user is already a superuser
+sudo -u postgres psql -c "ALTER ROLE \"$USER\" WITH PASSWORD 'echidra';"
 createdb echidra
 ```
 
@@ -94,13 +97,15 @@ createdb echidra
 ```bash
 cp .env.example .env
 ```
-Open `.env` and set `ECHIDRA_DATABASE_URL`, e.g.:
+Open `.env` and set `ECHIDRA_DATABASE_URL` to that exact user/password (check
+only the *uncommented* line if `.env.example` also left a commented-out
+example above it — `dotenv` ignores commented lines, so a stray uncommented
+placeholder is easy to miss and silently wrong):
 ```
-ECHIDRA_DATABASE_URL=postgresql://localhost:5432/echidra
+ECHIDRA_DATABASE_URL=postgresql://YOUR_USERNAME:echidra@localhost:5432/echidra
 ```
-(add `user:password@` before `localhost` if you created a dedicated role
-instead of using your OS user). Everything else in `.env.example` has a
-working default — leave it as-is for a first run.
+Everything else in `.env.example` has a working default — leave it as-is for
+a first run.
 
 ---
 
