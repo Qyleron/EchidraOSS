@@ -319,6 +319,13 @@ def auto_classify_and_store(session: SessionRecord) -> None:
     except Exception:
         logger.exception("_maybe_send_alert failed during auto classification")
 
+    try:
+        from classifier.storage.issue_sync import maybe_sync_issues_from_classifier_runs
+
+        maybe_sync_issues_from_classifier_runs()
+    except Exception:
+        logger.exception("maybe_sync_issues_from_classifier_runs failed during auto classification")
+
 
 def schedule_auto_classification(session: SessionRecord) -> None:
     """Enqueue a just-completed session for background classification.
