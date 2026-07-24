@@ -22,6 +22,7 @@ from classifier.pipeline import classify_session
 from classifier.schemas.session import SessionRecord
 from classifier.scoring.session import ClassificationSummary
 from classifier.alerts import _maybe_send_alert, _smtp_send
+from classifier.storage.issue_sync import maybe_sync_issues_from_classifier_runs
 from classifier.storage import (
     AlertConfigInput,
     AlertConfigRecord,
@@ -509,6 +510,18 @@ def create_app() -> FastAPI:
         except Exception as exc:
             logger.exception(
                 "Alert dispatch failed for classifier run %s: %s",
+                run.id,
+                exc,
+            )
+
+        # Debounced (see maybe_sync_issues_from_classifier_runs) so Intelligence
+        # issues roll up automatically without needing the `sync-issues` CLI
+        # command run by hand; errors here never fail the run either.
+        try:
+            maybe_sync_issues_from_classifier_runs()
+        except Exception as exc:
+            logger.exception(
+                "Issue sync failed for classifier run %s: %s",
                 run.id,
                 exc,
             )
