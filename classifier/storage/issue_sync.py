@@ -16,6 +16,7 @@ from classifier.rules.issue_playbook import (
     load_mitre_technique_catalog,
 )
 from classifier.rules.mitre_playbook import get_playbook_entry
+from classifier.storage.config import redact_database_url
 from classifier.storage.models import IssueRecord, MitreTechnique
 from classifier.storage.repository import PostgresClassifierRepository
 
@@ -156,13 +157,35 @@ def maybe_sync_issues_from_classifier_runs(
                 playbook_path=playbook_path,
                 mitre_catalog_path=mitre_catalog_path,
             )
-        except Exception:
-            logger.exception("Background issue sync failed")
+        except Exception as exc:
+            # Not logger.exception(): some drivers/paths embed the raw DSN
+            # (including the password) in an exception's own message, and a
+            # traceback renders that message verbatim regardless of log
+            # level. Log the redacted message instead of the exception
+            # object -- matches the redact_database_url() discipline already
+            # used for this same class of error in storage/cli.py and
+            # _user_facing_error_detail() in api/app.py.
+            logger.error(
+                "Background issue sync failed: %s: %s",
+                type(exc).__name__,
+                redact_database_url(str(exc)),
+            )
         finally:
             with _issue_sync_lock:
                 _issue_sync_running = False
 
-    threading.Thread(target=_run, name="issue-sync", daemon=True).start()
+    try:
+        threading.Thread(target=_run, name="issue-sync", daemon=True).start()
+    except Exception:
+        # If the thread never actually started, _run's finally above never
+        # runs either -- reset the flag here or it stays stuck True forever,
+        # silently disabling every future sync for the rest of this process's
+        # life with no further error ever surfaced.
+        logger.exception("Failed to start background issue-sync thread")
+        with _issue_sync_lock:
+            _issue_sync_running = False
+        return False
+
     return True
 
 
