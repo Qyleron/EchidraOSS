@@ -202,24 +202,36 @@ CREATE TABLE IF NOT EXISTS persona_configs (
 ALTER TABLE persona_configs ADD COLUMN IF NOT EXISTS
     alert_min_risk_level TEXT CHECK (alert_min_risk_level IN ('critical', 'high', 'medium', 'low'));
 
-ALTER TABLE persona_configs ADD COLUMN IF NOT EXISTS
-    http_server_type TEXT NOT NULL DEFAULT 'nginx' CHECK (http_server_type IN ('nginx', 'apache', 'busybox', 'none'));
+-- Adds http_server_type and, in the same one-time pass, backfills existing
+-- rows from what _server_kind() used to infer from running_processes text
+-- before this column existed -- an already-saved "apache" persona shouldn't
+-- silently start serving nginx pages just because the column now defaults
+-- to 'nginx'. Gated on the column not existing yet (rather than a WHERE
+-- http_server_type = 'nginx' guard on a plain re-runnable UPDATE) because
+-- 'nginx' is also a legitimate explicit choice, indistinguishable from the
+-- untouched default once set -- a value-based guard would keep re-clobbering
+-- an operator's later, deliberate 'nginx' selection on every re-run of
+-- init-db (which is otherwise safe to re-run against a live database) if
+-- running_processes still happens to mention "apache" as flavor text.
+-- Gating on column existence instead makes the backfill run exactly once,
+-- the moment the column is actually created, never again after.
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'persona_configs' AND column_name = 'http_server_type'
+    ) THEN
+        ALTER TABLE persona_configs ADD COLUMN http_server_type TEXT NOT NULL
+            DEFAULT 'nginx' CHECK (http_server_type IN ('nginx', 'apache', 'busybox', 'none'));
 
--- The ADD COLUMN above defaults every pre-existing row to 'nginx', but
--- _server_kind() used to infer the fake web server from running_processes
--- text before http_server_type existed -- reconcile existing rows to what
--- they used to render as, or an already-saved "apache" persona silently
--- starts serving nginx pages on upgrade. Guarded to rows still at the
--- just-applied default: init-db is safe to re-run against a live database,
--- and running_processes is pure flavor text now, so this must not keep
--- re-overwriting an operator's later, explicit http_server_type choice.
-UPDATE persona_configs
-SET http_server_type = CASE
-    WHEN EXISTS (SELECT 1 FROM unnest(running_processes) p WHERE p ILIKE '%apache%') THEN 'apache'
-    WHEN EXISTS (SELECT 1 FROM unnest(running_processes) p WHERE p ILIKE '%busybox%') THEN 'busybox'
-    ELSE http_server_type
-END
-WHERE http_server_type = 'nginx';
+        UPDATE persona_configs
+        SET http_server_type = CASE
+            WHEN EXISTS (SELECT 1 FROM unnest(running_processes) p WHERE p ILIKE '%apache%') THEN 'apache'
+            WHEN EXISTS (SELECT 1 FROM unnest(running_processes) p WHERE p ILIKE '%busybox%') THEN 'busybox'
+            ELSE http_server_type
+        END;
+    END IF;
+END $$;
 
 -- timezone/interaction_depth were accepted and stored but never consumed
 -- anywhere (interaction_depth's "Deep" option implied engagement-depth
