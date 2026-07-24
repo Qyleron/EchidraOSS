@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import threading
 import time
 from pathlib import Path
@@ -20,6 +21,8 @@ from classifier.storage.repository import PostgresClassifierRepository
 
 
 DEFAULT_ISSUE_PLAYBOOK_PATH = Path(__file__).resolve().parents[1] / "rules" / "issue_playbook.yaml"
+
+logger = logging.getLogger(__name__)
 _RISK_RANK_SEVERITIES = {4: "high", 3: "high", 2: "medium", 1: "low", 0: "low"}
 
 # default_rules.yaml can also produce brute_force_bot/T1110 via classifier_runs
@@ -81,16 +84,17 @@ def sync_issues_from_classifier_runs(
     return synced
 
 
-# Debounce state for maybe_sync_issues_from_classifier_runs() -- process-local
-# only, like the login rate limiter's in-memory fallback path: fine for the
-# single honeypot process and the single API process this runs in today (no
-# `--workers` flag documented anywhere for uvicorn), but a multi-worker/
-# multi-replica deployment would need this
-# moved to something shared (eg. a DB timestamp) to actually debounce across
+# Debounce/single-flight state for maybe_sync_issues_from_classifier_runs() --
+# process-local only, like the login rate limiter's in-memory fallback path:
+# fine for the single honeypot process and the single API process this runs
+# in today (no `--workers` flag documented anywhere for uvicorn), but a
+# multi-worker/multi-replica deployment would need this moved to something
+# shared (eg. a DB timestamp/advisory lock) to actually coordinate across
 # processes instead of once per process.
 _ISSUE_SYNC_MIN_INTERVAL_SECONDS = 30.0
 _issue_sync_lock = threading.Lock()
 _last_issue_sync_monotonic: float | None = None
+_issue_sync_running = False
 
 
 def maybe_sync_issues_from_classifier_runs(
@@ -99,37 +103,67 @@ def maybe_sync_issues_from_classifier_runs(
     playbook_path: str | Path = DEFAULT_ISSUE_PLAYBOOK_PATH,
     mitre_catalog_path: str | Path = DEFAULT_MITRE_CATALOG_PATH,
     min_interval_seconds: float = _ISSUE_SYNC_MIN_INTERVAL_SECONDS,
-) -> list[IssueRecord] | None:
-    """Debounced entry point for calling sync_issues_from_classifier_runs()
-    straight from the live per-session pipeline (auto_classify_and_store /
-    classify_and_store_session_endpoint), so Intelligence issues roll up
-    automatically instead of requiring someone to run the `sync-issues` CLI
-    command by hand.
+) -> bool:
+    """Debounced, single-flight, backgrounded entry point for calling
+    sync_issues_from_classifier_runs() straight from the live per-session
+    pipeline (auto_classify_and_store / classify_and_store_session_endpoint),
+    so Intelligence issues roll up automatically instead of requiring someone
+    to run the `sync-issues` CLI command by hand. Returns True if a background
+    sync was started, False if this call skipped (debounced, or one was
+    already running).
 
     sync_issues_from_classifier_runs() re-aggregates *all* stored classifier
-    runs every call -- cheap at low session volume, but its cost grows with
-    total session count over time. Debouncing here means a burst of sessions
-    (eg. a scanner hitting the honeypot repeatedly) triggers at most one
-    resync per min_interval_seconds, not one per session. Returns None
-    without syncing when called again inside that window.
+    runs every call -- cheap at low session volume, but its cost (and runtime)
+    grows with total session count over time. Two things follow from that:
+
+    1. Debouncing on elapsed time alone isn't enough to prevent overlap: if a
+       run takes longer than min_interval_seconds, a second caller arriving
+       after that window would see the debounce as expired and start a
+       concurrent second run. _issue_sync_running is checked and set inside
+       the same locked section as the elapsed-time check, so only one sync is
+       ever in flight regardless of how long it takes.
+    2. This must never run inline on the caller's own thread. Both call
+       sites are latency-sensitive in different ways -- auto_classify_and_store
+       runs on one of a small fixed pool of classification workers (see
+       _CLASSIFICATION_WORKER_COUNT), so an inline full-table resync there
+       would stall that worker from picking up the next queued session for
+       as long as the resync takes; classify_and_store_session_endpoint would
+       have an external caller's HTTP request hang open for the same
+       duration. Spawning a daemon thread lets the caller return immediately
+       either way, with the resync proceeding independently in the
+       background.
     """
-    global _last_issue_sync_monotonic
+    global _last_issue_sync_monotonic, _issue_sync_running
 
     now = time.monotonic()
     with _issue_sync_lock:
+        if _issue_sync_running:
+            return False
         due = (
             _last_issue_sync_monotonic is None
             or now - _last_issue_sync_monotonic >= min_interval_seconds
         )
         if not due:
-            return None
+            return False
+        _issue_sync_running = True
         _last_issue_sync_monotonic = now
 
-    return sync_issues_from_classifier_runs(
-        database_url=database_url,
-        playbook_path=playbook_path,
-        mitre_catalog_path=mitre_catalog_path,
-    )
+    def _run() -> None:
+        global _issue_sync_running
+        try:
+            sync_issues_from_classifier_runs(
+                database_url=database_url,
+                playbook_path=playbook_path,
+                mitre_catalog_path=mitre_catalog_path,
+            )
+        except Exception:
+            logger.exception("Background issue sync failed")
+        finally:
+            with _issue_sync_lock:
+                _issue_sync_running = False
+
+    threading.Thread(target=_run, name="issue-sync", daemon=True).start()
+    return True
 
 
 def _build_issue(
