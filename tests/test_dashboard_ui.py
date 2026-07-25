@@ -344,7 +344,7 @@ def test_sessions_table_has_pagination_controls():
 
     assert 'id="sessionsPagination" class="table-pagination"' in html
     assert "function renderPagination(totalPages)" in html
-    assert "SESSIONS_PAGE_SIZE = 25" in html
+    assert "SESSIONS_PAGE_SIZE = 10" in html
 
     css = (DASHBOARD_PUBLIC_PATH / "dashboard.css").read_text(encoding="utf-8")
     assert ".table-pagination {" in css

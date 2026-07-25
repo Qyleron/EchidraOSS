@@ -1069,6 +1069,14 @@ a {
   border-color: var(--border-strong);
 }
 
+.form-input:disabled,
+.form-select:disabled,
+.form-textarea:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+  background: var(--surface-strong);
+}
+
 .password-field-wrapper {
   position: relative;
 }

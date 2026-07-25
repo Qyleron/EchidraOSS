@@ -21,7 +21,7 @@ from pydantic import BaseModel, validator
 from classifier.pipeline import classify_session
 from classifier.schemas.session import SessionRecord
 from classifier.scoring.session import ClassificationSummary
-from classifier.alerts import _maybe_send_alert, _smtp_send
+from classifier.alerts import _maybe_send_alert, _slack_post, _smtp_send
 from classifier.storage.issue_sync import maybe_sync_issues_from_classifier_runs
 from classifier.storage import (
     AlertConfigInput,
@@ -176,6 +176,15 @@ class DashboardLoginInput(BaseModel):
     def validate_password(cls, value: str) -> str:
         _validate_password_format(value)
         return value
+
+    class Config:
+        extra = "forbid"
+
+
+class DashboardSlackTestInput(BaseModel):
+    """Request body for /alerts/test-slack."""
+
+    slack_webhook: str
 
     class Config:
         extra = "forbid"
@@ -966,6 +975,30 @@ def create_app() -> FastAPI:
         err = _dispatch_test_email(config)
         if err:
             raise HTTPException(status_code=502, detail=f"SMTP error: {err}")
+        return {"status": "sent"}
+
+    @api.post(
+        "/alerts/test-slack",
+        tags=["alerts"],
+    )
+    def send_test_slack_endpoint(
+        request: Request,
+        payload: DashboardSlackTestInput,
+    ) -> dict[str, str]:
+        """Send a test message to a Slack webhook.
+
+        Takes the webhook URL directly rather than reading a saved persona
+        config, so an operator can test it from the Personas modal before
+        ever saving -- Slack routing is per-persona, unlike the global SMTP
+        config the email test above reads from the DB.
+        """
+        _require_dashboard_auth(request)
+        err = _slack_post(
+            payload.slack_webhook,
+            "[Echidra] Slack alert test — this webhook is configured correctly.",
+        )
+        if err:
+            raise HTTPException(status_code=502, detail=f"Slack error: {err}")
         return {"status": "sent"}
 
     @api.get(
