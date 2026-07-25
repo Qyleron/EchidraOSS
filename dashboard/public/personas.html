@@ -729,6 +729,7 @@
     var deleteConfirmBtn = document.getElementById("deleteConfirmBtn");
     var deletePersonaId = null;
     var deleteTriggerEl = null;
+    var deleteInFlight = false;
 
     function getDeleteModalFocusable() {
       return Array.prototype.slice.call(
@@ -778,6 +779,7 @@
     async function performDelete() {
       var personaId = deletePersonaId;
       if (!personaId) return;
+      deleteInFlight = true;
       deleteConfirmBtn.disabled = true;
       try {
         var resp = await fetch("/persona-configs/" + encodeURIComponent(personaId), { method: "DELETE" });
@@ -795,19 +797,29 @@
         closeDeleteConfirm();
         alert("Delete failed: " + err.message);
       } finally {
+        deleteInFlight = false;
         deleteConfirmBtn.disabled = false;
       }
     }
 
-    document.getElementById("deleteConfirmCloseBtn").addEventListener("click", closeDeleteConfirm);
-    document.getElementById("deleteCancelBtn").addEventListener("click", closeDeleteConfirm);
+    // Cancel/close/backdrop/Escape must not dismiss the modal while a
+    // delete request is in flight -- doing so would let the user believe
+    // they'd backed out while the request keeps running in the background
+    // and still mutates the table (and steals focus) once it resolves.
+    function dismissDeleteConfirmIfIdle() {
+      if (deleteInFlight) return;
+      closeDeleteConfirm();
+    }
+
+    document.getElementById("deleteConfirmCloseBtn").addEventListener("click", dismissDeleteConfirmIfIdle);
+    document.getElementById("deleteCancelBtn").addEventListener("click", dismissDeleteConfirmIfIdle);
     deleteConfirmBtn.addEventListener("click", performDelete);
     deleteConfirmModal.addEventListener("click", function (event) {
-      if (event.target === deleteConfirmModal) closeDeleteConfirm();
+      if (event.target === deleteConfirmModal) dismissDeleteConfirmIfIdle();
     });
     document.addEventListener("keydown", trapDeleteModalTab);
     document.addEventListener("keydown", function (event) {
-      if (event.key === "Escape" && !deleteConfirmModal.hidden) closeDeleteConfirm();
+      if (event.key === "Escape" && !deleteConfirmModal.hidden) dismissDeleteConfirmIfIdle();
     });
 
     function deletePersonaConfig(personaId, triggerEl) {
