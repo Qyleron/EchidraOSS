@@ -425,14 +425,24 @@ def _pid_is_echidra_process(pid: int) -> bool:
 def _argv_matches_echidra_child(argv: list[str]) -> bool:
     """True if argv is shaped like one of the two processes `echidra start`
     launches (see _cmd_start): `<python> -m honeypot.main` or
-    `<python> -m uvicorn classifier.api.app:create_app ...`."""
-    for i in range(len(argv) - 1):
-        if argv[i] != "-m":
-            continue
-        if argv[i + 1] == "honeypot.main":
-            return True
-        if argv[i + 1] == "uvicorn" and "classifier.api.app:create_app" in argv[i + 2 :]:
-            return True
+    `<python> -m uvicorn classifier.api.app:create_app ...`.
+
+    Anchored at argv[1:] (right after the interpreter at argv[0]), not a scan
+    over the whole argv -- `-m`/module name only mean "this is a module
+    invocation" to the interpreter when they're its own leading flags. A
+    process could otherwise pass "-m", "honeypot.main" as plain data further
+    down its own unrelated argv (a script's own positional arguments, for
+    instance) and be misidentified as ours by a looser scan-anywhere match.
+    """
+    if len(argv) >= 3 and argv[1] == "-m" and argv[2] == "honeypot.main":
+        return True
+    if (
+        len(argv) >= 4
+        and argv[1] == "-m"
+        and argv[2] == "uvicorn"
+        and "classifier.api.app:create_app" in argv[3:]
+    ):
+        return True
     return False
 
 
