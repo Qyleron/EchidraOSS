@@ -1075,6 +1075,8 @@ a {
   cursor: not-allowed;
   opacity: 0.5;
   background: var(--surface-strong);
+  border-width: 2px;
+  border-color: var(--border-strong);
 }
 
 .password-field-wrapper {
@@ -1304,6 +1306,14 @@ a {
   gap: 10px;
   padding: 70px 22px;
   text-align: center;
+}
+
+/* [hidden] and .analytics-placeholder's own `display: grid` above have equal
+   specificity, so the later one in the cascade (this file, loaded after the
+   browser's UA stylesheet) would otherwise win -- silently keeping this
+   placeholder visible even after JS sets the hidden attribute. */
+.analytics-placeholder[hidden] {
+  display: none;
 }
 
 .analytics-placeholder-value {
