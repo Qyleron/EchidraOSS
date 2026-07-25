@@ -781,8 +781,17 @@
       if (!personaId) return;
       deleteInFlight = true;
       deleteConfirmBtn.disabled = true;
+      // Cancel/close/Escape are blocked for as long as deleteInFlight is
+      // true (see dismissDeleteConfirmIfIdle) -- without this timeout, a
+      // hung request (server accepted the connection but never responded)
+      // would trap the user in the modal with no way out at all.
+      var controller = new AbortController();
+      var timeoutId = setTimeout(function () { controller.abort(); }, 10000);
       try {
-        var resp = await fetch("/persona-configs/" + encodeURIComponent(personaId), { method: "DELETE" });
+        var resp = await fetch("/persona-configs/" + encodeURIComponent(personaId), {
+          method: "DELETE",
+          signal: controller.signal,
+        });
         if (!resp.ok && resp.status !== 404) throw new Error("HTTP " + resp.status);
         delete allConfigs[personaId];
         hideDeleteConfirm();
@@ -797,6 +806,7 @@
         closeDeleteConfirm();
         alert("Delete failed: " + err.message);
       } finally {
+        clearTimeout(timeoutId);
         deleteInFlight = false;
         deleteConfirmBtn.disabled = false;
       }
