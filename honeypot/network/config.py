@@ -83,7 +83,7 @@ DEFAULT_PERSONA_ID = "generic_linux"
 # while still picking up a dashboard-saved persona_configs change within a
 # few seconds, with no restart and no cross-process signaling needed -- the
 # API process saving the change and the honeypot process serving connections
-# are separate OS processes (see echidra/cli.py's `serve`), so an infinite
+# are separate OS processes (see echidra/cli.py's `start`), so an infinite
 # cache invalidated only by clear_active_persona_cache() (never actually
 # called anywhere) meant the only way to pick up a change was a restart.
 _PERSONA_CACHE_TTL_SECONDS = 5.0
