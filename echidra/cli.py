@@ -340,10 +340,14 @@ def _cmd_stop(args: argparse.Namespace) -> int:
         print(f"Sent SIGTERM to PID {pid}.")
         signaled.append(pid)
 
+    # Re-verify ownership, not just liveness, at every step here -- up to 10s
+    # (plus the SIGKILL settle time below) is long enough for the OS to have
+    # recycled a PID that already exited for an unrelated process, and a
+    # liveness-only check would then escalate to SIGKILL against a stranger.
     deadline = time.monotonic() + 10
     while signaled and time.monotonic() < deadline:
         time.sleep(0.2)
-        signaled = [pid for pid in signaled if _pid_is_alive(pid)]
+        signaled = [pid for pid in signaled if _pid_is_echidra_process(pid)]
 
     for pid in signaled:
         print(f"PID {pid} didn't exit within 10s -- sending SIGKILL.")
@@ -352,7 +356,7 @@ def _cmd_stop(args: argparse.Namespace) -> int:
         except (ProcessLookupError, PermissionError):
             pass
     time.sleep(0.5)
-    signaled = [pid for pid in signaled if _pid_is_alive(pid)]
+    signaled = [pid for pid in signaled if _pid_is_echidra_process(pid)]
 
     if permission_denied or signaled:
         for pid in permission_denied:
@@ -398,12 +402,54 @@ def _pid_is_echidra_process(pid: int) -> bool:
     if not _pid_is_alive(pid):
         return False
     if not _PROC_FS_AVAILABLE:
+        # No way to verify ownership at all here -- this is pure liveness,
+        # the same weak guarantee `echidra start`/`stop` had before this
+        # check existed. Surfaced once so it isn't mistaken for a real
+        # verification on a non-Linux host.
+        _warn_proc_fs_unavailable_once()
         return True
     try:
-        cmdline = Path(f"/proc/{pid}/cmdline").read_bytes().decode("utf-8", "replace")
+        raw_cmdline = Path(f"/proc/{pid}/cmdline").read_bytes()
     except OSError:
         return False
-    return "honeypot.main" in cmdline or "classifier.api.app" in cmdline
+    # /proc/<pid>/cmdline is the process's argv, NUL-separated (with a
+    # trailing NUL) -- split it back into real arguments instead of
+    # substring-matching the raw bytes, so an unrelated process that merely
+    # mentions "honeypot.main" somewhere in one of its own arguments (a file
+    # path, a log message passed as an arg, etc.) isn't misidentified as ours.
+    argv = raw_cmdline.decode("utf-8", "replace").split("\x00")
+    argv = [a for a in argv if a]
+    return _argv_matches_echidra_child(argv)
+
+
+def _argv_matches_echidra_child(argv: list[str]) -> bool:
+    """True if argv is shaped like one of the two processes `echidra start`
+    launches (see _cmd_start): `<python> -m honeypot.main` or
+    `<python> -m uvicorn classifier.api.app:create_app ...`."""
+    for i in range(len(argv) - 1):
+        if argv[i] != "-m":
+            continue
+        if argv[i + 1] == "honeypot.main":
+            return True
+        if argv[i + 1] == "uvicorn" and "classifier.api.app:create_app" in argv[i + 2 :]:
+            return True
+    return False
+
+
+_warned_proc_fs_unavailable = False
+
+
+def _warn_proc_fs_unavailable_once() -> None:
+    global _warned_proc_fs_unavailable
+    if _warned_proc_fs_unavailable:
+        return
+    _warned_proc_fs_unavailable = True
+    print(
+        "Warning: no /proc filesystem on this host -- 'echidra start'/'stop'/'status' "
+        "can only check whether a PID is alive, not whether it's actually an Echidra "
+        "process. A reused PID could be mistaken for one.",
+        file=sys.stderr,
+    )
 
 
 # ---------------------------------------------------------------------------
