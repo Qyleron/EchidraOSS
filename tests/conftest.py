@@ -9,15 +9,18 @@ from honeypot.network import config as honeypot_config
 @pytest.fixture(autouse=True)
 def clear_persona_db_lookup(monkeypatch):
     """Keep every test deterministic regardless of a locally-configured
-    ECHIDRA_DATABASE_URL -- get_active_persona() looks up a real DB row
-    first by design (so dashboard-saved persona customizations reach the
-    live honeypot), which means any test that exercises it would otherwise
-    silently pick up whatever a developer has saved via the Personas page
-    on their own machine instead of the hardcoded preset the tests assume.
-    Tests that want DB-backed persona behavior already opt back in
-    explicitly with their own monkeypatch.setenv("ECHIDRA_DATABASE_URL",
-    ...), which overrides this per-test."""
+    ECHIDRA_DATABASE_URL or ECHIDRA_PERSONA -- get_active_persona() looks up
+    a real DB row first by design (so dashboard-saved persona customizations
+    reach the live honeypot) and defaults to whatever ECHIDRA_PERSONA is set
+    to, which means any test that exercises it would otherwise silently pick
+    up a developer's own local persona customization or a non-default
+    ECHIDRA_PERSONA (eg. left over from the README's multi-persona example)
+    instead of the hardcoded generic_linux preset most tests assume. Tests
+    that want DB-backed or non-default-persona behavior already opt back in
+    explicitly with their own monkeypatch.setenv(...), which overrides this
+    per-test."""
     monkeypatch.delenv("ECHIDRA_DATABASE_URL", raising=False)
+    monkeypatch.delenv("ECHIDRA_PERSONA", raising=False)
     honeypot_config.clear_active_persona_cache()
     yield
     honeypot_config.clear_active_persona_cache()
