@@ -126,7 +126,11 @@ def get_active_persona() -> Persona:
             validate_persona(persona)
         _cached_persona = persona
         _cached_persona_id = persona_id
-        _cached_persona_expires_at = now + _PERSONA_CACHE_TTL_SECONDS
+        # Stamped from *after* the load (DB round trip or preset validation)
+        # completes, not the `now` captured before it started -- otherwise
+        # the cache's effective lifetime is silently shortened by however
+        # long that load took, under connection bursts when it matters most.
+        _cached_persona_expires_at = time.monotonic() + _PERSONA_CACHE_TTL_SECONDS
 
     return _cached_persona
 

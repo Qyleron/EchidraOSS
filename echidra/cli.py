@@ -181,7 +181,7 @@ def _ensure_env_var(key: str, value_factory) -> None:
 
 
 def _cmd_start(args: argparse.Namespace) -> int:
-    existing_pids = [pid for pid in _read_pid_file() if _pid_is_alive(pid)]
+    existing_pids = [pid for pid in _read_pid_file() if _pid_is_echidra_process(pid)]
     if existing_pids:
         print(f"A previous 'echidra start' still appears to be running (PID {', '.join(map(str, existing_pids))}).")
         print("Run 'echidra stop' first (or 'sudo echidra stop' if that reports permission denied), "
@@ -324,7 +324,7 @@ def _cmd_stop(args: argparse.Namespace) -> int:
     signaled = []
     permission_denied = []
     for pid in pids:
-        if not _pid_is_alive(pid):
+        if not _pid_is_echidra_process(pid):
             continue
         try:
             os.kill(pid, signal.SIGTERM)
@@ -372,6 +372,26 @@ def _pid_is_alive(pid: int) -> bool:
     except PermissionError:
         return True
     return True
+
+
+def _pid_is_echidra_process(pid: int) -> bool:
+    """Return True only if pid is both alive and actually one of ours.
+
+    os.kill(pid, 0) alone can't distinguish a live process from one whose
+    PID the OS recycled for an unrelated program after ours already exited
+    -- which would otherwise let `echidra stop` send SIGTERM to a stranger
+    process, or `echidra start` refuse to start over a merely coincidental
+    PID match. /proc/<pid>/cmdline is Linux-only and unreadable for another
+    user's process; either case falls back to liveness alone rather than
+    refusing to ever recognize our own process.
+    """
+    if not _pid_is_alive(pid):
+        return False
+    try:
+        cmdline = Path(f"/proc/{pid}/cmdline").read_bytes().decode("utf-8", "replace")
+    except OSError:
+        return True
+    return "honeypot.main" in cmdline or "classifier.api.app" in cmdline
 
 
 # ---------------------------------------------------------------------------

@@ -184,7 +184,7 @@ window:
 Then confirm capture: `tail -1 logs/sessions.jsonl` should show
 `"login: root"` and `"password: toor"`.
 
-### Stopping a running serve
+### Stopping a running instance
 
 If `echidra start` is running in the background or was orphaned by a
 closed terminal:
