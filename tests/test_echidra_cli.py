@@ -25,6 +25,16 @@ def test_echidra_cli_help_lists_all_subcommands(capsys):
         assert subcommand in captured.out
 
 
+def test_echidra_cli_rejects_the_renamed_serve_command(capsys):
+    """'serve' was renamed to 'start' with no backward-compat alias -- guard
+    against it silently working again (eg. a careless future merge)."""
+    with pytest.raises(SystemExit):
+        cli.main(["serve"])
+
+    captured = capsys.readouterr()
+    assert "invalid choice: 'serve'" in captured.err
+
+
 # ---------------------------------------------------------------------------
 # init
 # ---------------------------------------------------------------------------
