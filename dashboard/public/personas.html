@@ -370,6 +370,7 @@
       modalContainer.innerHTML = html;
       modalBackdrop.hidden = false;
       initCustomSelects(modalContainer);
+      syncAlertDestinationFields(modalContainer);
     }
 
     // Wire close button and backdrop click
@@ -452,6 +453,7 @@
       modalContainer.innerHTML = html;
       modalBackdrop.hidden = false;
       initCustomSelects(modalContainer);
+      syncAlertDestinationFields(modalContainer);
     }
 
     document.getElementById("createPersonaBtn").addEventListener("click", function() {
@@ -845,6 +847,25 @@
 
       var del = evt.target.closest(".delete-btn");
       if (del) { deletePersonaConfig(del.dataset.id, del); return; }
+    });
+
+    // Contact Email/Slack Webhook only take effect when Alert Routing
+    // actually includes that channel -- disable (not just visually mute)
+    // the field the routing choice ignores, so a value typed there can't be
+    // mistaken for something that's actually wired up.
+    function syncAlertDestinationFields(root) {
+      var routingSelect = root.querySelector('[name="alert_routing_level"]');
+      if (!routingSelect) return;
+      var emailInput = root.querySelector('[name="contact_email"]');
+      var slackInput = root.querySelector('[name="slack_webhook"]');
+      var routing = routingSelect.value;
+      if (emailInput) emailInput.disabled = !(routing === "email" || routing === "both");
+      if (slackInput) slackInput.disabled = !(routing === "slack" || routing === "both");
+    }
+
+    document.addEventListener("change", function(evt) {
+      var routingSelect = evt.target.closest('[name="alert_routing_level"]');
+      if (routingSelect) syncAlertDestinationFields(routingSelect.closest("form"));
     });
 
     // ── Modal form event delegation ────────────────────────────────────────────

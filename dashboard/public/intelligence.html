@@ -76,6 +76,7 @@
             <tbody id="issueTableBody"></tbody>
           </table>
         </div>
+        <div id="issuesPagination" class="table-pagination"></div>
       </section>
     </main>
   </div>
@@ -83,6 +84,9 @@
   <script>
     const SEVERITY_LABELS = { high: "High", medium: "Medium", low: "Low" };
     let currentIssues = [];
+    let currentIssuePage = 1;
+    const ISSUES_PAGE_SIZE = 10;
+    const issuesPaginationContainer = document.getElementById("issuesPagination");
 
     function escHtml(str) {
       return String(str == null ? "" : str)
@@ -115,9 +119,14 @@
       const tableBody = document.getElementById("issueTableBody");
       if (issues.length === 0) {
         tableBody.innerHTML = `<tr><td colspan="6" class="empty-state" style="text-align: center;">No issues detected yet.</td></tr>`;
+        renderIssuesPagination(1);
         return;
       }
-      tableBody.innerHTML = issues.map((issue) => `
+      const totalPages = Math.max(1, Math.ceil(issues.length / ISSUES_PAGE_SIZE));
+      currentIssuePage = Math.min(currentIssuePage, totalPages);
+      const pageStart = (currentIssuePage - 1) * ISSUES_PAGE_SIZE;
+      const pageItems = issues.slice(pageStart, pageStart + ISSUES_PAGE_SIZE);
+      tableBody.innerHTML = pageItems.map((issue) => `
         <tr data-issue-row="${escAttr(issue.id)}" tabindex="0" aria-expanded="false">
           <td><div class="cell-primary"><strong>${escHtml(issue.title)}</strong></div></td>
           <td><span class="risk-badge ${escAttr(issue.severity)}">${escHtml(SEVERITY_LABELS[issue.severity] ?? issue.severity ?? "Unknown")}</span></td>
@@ -138,6 +147,35 @@
           </td>
         </tr>
       `).join("");
+      renderIssuesPagination(totalPages);
+    }
+
+    function renderIssuesPagination(totalPages) {
+      const hadFocusInside = issuesPaginationContainer.contains(document.activeElement);
+      if (totalPages <= 1) {
+        issuesPaginationContainer.innerHTML = "";
+        return;
+      }
+      issuesPaginationContainer.innerHTML = `
+        <button type="button" class="text-button" id="issuesPrevPage" ${currentIssuePage === 1 ? "disabled" : ""}>Prev</button>
+        <span class="pagination-status" id="issuesPaginationStatus" tabindex="-1">Page ${currentIssuePage} of ${totalPages}</span>
+        <button type="button" class="text-button" id="issuesNextPage" ${currentIssuePage === totalPages ? "disabled" : ""}>Next</button>
+      `;
+      document.getElementById("issuesPrevPage").addEventListener("click", () => {
+        if (currentIssuePage > 1) {
+          currentIssuePage -= 1;
+          renderIssueRows(currentIssues);
+        }
+      });
+      document.getElementById("issuesNextPage").addEventListener("click", () => {
+        if (currentIssuePage < totalPages) {
+          currentIssuePage += 1;
+          renderIssueRows(currentIssues);
+        }
+      });
+      if (hadFocusInside) {
+        document.getElementById("issuesPaginationStatus").focus();
+      }
     }
 
     function toggleIssue(issueId) {
