@@ -1266,10 +1266,10 @@ a {
   justify-content: center;
   min-height: 32px;
   width: 32px;
-  border: 1px solid var(--line);
+  border: 1px solid #e5484d;
   border-radius: 5px;
   background: transparent;
-  color: var(--muted);
+  color: #e5484d;
   cursor: pointer;
   font-size: 18px;
   line-height: 1;
@@ -1277,8 +1277,8 @@ a {
 }
 
 .remove-row-btn:hover {
-  border-color: rgba(255, 92, 112, 0.5);
-  color: var(--critical);
+  border-color: #ff5c62;
+  color: #ff5c62;
 }
 
 /* ── Persona analytics layout ── */
