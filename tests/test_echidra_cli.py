@@ -21,7 +21,7 @@ def test_echidra_cli_help_lists_all_subcommands(capsys):
         cli.main(["--help"])
 
     captured = capsys.readouterr()
-    for subcommand in ("init", "serve", "stop", "classify", "status"):
+    for subcommand in ("init", "start", "stop", "classify", "status"):
         assert subcommand in captured.out
 
 
@@ -140,21 +140,21 @@ def test_port_is_open_returns_false_for_closed_port():
     assert cli._port_is_open("127.0.0.1", 1, timeout=0.2) is False
 
 
-def test_check_serve_process_reports_not_running_when_no_pidfile(monkeypatch, tmp_path, capsys):
+def test_check_start_process_reports_not_running_when_no_pidfile(monkeypatch, tmp_path, capsys):
     monkeypatch.setattr(cli, "PID_PATH", tmp_path / "echidra.pid")
 
-    cli._check_serve_process()
+    cli._check_start_process()
 
     captured = capsys.readouterr()
     assert "not running" in captured.out
 
 
-def test_check_serve_process_reports_running_with_pids(monkeypatch, tmp_path, capsys):
+def test_check_start_process_reports_running_with_pids(monkeypatch, tmp_path, capsys):
     pid_path = tmp_path / "echidra.pid"
     monkeypatch.setattr(cli, "PID_PATH", pid_path)
     pid_path.write_text(f"{os.getpid()}\n", encoding="utf-8")
 
-    cli._check_serve_process()
+    cli._check_start_process()
 
     captured = capsys.readouterr()
     assert "running" in captured.out
@@ -230,7 +230,7 @@ def test_check_database_reports_session_counts_when_connected(monkeypatch, capsy
 
 
 # ---------------------------------------------------------------------------
-# serve
+# start
 # ---------------------------------------------------------------------------
 
 
@@ -256,7 +256,7 @@ class _FakeProcess:
         return self.returncode
 
 
-def test_cmd_serve_stops_both_processes_when_one_exits(monkeypatch, tmp_path):
+def test_cmd_start_stops_both_processes_when_one_exits(monkeypatch, tmp_path):
     monkeypatch.setattr(cli, "PID_PATH", tmp_path / "echidra.pid")
     processes = [_FakeProcess(pid=100), _FakeProcess(pid=200)]
     popen_calls = []
@@ -269,8 +269,8 @@ def test_cmd_serve_stops_both_processes_when_one_exits(monkeypatch, tmp_path):
     monkeypatch.setattr(cli.time, "sleep", lambda seconds: processes[0].__setattr__("returncode", 0))
     monkeypatch.setattr(cli.signal, "signal", lambda *args, **kwargs: None)
 
-    args = cli._build_parser().parse_args(["serve", "--api-port", "8123"])
-    exit_code = cli._cmd_serve(args)
+    args = cli._build_parser().parse_args(["start", "--api-port", "8123"])
+    exit_code = cli._cmd_start(args)
 
     assert len(popen_calls) == 2
     assert "-m" in popen_calls[0] and "honeypot.main" in popen_calls[0]
@@ -280,7 +280,7 @@ def test_cmd_serve_stops_both_processes_when_one_exits(monkeypatch, tmp_path):
     assert processes[1]._terminated is True
 
 
-def test_cmd_serve_returns_zero_for_signal_interrupts(monkeypatch, tmp_path):
+def test_cmd_start_returns_zero_for_signal_interrupts(monkeypatch, tmp_path):
     monkeypatch.setattr(cli, "PID_PATH", tmp_path / "echidra.pid")
     processes = [_FakeProcess(pid=100), _FakeProcess(pid=200)]
     popen_calls = []
@@ -298,8 +298,8 @@ def test_cmd_serve_returns_zero_for_signal_interrupts(monkeypatch, tmp_path):
 
     monkeypatch.setattr(cli.subprocess.Popen, "terminate", fake_terminate, raising=False)
 
-    args = cli._build_parser().parse_args(["serve", "--api-port", "8123"])
-    exit_code = cli._cmd_serve(args)
+    args = cli._build_parser().parse_args(["start", "--api-port", "8123"])
+    exit_code = cli._cmd_start(args)
 
     assert exit_code == 0
 
@@ -309,7 +309,7 @@ def test_cmd_serve_returns_zero_for_signal_interrupts(monkeypatch, tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_cmd_serve_refuses_to_start_over_a_still_running_previous_instance(monkeypatch, tmp_path, capsys):
+def test_cmd_start_refuses_to_start_over_a_still_running_previous_instance(monkeypatch, tmp_path, capsys):
     pid_path = tmp_path / "echidra.pid"
     monkeypatch.setattr(cli, "PID_PATH", pid_path)
     proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
@@ -318,8 +318,8 @@ def test_cmd_serve_refuses_to_start_over_a_still_running_previous_instance(monke
     monkeypatch.setattr(cli.subprocess, "Popen", lambda cmd, **kw: popen_calls.append(cmd))
 
     try:
-        args = cli._build_parser().parse_args(["serve", "--api-port", "8123"])
-        exit_code = cli._cmd_serve(args)
+        args = cli._build_parser().parse_args(["start", "--api-port", "8123"])
+        exit_code = cli._cmd_start(args)
     finally:
         proc.terminate()
         proc.wait(timeout=5)
@@ -333,7 +333,7 @@ def test_cmd_serve_refuses_to_start_over_a_still_running_previous_instance(monke
     assert pid_path.read_text(encoding="utf-8").strip() == str(proc.pid)
 
 
-def test_cmd_serve_clears_a_stale_pidfile_before_starting(monkeypatch, tmp_path):
+def test_cmd_start_clears_a_stale_pidfile_before_starting(monkeypatch, tmp_path):
     pid_path = tmp_path / "echidra.pid"
     monkeypatch.setattr(cli, "PID_PATH", pid_path)
     pid_path.write_text("999999\n", encoding="utf-8")  # PID from a process that's long gone
@@ -348,8 +348,8 @@ def test_cmd_serve_clears_a_stale_pidfile_before_starting(monkeypatch, tmp_path)
     monkeypatch.setattr(cli.time, "sleep", lambda seconds: processes[0].__setattr__("returncode", 0))
     monkeypatch.setattr(cli.signal, "signal", lambda *args, **kwargs: None)
 
-    args = cli._build_parser().parse_args(["serve", "--api-port", "8123"])
-    exit_code = cli._cmd_serve(args)
+    args = cli._build_parser().parse_args(["start", "--api-port", "8123"])
+    exit_code = cli._cmd_start(args)
 
     assert exit_code == 0
     assert len(popen_calls) == 2

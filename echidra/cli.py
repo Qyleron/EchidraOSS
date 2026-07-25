@@ -1,4 +1,4 @@
-"""Operator-facing `echidra` command: init, serve, stop, classify, status.
+"""Operator-facing `echidra` command: init, start, stop, classify, status.
 
 This is a thin wrapper around existing entry points (honeypot.main,
 classifier.cli, classifier.storage.cli, uvicorn) -- it exists so a fresh
@@ -39,8 +39,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "init":
         return _cmd_init(args)
-    if args.command == "serve":
-        return _cmd_serve(args)
+    if args.command == "start":
+        return _cmd_start(args)
     if args.command == "classify":
         return _cmd_classify(args)
     if args.command == "status":
@@ -72,12 +72,12 @@ def _build_parser() -> argparse.ArgumentParser:
         help="also insert demo Intelligence-page issues (only meaningful with a database configured)",
     )
 
-    serve_parser = subparsers.add_parser(
-        "serve",
+    start_parser = subparsers.add_parser(
+        "start",
         help="run the honeypot listeners and the API/dashboard together until Ctrl+C",
     )
-    serve_parser.add_argument("--api-host", default="0.0.0.0", help="API/dashboard bind host (default: 0.0.0.0)")
-    serve_parser.add_argument("--api-port", type=int, default=8000, help="API/dashboard bind port (default: 8000)")
+    start_parser.add_argument("--api-host", default="0.0.0.0", help="API/dashboard bind host (default: 0.0.0.0)")
+    start_parser.add_argument("--api-port", type=int, default=8000, help="API/dashboard bind port (default: 8000)")
 
     classify_parser = subparsers.add_parser(
         "classify",
@@ -106,7 +106,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     subparsers.add_parser(
         "stop",
-        help="stop a running 'echidra serve' from another terminal (reads PIDs from logs/echidra.pid)",
+        help="stop a running 'echidra start' from another terminal (reads PIDs from logs/echidra.pid)",
     )
 
     subparsers.add_parser(
@@ -176,14 +176,14 @@ def _ensure_env_var(key: str, value_factory) -> None:
 
 
 # ---------------------------------------------------------------------------
-# serve
+# start
 # ---------------------------------------------------------------------------
 
 
-def _cmd_serve(args: argparse.Namespace) -> int:
+def _cmd_start(args: argparse.Namespace) -> int:
     existing_pids = [pid for pid in _read_pid_file() if _pid_is_alive(pid)]
     if existing_pids:
-        print(f"A previous 'echidra serve' still appears to be running (PID {', '.join(map(str, existing_pids))}).")
+        print(f"A previous 'echidra start' still appears to be running (PID {', '.join(map(str, existing_pids))}).")
         print("Run 'echidra stop' first (or 'sudo echidra stop' if that reports permission denied), "
               "then try again.")
         return 1
@@ -304,7 +304,7 @@ def _read_pid_file() -> list[int]:
         # os.kill() treats pid <= 0 specially (0 = your whole process group,
         # -1 = every process you can signal) -- reject those, and anything
         # above the platform's own PID ceiling, before they ever reach
-        # _pid_is_alive/_cmd_stop/_check_serve_process.
+        # _pid_is_alive/_cmd_stop/_check_start_process.
         if 0 < pid <= max_pid:
             pids.append(pid)
     return pids
@@ -318,7 +318,7 @@ def _read_pid_file() -> list[int]:
 def _cmd_stop(args: argparse.Namespace) -> int:
     pids = _read_pid_file()
     if not pids:
-        print(f"No PID file at {PID_PATH} -- 'echidra serve' doesn't appear to be running.")
+        print(f"No PID file at {PID_PATH} -- 'echidra start' doesn't appear to be running.")
         return 0
 
     signaled = []
@@ -399,21 +399,21 @@ def _cmd_status(args: argparse.Namespace) -> int:
     print("Echidra status")
     print("=" * 40)
 
-    _check_serve_process()
+    _check_start_process()
     _check_honeypot_listeners()
     _check_api(args.api_host, args.api_port)
     _check_database()
     return 0
 
 
-def _check_serve_process() -> None:
+def _check_start_process() -> None:
     pids = [pid for pid in _read_pid_file() if _pid_is_alive(pid)]
     if pids:
-        print(f"  echidra serve    running (PID {', '.join(map(str, pids))})")
+        print(f"  echidra start    running (PID {', '.join(map(str, pids))})")
     else:
-        print("  echidra serve    not running (no active pidfile at "
+        print("  echidra start    not running (no active pidfile at "
               f"{PID_PATH}) -- listeners below may still belong to a "
-              "process started outside 'echidra serve'")
+              "process started outside 'echidra start'")
 
 
 def _check_honeypot_listeners() -> None:

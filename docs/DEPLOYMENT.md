@@ -29,7 +29,7 @@ dashboard session cookies (see below).
 ## Local machine
 
 Covered in full in the [README Quick Start](../README.md#quick-start)
-(`echidra init` / `echidra serve` / `echidra status`) and in
+(`echidra init` / `echidra start` / `echidra status`) and in
 [TESTING_GUIDE.md](TESTING_GUIDE.md#manual-testing-guide) if you'd rather run
 each service in its own terminal. No systemd units, containers, or a
 dedicated `echidra` user — just a clone, a virtualenv, and `.env`.

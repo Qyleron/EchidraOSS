@@ -186,7 +186,7 @@ Then confirm capture: `tail -1 logs/sessions.jsonl` should show
 
 ### Stopping a running serve
 
-If `echidra serve` is running in the background or was orphaned by a
+If `echidra start` is running in the background or was orphaned by a
 closed terminal:
 
     echidra stop

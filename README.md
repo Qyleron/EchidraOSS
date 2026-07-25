@@ -125,7 +125,7 @@ A handful of commands, no need to know the underlying modules:
 pip install -e .   # installs Echidra + puts the `echidra` command on your PATH
 echidra help         # lists every subcommand (init/serve/stop/classify/status) with its own --help
 echidra init        # creates .env, generates ECHIDRA_INGEST_API_KEY, initializes the schema (if ECHIDRA_DATABASE_URL is set)
-echidra serve        # runs the honeypot listeners and the API/dashboard together until Ctrl+C
+echidra start        # runs the honeypot listeners and the API/dashboard together until Ctrl+C
 echidra status       # in a second shell: confirms listeners/API/database are actually up and reports session counts
 echidra stop         # in a second shell: stops a `serve`
 ```
@@ -201,7 +201,7 @@ Default listeners:
 | Telnet | 2323 | `ECHIDRA_TELNET_PORT` |
 
 Set any protocol port to `0` to disable that listener. Pick a persona with
-`ECHIDRA_PERSONA=ubuntu_web_server` set before `echidra serve` (or
+`ECHIDRA_PERSONA=ubuntu_web_server` set before `echidra start` (or
 `python -m honeypot.main`).
 
 Signup is only open until the first dashboard account exists — after that it
@@ -222,8 +222,8 @@ manual test commands.
   `pip install -e .` installed into. Activate that virtualenv first, or run
   the CLI as `python -m echidra` instead.
 - `echidra status` shows a listener/API as unreachable — check the other
-  shell running `echidra serve` for a traceback; a common cause is a port in
-  the table above already being in use, often a previous `echidra serve`
+  shell running `echidra start` for a traceback; a common cause is a port in
+  the table above already being in use, often a previous `echidra start`
   that's still running (e.g. its terminal was closed instead of Ctrl+C'd).
   Run `echidra stop` to stop it. Otherwise, use `ss -tulnp | grep <port>` to
   identify the PID and terminate it only if it is the stale Echidra process.
@@ -241,7 +241,7 @@ manual test commands.
 ## One persona at a time
 
 Echidra runs **one active persona** at a time — set it with
-`ECHIDRA_PERSONA=ubuntu_web_server` before `echidra serve`. The five
+`ECHIDRA_PERSONA=ubuntu_web_server` before `echidra start`. The five
 presets visible in the dashboard are configuration choices, not five
 simultaneous honeypots.
 
