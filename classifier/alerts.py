@@ -46,10 +46,20 @@ def _maybe_send_alert(
         repository = PostgresClassifierRepository()
         config = repository.get_alert_config()
         if config is None or not config.enabled:
+            logger.info(
+                "Alert skipped for session %s: global alert config is missing or disabled",
+                session.session_id,
+            )
             return
 
         persona_config = repository.get_persona_config(session.persona_id)
         if persona_config is None or persona_config.alert_routing_level == "none":
+            logger.info(
+                "Alert skipped for session %s: no persona_configs row for %r "
+                "(or its alert_routing_level is 'none')",
+                session.session_id,
+                session.persona_id,
+            )
             return
 
         # The persona's own alert_min_risk_level, when set, is authoritative --
@@ -58,6 +68,12 @@ def _maybe_send_alert(
         # fall back to the global default when the persona hasn't set one.
         effective_threshold = persona_config.alert_min_risk_level or config.global_min_risk_level
         if not _risk_meets_threshold(summary.risk_level, effective_threshold):
+            logger.info(
+                "Alert skipped for session %s: risk_level %r below effective threshold %r",
+                session.session_id,
+                summary.risk_level,
+                effective_threshold,
+            )
             return
 
         # "both" fires each configured channel independently -- a persona
@@ -120,6 +136,27 @@ def _alert_evidence_lines(summary: ClassificationSummary, *, bullet: str) -> str
     return lines or f"{bullet}(none)"
 
 
+def _html_escape(value: str) -> str:
+    return (
+        value.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+    )
+
+
+def _alert_html_field_rows(fields: list[tuple[str, str]]) -> str:
+    return "\n".join(
+        f'<tr><td style="padding:4px 12px 4px 0;color:#555;"><b>{_html_escape(label)}</b></td>'
+        f'<td style="padding:4px 0;">{_html_escape(value)}</td></tr>'
+        for label, value in fields
+    )
+
+
+def _alert_html_evidence(summary: ClassificationSummary) -> str:
+    items = [e.text for e in summary.evidence] or ["(none)"]
+    return "".join(f"<li>{_html_escape(item)}</li>" for item in items)
+
+
 def _dispatch_alert_email(
     config: AlertConfigRecord,
     recipient: str,
@@ -128,22 +165,33 @@ def _dispatch_alert_email(
     summary: ClassificationSummary,
 ) -> str | None:
     subject = f"[Echidra Alert] {summary.risk_level.upper()} risk session on {session.persona_id}"
+    fields = [
+        ("Risk Level", summary.risk_level.upper()),
+        ("Risk Score", f"{summary.risk_score}/100"),
+        ("Actor", summary.actor_label or "unknown"),
+        ("Behavior", summary.behavior_stage),
+        ("Intent", summary.intent),
+        ("Persona", session.persona_id),
+        ("Peer IP", session.peer_ip or "unknown"),
+        ("Session ID", str(session.session_id)),
+        ("Run ID", str(run.id) if run is not None else "live-session"),
+        ("MITRE", _alert_mitre_str(summary)),
+    ]
     body = (
         f"ECHIDRA HONEYPOT ALERT\n"
         f"{'=' * 40}\n\n"
-        f"Risk Level:    {summary.risk_level.upper()}\n"
-        f"Risk Score:    {summary.risk_score}/100\n"
-        f"Actor:         {summary.actor_label or 'unknown'}\n"
-        f"Behavior:      {summary.behavior_stage}\n"
-        f"Intent:        {summary.intent}\n"
-        f"Persona:       {session.persona_id}\n"
-        f"Peer IP:       {session.peer_ip or 'unknown'}\n"
-        f"Session ID:    {session.session_id}\n"
-        f"Run ID:        {run.id if run is not None else 'live-session'}\n\n"
-        f"MITRE: {_alert_mitre_str(summary)}\n\n"
-        f"Evidence:\n{_alert_evidence_lines(summary, bullet='  - ')}\n"
+        + "\n".join(f"{label}: {value}" for label, value in fields)
+        + f"\n\nEvidence:\n{_alert_evidence_lines(summary, bullet='  - ')}\n"
     )
-    return _smtp_send(config, recipient, subject, body)
+    html_body = (
+        '<div style="font-family:sans-serif;font-size:14px;color:#111;">'
+        f'<h2 style="margin:0 0 12px;">Echidra Honeypot Alert</h2>'
+        f'<table cellspacing="0" cellpadding="0">{_alert_html_field_rows(fields)}</table>'
+        '<p style="margin:16px 0 4px;"><b>Evidence</b></p>'
+        f'<ul style="margin:4px 0;padding-left:20px;">{_alert_html_evidence(summary)}</ul>'
+        "</div>"
+    )
+    return _smtp_send(config, recipient, subject, body, html_body)
 
 
 def _dispatch_alert_slack(
@@ -190,20 +238,27 @@ def _smtp_send(
     recipient: str,
     subject: str,
     body: str,
+    html_body: str | None = None,
 ) -> str | None:
     """Low-level SMTP send. Returns error string on failure, None on success.
 
     Shared by real alert dispatch (this module) and the dashboard's "Send
     Test Email" button (classifier/api/app.py imports this function) so the
     two paths can't drift out of sync again.
+
+    html_body, when given, is attached alongside the plain-text body as a
+    multipart/alternative part -- most mail clients prefer and render that
+    one, falling back to the plain-text part only if they can't do HTML.
     """
     if not config.smtp_host:
         return "smtp_host not configured"
-    msg = email.mime.multipart.MIMEMultipart()
+    msg = email.mime.multipart.MIMEMultipart("alternative" if html_body else "mixed")
     msg["From"] = config.smtp_from_email or config.smtp_host
     msg["To"] = recipient
     msg["Subject"] = subject
     msg.attach(email.mime.text.MIMEText(body, "plain"))
+    if html_body:
+        msg.attach(email.mime.text.MIMEText(html_body, "html"))
 
     raw_password = None
     if config.smtp_username:
