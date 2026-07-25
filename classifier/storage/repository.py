@@ -1267,8 +1267,8 @@ class PostgresClassifierRepository:
         """Update one persona config and return the stored record, or None if not found."""
         from datetime import datetime, timezone
         now = datetime.now(timezone.utc)
-        params: dict[str, Any] = config.dict()
-        params.update({"id": persona_id, "updated_at": now})
+        record = PersonaConfigRecord(id=persona_id, created_at=now, updated_at=now, **config.dict())
+        params = _persona_config_params(record)
 
         # Use UPDATE ... RETURNING to atomically verify the row was updated and
         # to retrieve the stored values (avoids TOCTOU races between a prior

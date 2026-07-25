@@ -62,7 +62,7 @@
           <div class="modal" id="modalPanel">
             <div class="modal-header">
               <h2 id="modalTitle">Configure Persona</h2>
-              <button class="modal-close" id="modalCloseBtn" aria-label="Close">&times;</button>
+              <button class="modal-close modal-close-danger" id="modalCloseBtn" aria-label="Close">&times;</button>
             </div>
             <div class="modal-body" id="modalFormContainer"></div>
           </div>
@@ -252,7 +252,7 @@
       var portStr = (ports && ports.length) ? ports.join(", ") : "—";
       var actionLabel = hasConfig ? "Edit Config" : "Customize";
       var deleteBtn = hasConfig
-        ? '<button type="button" class="text-button delete-btn" data-id="' + escAttr(id) + '" style="margin-left:8px;border-color:rgba(255,92,112,0.3);color:#ff9aa6;">Delete</button>'
+        ? '<button type="button" class="text-button delete-btn" data-id="' + escAttr(id) + '" style="margin-left:8px;border-color:#e5484d;color:#e5484d;">Delete</button>'
         : "";
       return '<tr data-persona-row="' + escAttr(id) + '">'
         + '<td><div class="cell-primary"><strong>' + escHtml(id) + '</strong></div></td>'
