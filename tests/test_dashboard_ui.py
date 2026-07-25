@@ -383,10 +383,10 @@ def test_disabled_pagination_button_does_not_pick_up_hover_styling():
         "}"
     ) in css
 
-    # The persona-config modal's own close button must be unaffected --
-    # only the logout modal gets the danger treatment.
+    # Every modal close button (logout, persona config) uses the same red
+    # danger styling for visual consistency.
     personas_html = (DASHBOARD_PUBLIC_PATH / "personas.html").read_text(encoding="utf-8")
-    assert 'class="modal-close" id="modalCloseBtn"' in personas_html
+    assert 'class="modal-close modal-close-danger" id="modalCloseBtn"' in personas_html
 
 
 def test_sessions_table_persona_column_shows_only_the_friendly_name():
