@@ -27,6 +27,10 @@ ENV_EXAMPLE_PATH = REPO_ROOT / ".env.example"
 # ReadWritePaths, Compose's echidra_logs volume, and locally) -- reusing it
 # avoids needing a new directory just for this.
 PID_PATH = REPO_ROOT / "logs" / "echidra.pid"
+# Checked once at import time so a per-pid /proc/<pid>/cmdline read failure
+# can be trusted to mean "not our process" rather than "no /proc support here
+# at all" (eg. non-Linux) -- see _pid_is_echidra_process().
+_PROC_FS_AVAILABLE = os.path.isdir("/proc")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -381,16 +385,24 @@ def _pid_is_echidra_process(pid: int) -> bool:
     PID the OS recycled for an unrelated program after ours already exited
     -- which would otherwise let `echidra stop` send SIGTERM to a stranger
     process, or `echidra start` refuse to start over a merely coincidental
-    PID match. /proc/<pid>/cmdline is Linux-only and unreadable for another
-    user's process; either case falls back to liveness alone rather than
-    refusing to ever recognize our own process.
+    PID match.
+
+    /proc/<pid>/cmdline is only unreadable here for reasons that both mean
+    "not ours": the process already exited (races os.kill(pid, 0) above --
+    ProcessLookupError), or it's owned by a different user (our own child
+    always runs as us, so we can always read its cmdline). The one case
+    that isn't "not ours" is /proc not existing at all (non-Linux) -- that's
+    checked once, separately, so a real echidra process isn't misreported
+    as foreign just because this host has no /proc.
     """
     if not _pid_is_alive(pid):
         return False
+    if not _PROC_FS_AVAILABLE:
+        return True
     try:
         cmdline = Path(f"/proc/{pid}/cmdline").read_bytes().decode("utf-8", "replace")
     except OSError:
-        return True
+        return False
     return "honeypot.main" in cmdline or "classifier.api.app" in cmdline
 
 
@@ -427,7 +439,7 @@ def _cmd_status(args: argparse.Namespace) -> int:
 
 
 def _check_start_process() -> None:
-    pids = [pid for pid in _read_pid_file() if _pid_is_alive(pid)]
+    pids = [pid for pid in _read_pid_file() if _pid_is_echidra_process(pid)]
     if pids:
         print(f"  echidra start    running (PID {', '.join(map(str, pids))})")
     else:
