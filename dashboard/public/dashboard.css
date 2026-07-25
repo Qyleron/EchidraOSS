@@ -1576,6 +1576,18 @@ a {
   color: #ff5c62;
 }
 
+.delete-btn {
+  border-color: #e5484d;
+  color: #e5484d;
+}
+
+.delete-btn:hover,
+.delete-btn:focus-visible {
+  border-color: #ff5c62;
+  color: #ff5c62;
+  background: var(--surface-hover);
+}
+
 .modal-body {
   overflow-y: auto;
   padding: 0;
