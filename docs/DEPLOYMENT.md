@@ -14,7 +14,7 @@ Three supported paths:
 > **Important:** Run only one of these on a given host at a time. All three
 > bind the same ports (2222/8080/2121/2323, and 8000 for the dashboard) —
 > starting a second path while another is already running (e.g. `echidra
-> serve` on a machine that also has `docker compose up` running) fails with
+> start` on a machine that also has `docker compose up` running) fails with
 > "address already in use", or worse, silently binds whichever ports the
 > first one hadn't already claimed. `echidra stop` and `docker compose down`
 > stop their respective path; nothing currently detects the other one

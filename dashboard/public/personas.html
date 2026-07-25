@@ -252,7 +252,7 @@
       var portStr = (ports && ports.length) ? ports.join(", ") : "—";
       var actionLabel = hasConfig ? "Edit Config" : "Customize";
       var deleteBtn = hasConfig
-        ? '<button type="button" class="text-button delete-btn" data-id="' + escAttr(id) + '" style="margin-left:8px;border-color:#e5484d;color:#e5484d;">Delete</button>'
+        ? '<button type="button" class="text-button delete-btn" data-id="' + escAttr(id) + '" style="margin-left:8px;">Delete</button>'
         : "";
       return '<tr data-persona-row="' + escAttr(id) + '">'
         + '<td><div class="cell-primary"><strong>' + escHtml(id) + '</strong></div></td>'
