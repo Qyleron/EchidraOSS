@@ -45,6 +45,22 @@
       </div>
     </div>
 
+    <div id="deleteConfirmModal" class="modal-backdrop" hidden aria-modal="true" role="dialog" aria-labelledby="deleteConfirmTitle">
+      <div class="modal" style="max-width:420px;">
+        <div class="modal-header">
+          <h2 id="deleteConfirmTitle">Delete Persona Config</h2>
+          <button class="modal-close modal-close-danger" id="deleteConfirmCloseBtn" type="button" aria-label="Close">&times;</button>
+        </div>
+        <div class="modal-body" style="padding:22px;">
+          <p id="deleteConfirmText" style="margin:0 0 18px;color:var(--muted);"></p>
+          <div style="display:flex;justify-content:flex-end;gap:8px;">
+            <button type="button" class="text-button" id="deleteCancelBtn">Cancel</button>
+            <button type="button" class="text-button delete-btn" id="deleteConfirmBtn">Delete</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <main class="dashboard-main">
       <section class="page-panel" aria-labelledby="personasTitle">
         <div class="page-panel-header">
@@ -707,18 +723,82 @@
       }
     }
 
-    async function deletePersonaConfig(personaId) {
-      if (!confirm('Delete saved configuration for "' + personaId + '"? The preset still exists.')) return;
+    // ── Delete confirmation modal (styled, matches logout's) ──────────────────
+    var deleteConfirmModal = document.getElementById("deleteConfirmModal");
+    var deleteConfirmText = document.getElementById("deleteConfirmText");
+    var deleteConfirmBtn = document.getElementById("deleteConfirmBtn");
+    var deletePersonaId = null;
+    var deleteTriggerEl = null;
+
+    function getDeleteModalFocusable() {
+      return Array.prototype.slice.call(
+        deleteConfirmModal.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')
+      ).filter(function (el) { return !el.disabled; });
+    }
+
+    function openDeleteConfirm(personaId, triggerEl) {
+      deletePersonaId = personaId;
+      deleteTriggerEl = triggerEl || null;
+      deleteConfirmText.textContent = 'Delete saved configuration for "' + personaId + '"? The preset still exists.';
+      deleteConfirmModal.hidden = false;
+      var focusable = getDeleteModalFocusable();
+      if (focusable[0]) focusable[0].focus();
+    }
+
+    function closeDeleteConfirm() {
+      deleteConfirmModal.hidden = true;
+      deletePersonaId = null;
+      if (deleteTriggerEl) deleteTriggerEl.focus();
+    }
+
+    function trapDeleteModalTab(event) {
+      if (event.key !== "Tab" || deleteConfirmModal.hidden) return;
+      var focusable = getDeleteModalFocusable();
+      if (focusable.length === 0) return;
+      var first = focusable[0];
+      var last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+
+    async function performDelete() {
+      var personaId = deletePersonaId;
+      if (!personaId) return;
+      deleteConfirmBtn.disabled = true;
       try {
         var resp = await fetch("/persona-configs/" + encodeURIComponent(personaId), { method: "DELETE" });
         if (!resp.ok && resp.status !== 404) throw new Error("HTTP " + resp.status);
         delete allConfigs[personaId];
+        closeDeleteConfirm();
         closeModal();
         renderPersonaRows(allPresets, allConfigs);
         populateSelector(allPresets, Object.values(allConfigs));
       } catch (err) {
+        closeDeleteConfirm();
         alert("Delete failed: " + err.message);
+      } finally {
+        deleteConfirmBtn.disabled = false;
       }
+    }
+
+    document.getElementById("deleteConfirmCloseBtn").addEventListener("click", closeDeleteConfirm);
+    document.getElementById("deleteCancelBtn").addEventListener("click", closeDeleteConfirm);
+    deleteConfirmBtn.addEventListener("click", performDelete);
+    deleteConfirmModal.addEventListener("click", function (event) {
+      if (event.target === deleteConfirmModal) closeDeleteConfirm();
+    });
+    document.addEventListener("keydown", trapDeleteModalTab);
+    document.addEventListener("keydown", function (event) {
+      if (event.key === "Escape" && !deleteConfirmModal.hidden) closeDeleteConfirm();
+    });
+
+    function deletePersonaConfig(personaId, triggerEl) {
+      openDeleteConfirm(personaId, triggerEl);
     }
 
     // ── Table event delegation (open/delete only) ──────────────────────────────
@@ -729,7 +809,7 @@
       if (customize) { openModal(customize.dataset.id); return; }
 
       var del = evt.target.closest(".delete-btn");
-      if (del) { deletePersonaConfig(del.dataset.id); return; }
+      if (del) { deletePersonaConfig(del.dataset.id, del); return; }
     });
 
     // ── Modal form event delegation ────────────────────────────────────────────

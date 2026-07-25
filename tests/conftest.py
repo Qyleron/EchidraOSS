@@ -18,6 +18,7 @@ def clear_persona_db_lookup(monkeypatch):
     explicitly with their own monkeypatch.setenv("ECHIDRA_DATABASE_URL",
     ...), which overrides this per-test."""
     monkeypatch.delenv("ECHIDRA_DATABASE_URL", raising=False)
+    honeypot_config.clear_active_persona_cache()
     yield
     honeypot_config.clear_active_persona_cache()
 
