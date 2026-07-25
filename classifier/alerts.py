@@ -48,13 +48,14 @@ def _maybe_send_alert(
         if config is None or not config.enabled:
             return
 
-        if not _risk_meets_threshold(summary.risk_level, config.global_min_risk_level):
-            return
-
         persona_config = repository.get_persona_config(session.persona_id)
         if persona_config is None or persona_config.alert_routing_level == "none":
             return
 
+        # The persona's own alert_min_risk_level, when set, is authoritative --
+        # it can loosen the bar below the global default (eg. an operator wants
+        # every hit on a decoy persona flagged) as well as tighten it. Only
+        # fall back to the global default when the persona hasn't set one.
         effective_threshold = persona_config.alert_min_risk_level or config.global_min_risk_level
         if not _risk_meets_threshold(summary.risk_level, effective_threshold):
             return
