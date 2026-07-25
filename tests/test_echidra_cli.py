@@ -153,6 +153,10 @@ def test_check_start_process_reports_running_with_pids(monkeypatch, tmp_path, ca
     pid_path = tmp_path / "echidra.pid"
     monkeypatch.setattr(cli, "PID_PATH", pid_path)
     pid_path.write_text(f"{os.getpid()}\n", encoding="utf-8")
+    # This test's own PID stands in for a running child, but pytest's real
+    # cmdline obviously doesn't contain "honeypot.main" -- bypass the
+    # ownership check itself rather than trying to fake this process's argv.
+    monkeypatch.setattr(cli, "_pid_is_echidra_process", lambda pid: True)
 
     cli._check_start_process()
 
@@ -418,7 +422,11 @@ def test_stop_leaves_pidfile_when_permission_denied(monkeypatch, tmp_path, capsy
     pid_path = tmp_path / "echidra.pid"
     monkeypatch.setattr(cli, "PID_PATH", pid_path)
     pid_path.write_text("4242\n", encoding="utf-8")
-    monkeypatch.setattr(cli, "_pid_is_alive", lambda pid: True)
+    # PID 4242 doesn't exist in the test environment, so the real ownership
+    # check would fail closed before ever reaching os.kill -- bypass it
+    # directly to exercise the PermissionError-from-os.kill path this test
+    # is actually about.
+    monkeypatch.setattr(cli, "_pid_is_echidra_process", lambda pid: True)
 
     def fake_kill(pid, sig):
         raise PermissionError()
