@@ -172,7 +172,7 @@ def _dispatch_alert_email(
         ("Behavior", summary.behavior_stage),
         ("Intent", summary.intent),
         ("Persona", session.persona_id),
-        ("Peer IP", session.peer_ip or "unknown"),
+        ("Peer IP", str(session.peer_ip) if session.peer_ip else "unknown"),
         ("Session ID", str(session.session_id)),
         ("Run ID", str(run.id) if run is not None else "live-session"),
         ("MITRE", _alert_mitre_str(summary)),

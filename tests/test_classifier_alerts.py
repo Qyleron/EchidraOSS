@@ -339,7 +339,7 @@ def test_maybe_send_alert_dispatches_to_both_channels_when_routing_is_both(monke
         _alert_config(),
         _persona_config(alert_routing_level="both", contact_email="analyst@example.com"),
     )
-    monkeypatch.setattr(alerts_module, "_smtp_send", lambda config, recipient, subject, body: None)
+    monkeypatch.setattr(alerts_module, "_smtp_send", lambda config, recipient, subject, body, html_body=None: None)
     monkeypatch.setattr(alerts_module, "_slack_post", lambda url, text: None)
 
     alerts_module._maybe_send_alert(None, session, summary)
@@ -360,7 +360,7 @@ def test_maybe_send_alert_skips_slack_channel_when_webhook_not_configured(monkey
             slack_webhook=None,
         ),
     )
-    monkeypatch.setattr(alerts_module, "_smtp_send", lambda config, recipient, subject, body: None)
+    monkeypatch.setattr(alerts_module, "_smtp_send", lambda config, recipient, subject, body, html_body=None: None)
 
     alerts_module._maybe_send_alert(None, session, summary)
 

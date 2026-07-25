@@ -251,6 +251,16 @@
     });
 
     // ── Alert history ──────────────────────────────────────────────────────────
+    // Matches sessions.html/index.html's badgeTier() so a "high" or "critical"
+    // risk badge looks identical on every dashboard page (the shared
+    // .risk-badge.high/.medium/.low CSS classes have no separate "critical"
+    // rule, so critical folds into the "high" tier's styling everywhere).
+    function badgeTier(riskLevel) {
+      if (riskLevel === "critical" || riskLevel === "high") return "high";
+      if (riskLevel === "medium") return "medium";
+      return "low";
+    }
+
     async function loadAlertEvents() {
       var tbody = document.getElementById("alertEventsBody");
       tbody.innerHTML = '<tr><td colspan="7" class="table-loader-cell"><div class="spinner" role="status" aria-label="Loading alert history"></div></td></tr>';
@@ -279,11 +289,6 @@
         tbody.innerHTML = events.map(function(ev) {
           var dt = new Date(ev.sent_at);
           var timeStr = dt.toLocaleString();
-          var riskClass = (ev.risk_level === "critical" || ev.risk_level === "high")
-            ? "var(--critical)"
-            : ev.risk_level === "medium"
-            ? "var(--medium)"
-            : "var(--low)";
           var errorSnippet = ev.error_message
             ? '<div style="font-size:11px;color:var(--muted);margin-top:3px;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + escAttr(ev.error_message) + '">' + escHtml(ev.error_message.slice(0, 60)) + '</div>'
             : '';
@@ -293,7 +298,7 @@
           return '<tr>'
             + '<td class="mono-cell" style="font-size:12px;">' + escHtml(timeStr) + '</td>'
             + '<td>' + escHtml(ev.persona_id) + '</td>'
-            + '<td><span class="risk-badge" style="min-width:60px;background:rgba(0,0,0,0.3);color:' + riskClass + ';">' + escHtml(ev.risk_level) + '</span></td>'
+            + '<td><span class="risk-badge ' + badgeTier(ev.risk_level) + '" style="min-width:60px;">' + escHtml(ev.risk_level) + '</span></td>'
             + '<td>' + escHtml(ev.actor_label || "—") + '</td>'
             + '<td>' + escHtml({slack: "Slack", both: "Slack + Email"}[ev.channel] || "Email") + '</td>'
             + '<td class="mono-cell" style="font-size:12px;">' + escHtml(ev.contact_email || "—") + '</td>'
