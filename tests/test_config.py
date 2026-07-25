@@ -2,15 +2,8 @@ import pytest
 
 from honeypot.network import config
 
-
-@pytest.fixture(autouse=True)
-def clear_persona_db_lookup(monkeypatch):
-    """Keep these tests deterministic regardless of a locally-configured
-    ECHIDRA_DATABASE_URL — persona-from-DB behavior is tested explicitly
-    below with a fake repository, never a real connection."""
-    monkeypatch.delenv("ECHIDRA_DATABASE_URL", raising=False)
-    yield
-    config.clear_active_persona_cache()
+# clear_persona_db_lookup autouse fixture (delenv ECHIDRA_DATABASE_URL,
+# clear_active_persona_cache) now lives in tests/conftest.py, suite-wide.
 
 
 def test_active_persona_is_cached_until_env_persona_changes(monkeypatch):
