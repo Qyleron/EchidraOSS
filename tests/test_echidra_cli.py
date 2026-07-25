@@ -316,13 +316,15 @@ def test_cmd_start_returns_zero_for_signal_interrupts(monkeypatch, tmp_path):
 def test_cmd_start_refuses_to_start_over_a_still_running_previous_instance(monkeypatch, tmp_path, capsys):
     pid_path = tmp_path / "echidra.pid"
     monkeypatch.setattr(cli, "PID_PATH", pid_path)
-    # The trailing arg is never used by the script -- it's only there so this
-    # process's /proc/<pid>/cmdline matches _pid_is_echidra_process()'s
-    # ownership check, the same way a real `python -m honeypot.main` would.
-    proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)", "honeypot.main"])
+    proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
     pid_path.write_text(f"{proc.pid}\n", encoding="utf-8")
     popen_calls = []
     monkeypatch.setattr(cli.subprocess, "Popen", lambda cmd, **kw: popen_calls.append(cmd))
+    # This fake process can't actually run `-m honeypot.main` without
+    # starting the real honeypot -- exercise the real /proc read and
+    # liveness check, but stub just the argv-shape predicate so this
+    # unrelated `python -c ...` process is still recognized as "ours".
+    monkeypatch.setattr(cli, "_argv_matches_echidra_child", lambda argv: True)
 
     try:
         args = cli._build_parser().parse_args(["start", "--api-port", "8123"])
@@ -375,11 +377,13 @@ def test_stop_reports_nothing_running_when_pidfile_is_missing(monkeypatch, tmp_p
 def test_stop_terminates_a_real_process_and_removes_pidfile(monkeypatch, tmp_path, capsys):
     pid_path = tmp_path / "echidra.pid"
     monkeypatch.setattr(cli, "PID_PATH", pid_path)
-    # The trailing arg is never used by the script -- it's only there so this
-    # process's /proc/<pid>/cmdline matches _pid_is_echidra_process()'s
-    # ownership check, the same way a real `python -m honeypot.main` would.
-    proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)", "honeypot.main"])
+    proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
     pid_path.write_text(f"{proc.pid}\n", encoding="utf-8")
+    # This fake process can't actually run `-m honeypot.main` without
+    # starting the real honeypot -- exercise the real /proc read and
+    # liveness check, but stub just the argv-shape predicate so this
+    # unrelated `python -c ...` process is still recognized as "ours".
+    monkeypatch.setattr(cli, "_argv_matches_echidra_child", lambda argv: True)
     # os.kill(pid, 0) still succeeds on an exited-but-unreaped zombie, and this
     # test is the process's real parent (unlike a real `echidra stop` reading
     # a pidfile written by an unrelated process) -- reap it concurrently so
