@@ -76,7 +76,7 @@ async def main():
             # signal -- since they otherwise run until cancelled, that only
             # happens when every one of them has crashed. Exit with an error
             # instead of a clean 0, so nothing keeps running unnoticed with
-            # no listeners actually up, and the wrapping `echidra serve`
+            # no listeners actually up, and the wrapping `echidra start`
             # process reports the failure instead of looking successful.
             logger.critical("All protocol listeners have failed -- nothing is listening.")
             raise SystemExit(1)

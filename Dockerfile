@@ -11,5 +11,5 @@ USER echidra
 
 # docker-compose.yml overrides this per-service (honeypot vs. API); running
 # it standalone starts both together via the echidra CLI, same as
-# `echidra serve` outside a container.
-CMD ["python", "-m", "echidra", "serve"]
+# `echidra start` outside a container.
+CMD ["python", "-m", "echidra", "start"]
