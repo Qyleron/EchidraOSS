@@ -745,10 +745,19 @@
       if (focusable[0]) focusable[0].focus();
     }
 
-    function closeDeleteConfirm() {
+    // Hides the modal and clears its state without touching focus -- used by
+    // the success path below, where the trigger button is about to be
+    // destroyed by renderPersonaRows() rebuilding the whole table, so
+    // focusing it here would just be immediately undone.
+    function hideDeleteConfirm() {
       deleteConfirmModal.hidden = true;
       deletePersonaId = null;
-      if (deleteTriggerEl) deleteTriggerEl.focus();
+    }
+
+    function closeDeleteConfirm() {
+      var triggerEl = deleteTriggerEl;
+      hideDeleteConfirm();
+      if (triggerEl) triggerEl.focus();
     }
 
     function trapDeleteModalTab(event) {
@@ -774,10 +783,14 @@
         var resp = await fetch("/persona-configs/" + encodeURIComponent(personaId), { method: "DELETE" });
         if (!resp.ok && resp.status !== 404) throw new Error("HTTP " + resp.status);
         delete allConfigs[personaId];
-        closeDeleteConfirm();
+        hideDeleteConfirm();
         closeModal();
         renderPersonaRows(allPresets, allConfigs);
         populateSelector(allPresets, Object.values(allConfigs));
+        // The row (and its Delete button) this action was triggered from no
+        // longer exists after the re-render above -- land focus on a stable
+        // element instead of silently dropping it back to <body>.
+        document.getElementById("createPersonaBtn").focus();
       } catch (err) {
         closeDeleteConfirm();
         alert("Delete failed: " + err.message);

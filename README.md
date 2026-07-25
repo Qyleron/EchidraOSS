@@ -123,7 +123,7 @@ A handful of commands, no need to know the underlying modules:
 
 ```bash
 pip install -e .   # installs Echidra + puts the `echidra` command on your PATH
-echidra help         # lists every subcommand (init/start/stop/classify/status) with its own --help
+echidra help         # lists every subcommand (init/start/stop/classify/status/help) with its own --help
 echidra init        # creates .env, generates ECHIDRA_INGEST_API_KEY, initializes the schema (if ECHIDRA_DATABASE_URL is set)
 echidra start        # runs the honeypot listeners and the API/dashboard together until Ctrl+C
 echidra status       # in a second shell: confirms listeners/API/database are actually up and reports session counts
@@ -305,7 +305,7 @@ echidra_oss/
 │   ├── scoring/session.py
 │   └── storage/                 # repository, schema.sql, geolocation.py
 ├── dashboard/public/             # sessions/analytics/intelligence/personas/alerts.html
-├── echidra/cli.py                # `echidra` console script: init/start/stop/classify/status
+├── echidra/cli.py                # `echidra` console script: init/start/stop/classify/status/help
 ├── deploy/systemd/               # echidra-honeypot.service, echidra-api.service
 ├── tests/
 ├── docs/
