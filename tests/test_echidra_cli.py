@@ -21,7 +21,7 @@ def test_echidra_cli_help_lists_all_subcommands(capsys):
         cli.main(["--help"])
 
     captured = capsys.readouterr()
-    for subcommand in ("init", "start", "stop", "classify", "status"):
+    for subcommand in ("init", "start", "stop", "classify", "status", "help"):
         assert subcommand in captured.out
 
 
