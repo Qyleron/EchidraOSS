@@ -1,5 +1,6 @@
 import logging
 import os
+import time
 from pathlib import PurePosixPath
 
 from dotenv import load_dotenv
@@ -74,8 +75,21 @@ READ_TIMEOUT = _positive_int_from_env("ECHIDRA_READ_TIMEOUT", 60)
 SESSION_LOG_PATH = os.getenv("ECHIDRA_SESSION_LOG", "logs/sessions.jsonl")
 
 DEFAULT_PERSONA_ID = "generic_linux"
+# get_active_persona() is already called fresh per new connection (every
+# protocol handler calls it when a session starts) -- this cache exists only
+# to avoid a DB round-trip on every single connection, not because the
+# persona is looked up once per process lifetime. A short TTL keeps that
+# benefit under a connection burst (eg. a scanner hammering the honeypot)
+# while still picking up a dashboard-saved persona_configs change within a
+# few seconds, with no restart and no cross-process signaling needed -- the
+# API process saving the change and the honeypot process serving connections
+# are separate OS processes (see echidra/cli.py's `serve`), so an infinite
+# cache invalidated only by clear_active_persona_cache() (never actually
+# called anywhere) meant the only way to pick up a change was a restart.
+_PERSONA_CACHE_TTL_SECONDS = 5.0
 _cached_persona: Persona | None = None
 _cached_persona_id: str | None = None
+_cached_persona_expires_at: float | None = None
 
 
 def get_active_persona() -> Persona:
@@ -90,28 +104,39 @@ def get_active_persona() -> Persona:
       matches, or the lookup fails for any reason — the honeypot must keep
       working with zero DB setup.
     - Validate the result before any session uses it.
-
-    Call clear_active_persona_cache() after changing persona config at runtime.
+    - Cached for _PERSONA_CACHE_TTL_SECONDS to bound DB load under a
+      connection burst; call clear_active_persona_cache() to force an
+      immediate reload before that (eg. right after saving a config change
+      from the same process, if the caller and the honeypot ever share one).
     """
-    global _cached_persona, _cached_persona_id
+    global _cached_persona, _cached_persona_id, _cached_persona_expires_at
 
     persona_id = os.getenv("ECHIDRA_PERSONA", DEFAULT_PERSONA_ID)
-    if _cached_persona is None or _cached_persona_id != persona_id:
+    now = time.monotonic()
+    cache_valid = (
+        _cached_persona is not None
+        and _cached_persona_id == persona_id
+        and _cached_persona_expires_at is not None
+        and now < _cached_persona_expires_at
+    )
+    if not cache_valid:
         persona = _load_persona_from_db(persona_id)
         if persona is None:
             persona = get_persona(persona_id)
             validate_persona(persona)
         _cached_persona = persona
         _cached_persona_id = persona_id
+        _cached_persona_expires_at = now + _PERSONA_CACHE_TTL_SECONDS
 
     return _cached_persona
 
 
 def clear_active_persona_cache() -> None:
     """Force get_active_persona() to reload and revalidate config next time."""
-    global _cached_persona, _cached_persona_id
+    global _cached_persona, _cached_persona_id, _cached_persona_expires_at
     _cached_persona = None
     _cached_persona_id = None
+    _cached_persona_expires_at = None
 
 
 # Fields a saved persona_configs row doesn't capture yet (real login identity,

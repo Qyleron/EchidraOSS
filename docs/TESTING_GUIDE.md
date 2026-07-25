@@ -252,9 +252,9 @@ ECHIDRA_PERSONA=custom_demo python -m honeypot.main
 ```
 Then connect over the SSH-shell listener (section 1) — the login banner
 should show `custom-demo-01`, not a preset hostname. Editing the config
-afterward won't take effect on its own — the process caches the persona
-until `clear_active_persona_cache()` runs or the process restarts; that's
-expected, not a bug.
+afterward is cached for up to 5 seconds (`_PERSONA_CACHE_TTL_SECONDS` in
+`honeypot/network/config.py`) before a new connection picks it up — no
+restart needed; just wait a few seconds and reconnect.
 
 ---
 
