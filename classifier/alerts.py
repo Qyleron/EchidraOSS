@@ -32,6 +32,23 @@ def _risk_meets_threshold(risk_level: str, min_risk_level: str) -> bool:
         return False
 
 
+def _is_excluded_ip(excluded_ips: str | None, peer_ip) -> bool:
+    """True if peer_ip matches an operator-configured excluded-IP entry.
+
+    Exists because rules like repeat_connections_same_ip key off connection
+    frequency from an IP, not that connection's own content -- an operator's
+    own dev/test traffic against a stable IP (eg. 127.0.0.1) will eventually
+    self-trigger a brute_force_bot/T1110 alert with no actual credential
+    activity behind it. This lets an operator silence known-noisy sources
+    without touching the scoring rules themselves.
+    """
+    if not excluded_ips or not peer_ip:
+        return False
+    peer_ip_str = str(peer_ip).strip()
+    entries = {line.strip() for line in excluded_ips.replace(",", "\n").splitlines()}
+    return peer_ip_str in entries
+
+
 def _maybe_send_alert(
     run: ClassifierRunRecord | None,
     session: SessionRecord | dict,
@@ -49,6 +66,14 @@ def _maybe_send_alert(
             logger.info(
                 "Alert skipped for session %s: global alert config is missing or disabled",
                 session.session_id,
+            )
+            return
+
+        if _is_excluded_ip(config.excluded_ips, session.peer_ip):
+            logger.info(
+                "Alert skipped for session %s: peer_ip %s is on the excluded_ips list",
+                session.session_id,
+                session.peer_ip,
             )
             return
 

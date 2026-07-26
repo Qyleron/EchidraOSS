@@ -274,6 +274,16 @@ CREATE TABLE IF NOT EXISTS alert_config (
 -- use rather than a fixed value shared across every deployment.
 ALTER TABLE alert_config ADD COLUMN IF NOT EXISTS smtp_password_salt TEXT;
 
+-- Newline-separated list of source IPs that never trigger an alert, no
+-- matter what a scoring rule concludes about them. Exists because rules
+-- like repeat_connections_same_ip key off connection frequency from an IP,
+-- not that connection's own content -- so an operator's own dev/test
+-- traffic against a stable IP (eg. 127.0.0.1) will eventually self-trigger
+-- a brute_force_bot/T1110 alert with no actual credential activity behind
+-- it. This lets an operator silence known-noisy sources without touching
+-- the scoring rules themselves.
+ALTER TABLE alert_config ADD COLUMN IF NOT EXISTS excluded_ips TEXT;
+
 -- One row per alert dispatch attempt (email or Slack).
 CREATE TABLE IF NOT EXISTS alert_events (
     id UUID PRIMARY KEY,
