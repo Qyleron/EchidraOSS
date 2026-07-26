@@ -155,7 +155,7 @@
       <section class="page-panel" aria-labelledby="historyTitle">
         <div class="page-panel-header">
           <div class="page-panel-title">
-            <h2 id="historyTitle">Alert History</h2>
+            <h2 id="historyTitle" tabindex="-1">Alert History</h2>
             <p>Email dispatch records for all attempted alert notifications.</p>
           </div>
         </div>
@@ -409,6 +409,9 @@
       var hadFocusInside = alertEventsPaginationContainer.contains(document.activeElement);
       if (totalPages <= 1) {
         alertEventsPaginationContainer.innerHTML = "";
+        // The controls this click/focus was inside of no longer exist --
+        // land on the page title instead of silently dropping to <body>.
+        if (hadFocusInside) document.getElementById("historyTitle").focus();
         return;
       }
       alertEventsPaginationContainer.innerHTML = ''

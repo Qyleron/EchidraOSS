@@ -49,7 +49,7 @@
       <section class="page-panel" aria-labelledby="issuesTitle">
         <div class="page-panel-header">
           <div class="page-panel-title">
-            <h1 id="issuesTitle">Issue Intelligence</h1>
+            <h1 id="issuesTitle" tabindex="-1">Issue Intelligence</h1>
           </div>
         </div>
 
@@ -154,6 +154,9 @@
       const hadFocusInside = issuesPaginationContainer.contains(document.activeElement);
       if (totalPages <= 1) {
         issuesPaginationContainer.innerHTML = "";
+        // The controls this click/focus was inside of no longer exist --
+        // land on the page title instead of silently dropping to <body>.
+        if (hadFocusInside) document.getElementById("issuesTitle").focus();
         return;
       }
       issuesPaginationContainer.innerHTML = `

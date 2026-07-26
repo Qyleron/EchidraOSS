@@ -1651,7 +1651,7 @@ a {
 
 .alert-status-badge {
   display: inline-block;
-  padding: 2px 8px;
+  padding: 4px 8px;
   border-radius: 4px;
   font-size: 12px;
   font-weight: 600;

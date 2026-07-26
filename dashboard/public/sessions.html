@@ -49,7 +49,7 @@
       <section class="page-panel" aria-labelledby="sessionsTitle">
         <div class="page-panel-header">
           <div class="page-panel-title">
-            <h1 id="sessionsTitle">Captured Attacker Sessions</h1>
+            <h1 id="sessionsTitle" tabindex="-1">Captured Attacker Sessions</h1>
           </div>
           <div class="page-panel-actions">
             <select id="riskLevelFilter" class="form-select" style="width:150px;flex-shrink:0;" aria-label="Filter by risk level">
@@ -497,6 +497,9 @@
       const hadFocusInside = paginationContainer.contains(document.activeElement);
       if (totalPages <= 1) {
         paginationContainer.innerHTML = "";
+        // The controls this click/focus was inside of no longer exist --
+        // land on the page title instead of silently dropping to <body>.
+        if (hadFocusInside) document.getElementById("sessionsTitle").focus();
         return;
       }
       paginationContainer.innerHTML = `
