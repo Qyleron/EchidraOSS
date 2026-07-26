@@ -924,6 +924,7 @@ def create_app() -> FastAPI:
                 smtp_from_email=None,
                 smtp_use_tls=True,
                 global_min_risk_level="high",
+                excluded_ips=None,
             )
         except (DatabaseDriverMissingError, DatabaseNotConfiguredError) as exc:
             raise HTTPException(status_code=503, detail=_user_facing_error_detail(exc))

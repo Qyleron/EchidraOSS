@@ -400,6 +400,19 @@ def test_maybe_send_alert_skips_entirely_when_routing_is_none(monkeypatch):
     assert repository.inserted_events == []
 
 
+def test_maybe_send_alert_skips_entirely_when_peer_ip_is_excluded(monkeypatch):
+    session, summary = _session_and_summary()
+    repository = _patch_repository(
+        monkeypatch,
+        _alert_config(excluded_ips="10.0.0.5\n127.0.0.1\n"),
+        _persona_config(alert_routing_level="slack"),
+    )
+
+    alerts_module._maybe_send_alert(None, session, summary)
+
+    assert repository.inserted_events == []
+
+
 def test_maybe_send_alert_records_slack_failure(monkeypatch):
     session, summary = _session_and_summary()
     repository = _patch_repository(

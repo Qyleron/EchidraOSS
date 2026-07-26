@@ -122,6 +122,18 @@
                 <span style="font-size:12px;color:var(--muted);">Per-persona overrides are set on the Personas page.</span>
               </div>
 
+              <!-- Excluded IPs -->
+              <div class="form-row" style="grid-column:1/-1;padding-top:8px;">
+                <label class="form-label" for="excludedIps">Excluded IPs (never trigger an alert)</label>
+                <textarea class="form-input" id="excludedIps" rows="3" style="resize:vertical;font-family:monospace;padding-top:8px;" placeholder="One IP per line, e.g. 127.0.0.1"></textarea>
+                <span style="font-size:12px;color:var(--muted);">
+                  Some rules (e.g. repeat connections from the same IP) flag a source based on connection frequency,
+                  not that connection's content — so repeated local/dev testing against a stable IP will eventually
+                  trigger a brute-force alert with no real credential activity behind it. List IPs here (such as
+                  <code>127.0.0.1</code> during testing) to silence alerts from them entirely.
+                </span>
+              </div>
+
               <div style="grid-column:1/-1;padding-top:4px;">
                 <button type="submit" class="text-button">Save Configuration</button>
                 <span id="pwConfigured" style="margin-left:12px;font-size:12px;color:var(--muted);"></span>
@@ -265,6 +277,7 @@
         document.getElementById("smtpFromEmail").value = cfg.smtp_from_email || "";
         document.getElementById("smtpUseTls").checked = cfg.smtp_use_tls !== false;
         document.getElementById("globalMinRiskLevel").value = cfg.global_min_risk_level || "high";
+        document.getElementById("excludedIps").value = cfg.excluded_ips || "";
         var pwEl = document.getElementById("pwConfigured");
         pwEl.textContent = cfg.smtp_password_configured ? "Password saved." : "No password saved.";
       } catch (err) {
@@ -287,6 +300,7 @@
         smtp_from_email: document.getElementById("smtpFromEmail").value.trim() || null,
         smtp_use_tls: document.getElementById("smtpUseTls").checked,
         global_min_risk_level: document.getElementById("globalMinRiskLevel").value,
+        excluded_ips: document.getElementById("excludedIps").value.trim() || null,
       };
       try {
         var r = await fetch("/alerts/config", {
