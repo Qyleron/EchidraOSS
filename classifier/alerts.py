@@ -216,8 +216,17 @@ def _dispatch_alert_slack(
 
 
 def _slack_post(webhook_url: str, text: str) -> str | None:
-    if not webhook_url.startswith("https://"):
-        return "slack_webhook must be an https:// URL"
+    # Anchored to the real Slack webhook host, not just the https:// scheme --
+    # this is the one place both the real alert dispatch path and the
+    # dashboard's test-send endpoint funnel through, so it's the spot to stop
+    # an authenticated-but-untrusted caller from pointing the server at an
+    # arbitrary internal URL (cloud metadata service, internal admin panel,
+    # etc.) via SSRF. PersonaConfigInput.slack_webhook already enforces this
+    # at save time (classifier/storage/models.py); this is defense in depth
+    # for that path and the actual enforcement point for the test endpoint,
+    # which takes a webhook URL directly rather than a saved config.
+    if not webhook_url.startswith("https://hooks.slack.com/"):
+        return "slack_webhook must be an https://hooks.slack.com/ URL"
     request = urllib.request.Request(
         webhook_url,
         data=json.dumps({"text": text}).encode("utf-8"),

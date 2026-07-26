@@ -147,7 +147,26 @@ def test_slack_post_rejects_non_https_webhook(monkeypatch):
 
     err = alerts_module._slack_post("http://hooks.slack.com/services/T/B/X", "hello")
 
-    assert err == "slack_webhook must be an https:// URL"
+    assert err == "slack_webhook must be an https://hooks.slack.com/ URL"
+    assert called is False
+
+
+def test_slack_post_rejects_non_slack_https_host(monkeypatch):
+    """Guards the SSRF fix -- an https:// URL to an arbitrary host (eg. a
+    cloud metadata service or internal admin panel) must be rejected just
+    like a plain http:// one, not just checked for the scheme."""
+    called = False
+
+    def fake_urlopen(*args, **kwargs):
+        nonlocal called
+        called = True
+        return _FakeResponse(200)
+
+    monkeypatch.setattr(alerts_module.urllib.request, "urlopen", fake_urlopen)
+
+    err = alerts_module._slack_post("https://169.254.169.254/latest/meta-data/", "hello")
+
+    assert err == "slack_webhook must be an https://hooks.slack.com/ URL"
     assert called is False
 
 
