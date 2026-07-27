@@ -2,6 +2,25 @@
 name = "echidra-oss"
 version = "0.1.0"
 description = "A deceptive honeypot and post-session attacker-behavior classifier."
+readme = "README.md"
+license = { file = "LICENSE.md" }
+keywords = [
+    "honeypot",
+    "cybersecurity",
+    "threat-intelligence",
+    "intrusion-detection",
+    "mitre-attack",
+    "ssh-honeypot",
+    "deception-technology",
+    "security-monitoring",
+]
+classifiers = [
+    "License :: OSI Approved :: GNU Affero General Public License v3",
+    "Topic :: Security",
+    "Topic :: System :: Networking :: Monitoring",
+    "Intended Audience :: Information Technology",
+    "Programming Language :: Python :: 3.11",
+]
 requires-python = ">=3.11"
 dependencies = [
     "pydantic==1.10.13",
@@ -22,6 +41,11 @@ test = [
     "pytest==9.0.3",
     "pytest-asyncio==1.3.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/Qyleron/echidra-oss"
+Repository = "https://github.com/Qyleron/echidra-oss"
+Issues = "https://github.com/Qyleron/echidra-oss/issues"
 
 [project.scripts]
 echidra = "echidra.cli:main"

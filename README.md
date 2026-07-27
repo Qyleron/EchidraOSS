@@ -1,11 +1,15 @@
-# Echidra — Multi-Protocol Honeypot
+# Echidra — Multi-Protocol Honeypot & Attacker Behavior Classifier
 
 ![image](assets/Qyleron_Banner.png)
 
-Echidra is a deceptive honeypot that simulates attacker-facing systems, captures
-attacker behavior across four protocols, classifies it, and surfaces the
-result in a web dashboard — without ever executing real commands or exposing
-real data.
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](LICENSE.md)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](pyproject.toml)
+
+Echidra is an open-source deceptive honeypot and threat-intelligence platform
+that simulates attacker-facing SSH, HTTP, FTP, and Telnet services, captures
+real attacker behavior, classifies it against MITRE ATT&CK techniques, and
+surfaces the result in a web dashboard — without ever executing real commands
+or exposing real data.
 
 ---
 
@@ -62,7 +66,9 @@ dashboard.
   and open/closed status
 - **Personas** — per-persona identity, fake users, decoy files, alert routing,
   and per-persona analytics
-- **Alerts** — global SMTP config, send-test-email, and alert event history
+- **Alerts** — global SMTP config, send-test-email, alert event history, and
+  an excluded-IPs list to silence noisy sources (eg. your own dev/test
+  traffic) regardless of what a scoring rule concludes about them
 
 ---
 
