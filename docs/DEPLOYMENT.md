@@ -52,6 +52,12 @@ python -c "import secrets; print(secrets.token_urlsafe(32))"   # ECHIDRA_SESSION
 - `ECHIDRA_COOKIE_SECURE=true` — set this once the dashboard is served over
   HTTPS (it isn't by default; put a reverse proxy like Caddy or nginx in
   front for TLS termination in production).
+- `ECHIDRA_ALERT_SECRET` — required before SMTP email alerting actually
+  works (falls back to `ECHIDRA_SECRET_KEY` if unset). Encrypts the SMTP
+  password stored in `alert_config`. Unlike the keys above, omitting it
+  doesn't fail at startup — it raises the first time an alert email is
+  actually sent, so an operator who never configures SMTP may never notice
+  it's missing.
 
 ## Docker Compose
 
@@ -100,6 +106,12 @@ finishes -- three long-running containers remain afterward: `db`,
 `honeypot` (the four listeners), and `api` (dashboard + classifier API on
 port 8000). The `init-db` step only needs to run once — it's idempotent,
 so re-running it against an existing database is safe.
+
+Both `honeypot` and `api` bind-mount the host's `/etc/localtime` and
+`/etc/timezone` read-only, so container log timestamps automatically match
+the host machine's timezone — no `TZ` env var or manual config needed. The
+Dockerfile installs the `tzdata` apt package for this, since the
+`python:3.11-slim` base image doesn't include it.
 
 Ports published on the host: `2222` (SSH-style shell), `8080` (HTTP),
 `2121` (FTP), `2323` (Telnet). Adjust the `ports:` mappings in
@@ -162,7 +174,7 @@ cd /opt/echidra
 sudo python3 -m venv venv
 sudo ./venv/bin/pip install -e .
 sudo cp .env.example .env
-sudoedit /opt/echidra/.env   # set ECHIDRA_DATABASE_URL, ECHIDRA_INGEST_API_KEY, ECHIDRA_SESSION_SECRET
+sudoedit /opt/echidra/.env   # set ECHIDRA_DATABASE_URL, ECHIDRA_INGEST_API_KEY, ECHIDRA_SESSION_SECRET, ECHIDRA_ALERT_SECRET
 sudo mkdir -p logs data      # data/ persists the SSH host key -- see echidra-honeypot.service's ReadWritePaths
 sudo chown -R root:root /opt/echidra
 sudo chown echidra:echidra /opt/echidra/.env

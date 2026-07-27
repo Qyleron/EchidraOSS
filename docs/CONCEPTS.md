@@ -118,7 +118,13 @@ Alerts have two layers: a **global** SMTP config, and **per-persona**
 routing on top of it.
 
 Global SMTP config (host, port, credentials, from-email, TLS) is set once
-via the Alerts page (`PUT /alerts/config`). Per-persona settings on
+via the Alerts page (`PUT /alerts/config`), which also holds an
+`excluded_ips` list (newline-separated) of source IPs that never trigger an
+alert no matter what a scoring rule concludes about them — needed because
+rules like `repeat_connections_same_ip` key off connection *frequency* from
+an IP, not that connection's own content, so an operator's own stable-IP
+dev/test traffic will eventually self-trigger a `brute_force_bot`/T1110
+alert with no real credential activity behind it. Per-persona settings on
 `PersonaConfigInput` — `alert_routing_level` (`none`/`email`/`slack`/`both`)
 and `alert_min_risk_level` — gate whether and when *that persona's*
 classifications trigger an alert at all; they're edited on the Personas
@@ -132,6 +138,6 @@ session's risk meets that threshold — dispatches by email (needs
 `slack_webhook`), recording the result as an alert event.
 
 - `classifier/storage/models.py` — `PersonaConfigInput.alert_routing_level`,
-  `alert_min_risk_level`
-- `classifier/alerts.py` — alert dispatch (SMTP/Slack)
+  `alert_min_risk_level`; `AlertConfigInput.excluded_ips`
+- `classifier/alerts.py` — alert dispatch (SMTP/Slack), `_is_excluded_ip()`
 - `classifier/api/app.py` — alert config and test-send endpoints
