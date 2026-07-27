@@ -1,8 +1,8 @@
 FROM python:3.11-slim
 
-# tzdata lets the TZ env var (set per-service in docker-compose.yml) resolve
-# to real offset rules -- without it, glibc silently stays on UTC regardless
-# of what TZ is set to.
+# tzdata provides the /usr/share/zoneinfo database that /etc/localtime
+# (bind-mounted from the host in docker-compose.yml) resolves against --
+# without it, glibc silently stays on UTC regardless of what's mounted.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends tzdata \
     && rm -rf /var/lib/apt/lists/*

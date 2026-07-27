@@ -44,8 +44,23 @@ services:
       - echidra_logs:/app/logs
       # Match the host's clock/timezone automatically -- read-only so the
       # container can't affect the host, and no per-user config needed.
-      - /etc/localtime:/etc/localtime:ro
-      - /etc/timezone:/etc/timezone:ro
+      # create_host_path: false makes a host missing these paths (rare, but
+      # some minimal/CI hosts lack /etc/timezone) a loud "up" failure instead
+      # of Docker's default behavior of silently creating an empty directory
+      # at that path on the host and mounting that. If your host hits this,
+      # delete both entries below -- the container falls back to UTC.
+      - type: bind
+        source: /etc/localtime
+        target: /etc/localtime
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: /etc/timezone
+        target: /etc/timezone
+        read_only: true
+        bind:
+          create_host_path: false
       # SSH_HOST_KEY_PATH defaults to data/ssh_host_key -- without this on a
       # named volume, it lives in the container's writable layer and a fresh
       # key gets generated every time the container is recreated (down/up,
@@ -82,8 +97,23 @@ services:
       - echidra_logs:/app/logs
       # Match the host's clock/timezone automatically -- read-only so the
       # container can't affect the host, and no per-user config needed.
-      - /etc/localtime:/etc/localtime:ro
-      - /etc/timezone:/etc/timezone:ro
+      # create_host_path: false makes a host missing these paths (rare, but
+      # some minimal/CI hosts lack /etc/timezone) a loud "up" failure instead
+      # of Docker's default behavior of silently creating an empty directory
+      # at that path on the host and mounting that. If your host hits this,
+      # delete both entries below -- the container falls back to UTC.
+      - type: bind
+        source: /etc/localtime
+        target: /etc/localtime
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: /etc/timezone
+        target: /etc/timezone
+        read_only: true
+        bind:
+          create_host_path: false
     depends_on:
       db:
         condition: service_healthy

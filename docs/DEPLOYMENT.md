@@ -109,8 +109,13 @@ so re-running it against an existing database is safe.
 
 Both `honeypot` and `api` bind-mount the host's `/etc/localtime` and
 `/etc/timezone` read-only, so container log timestamps automatically match
-the host machine's timezone — no `TZ` env var or manual config needed. The
-Dockerfile installs the `tzdata` apt package for this, since the
+the host machine's timezone — no `TZ` env var or manual config needed. Both
+mounts set `create_host_path: false`, so a host missing either file (rare —
+some minimal/CI hosts lack `/etc/timezone`) fails loudly at `docker compose
+up` instead of Docker silently creating an empty directory there and
+mounting that; if you hit this, delete the two mount lines for the affected
+service in `docker-compose.yml` and it falls back to UTC. The Dockerfile
+installs the `tzdata` apt package for this, since the
 `python:3.11-slim` base image doesn't include it.
 
 Ports published on the host: `2222` (SSH-style shell), `8080` (HTTP),
