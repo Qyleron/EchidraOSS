@@ -41,6 +41,10 @@ services:
       - "2323:2323"
     volumes:
       - echidra_logs:/app/logs
+      # Match the host's clock/timezone automatically -- read-only so the
+      # container can't affect the host, and no per-user config needed.
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
       # SSH_HOST_KEY_PATH defaults to data/ssh_host_key -- without this on a
       # named volume, it lives in the container's writable layer and a fresh
       # key gets generated every time the container is recreated (down/up,
@@ -74,6 +78,10 @@ services:
       - "127.0.0.1:8000:8000"
     volumes:
       - echidra_logs:/app/logs
+      # Match the host's clock/timezone automatically -- read-only so the
+      # container can't affect the host, and no per-user config needed.
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
     depends_on:
       db:
         condition: service_healthy
