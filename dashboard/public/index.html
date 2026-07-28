@@ -144,6 +144,16 @@
       return "normal";
     }
 
+    function formatDuration(startedAt, endedAt) {
+      if (!startedAt || !endedAt) return "unknown duration";
+      const seconds = Math.max(0, Math.round(endedAt - startedAt));
+      if (seconds < 60) return `${seconds}s`;
+      const minutes = Math.floor(seconds / 60);
+      if (minutes < 60) return `${minutes}m ${seconds % 60}s`;
+      const hours = Math.floor(minutes / 60);
+      return `${hours}h ${minutes % 60}m`;
+    }
+
     function timeAgo(unixSeconds) {
       if (!unixSeconds) return "unknown time";
       const seconds = Math.max(0, Math.floor(Date.now() / 1000 - unixSeconds));
@@ -174,29 +184,44 @@
         <article class="event-row">
           <div class="event-copy">
             <strong>${escHtml(eventTitle(run))}</strong>
-            <span>IP: ${escHtml(run.peer_ip || "unknown")} · Location: ${escHtml(run.country || "Unknown")} · ${escHtml(timeAgo(run.ended_at))}</span>
+            <span>IP: ${escHtml(run.peer_ip || "unknown")} · Location: ${escHtml(run.country || "Unknown")} · Duration: ${escHtml(formatDuration(run.started_at, run.ended_at))} · ${escHtml(timeAgo(run.ended_at))}</span>
           </div>
           <span class="risk-badge ${escHtml(badgeTier(run.risk_level))}">${escHtml(run.risk_level)}</span>
         </article>
       `).join("");
     }
 
+    // Created once and reused across refreshes -- calling L.map() again on
+    // the same container throws "Map container is already initialized",
+    // which (uncaught, since it happened after renderEvents() already
+    // succeeded) used to blank out the just-rendered event list on every
+    // 30s refresh past the first one.
+    let originMap = null;
+    let originMarkersLayer = null;
+
     function renderMap(runs) {
+      const container = document.getElementById("attackOriginMap");
       if (!window.L) {
-        document.getElementById("attackOriginMap").innerHTML = '<div class="map-fallback">Map library unavailable.</div>';
+        container.innerHTML = '<div class="map-fallback">Map library unavailable.</div>';
         return;
       }
 
-      const map = L.map("attackOriginMap", {
-        attributionControl: false,
-        zoomControl: true,
-        worldCopyJump: true
-      }).setView([22, 8], 2);
+      if (!originMap) {
+        originMap = L.map(container, {
+          attributionControl: false,
+          zoomControl: true,
+          worldCopyJump: true
+        }).setView([22, 8], 2);
 
-      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-        className: "dark-tiles",
-        maxZoom: 18
-      }).addTo(map);
+        L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+          className: "dark-tiles",
+          maxZoom: 18
+        }).addTo(originMap);
+
+        originMarkersLayer = L.layerGroup().addTo(originMap);
+      } else {
+        originMarkersLayer.clearLayers();
+      }
 
       const geolocated = runs.filter((run) => run.latitude != null && run.longitude != null);
       for (const run of geolocated) {
@@ -210,7 +235,7 @@
           opacity: 0.5,
           weight: 1,
           interactive: false
-        }).addTo(map);
+        }).addTo(originMarkersLayer);
 
         L.circleMarker([run.latitude, run.longitude], {
           radius: tier === "high" ? 7 : 5,
@@ -220,9 +245,9 @@
           weight: 2
         })
           .bindPopup(
-            `<b>${escHtml(run.country || "Unknown")}</b><br>Actor: ${escHtml(actorDisplay(run.actor_label))}<br>Source IP: ${escHtml(run.peer_ip || "unknown")}<br>Risk: ${escHtml(run.risk_level)}`,
+            `IP: ${escHtml(run.peer_ip || "unknown")}<br>Country: ${escHtml(run.country || "Unknown")}<br>Duration: ${escHtml(formatDuration(run.started_at, run.ended_at))}`,
           )
-          .addTo(map);
+          .addTo(originMarkersLayer);
       }
     }
 
