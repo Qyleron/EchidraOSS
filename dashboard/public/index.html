@@ -162,8 +162,23 @@
       return response.json();
     }
 
-    function renderEvents(runs) {
+    function dedupeByIp(runs) {
+      // One event per IP -- keep only the most recent session per peer_ip
+      // instead of listing the same repeat attacker's IP multiple times.
+      const byIp = new Map();
+      for (const run of runs) {
+        const key = run.peer_ip || `unknown:${run.session_id}`;
+        const existing = byIp.get(key);
+        if (!existing || (run.ended_at || 0) > (existing.ended_at || 0)) {
+          byIp.set(key, run);
+        }
+      }
+      return Array.from(byIp.values()).sort((a, b) => (b.ended_at || 0) - (a.ended_at || 0));
+    }
+
+    function renderEvents(allRuns) {
       const eventList = document.getElementById("eventList");
+      const runs = dedupeByIp(allRuns);
       if (runs.length === 0) {
         eventList.innerHTML = `<div class="empty-state">No classifier runs recorded yet.</div>`;
         return;
@@ -226,22 +241,30 @@
         originMarkersLayer.clearLayers();
       }
 
-      // Country-centroid coordinates mean every session from the same
-      // country lands on the exact same point, so higher-risk markers can
-      // end up hidden under lower-risk ones drawn afterward. A small
-      // deterministic offset (from a hash of session id) spreads same-point
-      // markers apart, and sorting risk-ascending draws high-risk markers
-      // last so they're always on top.
+      // One dot per IP, not per session -- collapse repeat sessions from the
+      // same peer_ip to a single marker (keeping its highest risk_level),
+      // so a returning attacker doesn't scatter across several jittered
+      // points. Country-centroid coordinates put every IP in a country at
+      // the same base point, so a deterministic offset keyed by peer_ip
+      // alone spreads different IPs apart while keeping any one IP's dot
+      // stable across refreshes. Risk-ascending draw order keeps high-risk
+      // markers on top when two different IPs still jitter close together.
       const tierOrder = { normal: 0, medium: 1, high: 2 };
-      const geolocated = runs
-        .filter((run) => run.latitude != null && run.longitude != null)
-        .slice()
+      const byIp = new Map();
+      for (const run of runs) {
+        if (run.latitude == null || run.longitude == null || !run.peer_ip) continue;
+        const existing = byIp.get(run.peer_ip);
+        if (!existing || tierOrder[originTier(run.risk_level)] > tierOrder[originTier(existing.risk_level)]) {
+          byIp.set(run.peer_ip, run);
+        }
+      }
+      const geolocated = Array.from(byIp.values())
         .sort((a, b) => tierOrder[originTier(a.risk_level)] - tierOrder[originTier(b.risk_level)]);
 
       for (const run of geolocated) {
         const tier = originTier(run.risk_level);
         const color = riskColors[tier];
-        const jitter = hashJitter(run.session_id || `${run.peer_ip}:${run.started_at}`);
+        const jitter = hashJitter(run.peer_ip);
         const lat = run.latitude + jitter[0];
         const lon = run.longitude + jitter[1];
         L.circle([lat, lon], {
