@@ -1457,9 +1457,10 @@ class PostgresClassifierRepository:
         that's safe since UPSERT_SESSION_SQL is an idempotent ON CONFLICT
         DO UPDATE.
         """
-        from classifier.storage.geolocation import resolve_country
+        from classifier.storage.geolocation import resolve_geo
 
         peer_ip = str(session.peer_ip)
+        country, latitude, longitude = resolve_geo(peer_ip)
         psycopg = _load_psycopg()
         with _connect(psycopg, self.database_url) as conn:
             with conn.transaction():
@@ -1475,9 +1476,9 @@ class PostgresClassifierRepository:
                             "protocol": session.protocol,
                             "peer_ip": peer_ip,
                             "peer_port": session.peer_port,
-                            "latitude": session.latitude,
-                            "longitude": session.longitude,
-                            "country": resolve_country(peer_ip),
+                            "latitude": latitude,
+                            "longitude": longitude,
+                            "country": country,
                             "persona_id": session.persona_id,
                             "started_at": session.started_at,
                             "ended_at": session.ended_at,
@@ -1652,17 +1653,18 @@ def classifier_run_statements(
 
 def session_insert_params(record: ClassifierRunRecord) -> dict[str, Any]:
     """Return SQL parameters for upserting the parent session row."""
-    from classifier.storage.geolocation import resolve_country
+    from classifier.storage.geolocation import resolve_geo
     session_record = record.session_record
     peer_ip = session_record.get("peer_ip")
+    country, latitude, longitude = resolve_geo(peer_ip)
     return {
         "id": record.session_id,
         "protocol": record.protocol,
         "peer_ip": peer_ip,
         "peer_port": session_record.get("peer_port"),
-        "latitude": session_record.get("latitude"),
-        "longitude": session_record.get("longitude"),
-        "country": resolve_country(peer_ip),
+        "latitude": latitude,
+        "longitude": longitude,
+        "country": country,
         "persona_id": record.persona_id,
         "started_at": session_record["started_at"],
         "ended_at": session_record["ended_at"],
