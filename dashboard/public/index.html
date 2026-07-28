@@ -179,6 +179,21 @@
       `).join("");
     }
 
+    // Deterministic small lat/lon offset derived from a string key, so the
+    // same session always jitters to the same spot on repeated refreshes
+    // instead of jumping around, while different sessions at the same
+    // country centroid separate visually instead of stacking exactly.
+    function hashJitter(key) {
+      let hash = 0;
+      const str = String(key);
+      for (let i = 0; i < str.length; i++) {
+        hash = (hash * 31 + str.charCodeAt(i)) | 0;
+      }
+      const angle = (hash >>> 0) % 360 * (Math.PI / 180);
+      const radius = 0.6 + ((hash >>> 8) % 100) / 100;
+      return [Math.sin(angle) * radius, Math.cos(angle) * radius];
+    }
+
     // Created once and reused across refreshes -- calling L.map() again on
     // the same container throws "Map container is already initialized",
     // which (uncaught, since it happened after renderEvents() already
@@ -211,11 +226,25 @@
         originMarkersLayer.clearLayers();
       }
 
-      const geolocated = runs.filter((run) => run.latitude != null && run.longitude != null);
+      // Country-centroid coordinates mean every session from the same
+      // country lands on the exact same point, so higher-risk markers can
+      // end up hidden under lower-risk ones drawn afterward. A small
+      // deterministic offset (from a hash of session id) spreads same-point
+      // markers apart, and sorting risk-ascending draws high-risk markers
+      // last so they're always on top.
+      const tierOrder = { normal: 0, medium: 1, high: 2 };
+      const geolocated = runs
+        .filter((run) => run.latitude != null && run.longitude != null)
+        .slice()
+        .sort((a, b) => tierOrder[originTier(a.risk_level)] - tierOrder[originTier(b.risk_level)]);
+
       for (const run of geolocated) {
         const tier = originTier(run.risk_level);
         const color = riskColors[tier];
-        L.circle([run.latitude, run.longitude], {
+        const jitter = hashJitter(run.session_id || `${run.peer_ip}:${run.started_at}`);
+        const lat = run.latitude + jitter[0];
+        const lon = run.longitude + jitter[1];
+        L.circle([lat, lon], {
           radius: tier === "high" ? 620000 : tier === "medium" ? 430000 : 280000,
           color,
           fillColor: color,
@@ -225,7 +254,7 @@
           interactive: false
         }).addTo(originMarkersLayer);
 
-        L.circleMarker([run.latitude, run.longitude], {
+        L.circleMarker([lat, lon], {
           radius: tier === "high" ? 7 : 5,
           color,
           fillColor: color,
