@@ -154,18 +154,6 @@
       return `${hours}h ${minutes % 60}m`;
     }
 
-    function timeAgo(unixSeconds) {
-      if (!unixSeconds) return "unknown time";
-      const seconds = Math.max(0, Math.floor(Date.now() / 1000 - unixSeconds));
-      if (seconds < 60) return `${seconds}s ago`;
-      const minutes = Math.floor(seconds / 60);
-      if (minutes < 60) return `${minutes} min${minutes === 1 ? "" : "s"} ago`;
-      const hours = Math.floor(minutes / 60);
-      if (hours < 24) return `${hours} hour${hours === 1 ? "" : "s"} ago`;
-      const days = Math.floor(hours / 24);
-      return `${days} day${days === 1 ? "" : "s"} ago`;
-    }
-
     async function fetchJSON(url) {
       const response = await fetch(url);
       if (!response.ok) {
@@ -184,7 +172,7 @@
         <article class="event-row">
           <div class="event-copy">
             <strong>${escHtml(eventTitle(run))}</strong>
-            <span>IP: ${escHtml(run.peer_ip || "unknown")} · Location: ${escHtml(run.country || "Unknown")} · Duration: ${escHtml(formatDuration(run.started_at, run.ended_at))} · ${escHtml(timeAgo(run.ended_at))}</span>
+            <span>IP: ${escHtml(run.peer_ip || "unknown")} · Location: ${escHtml(run.country || "Unknown")} · Duration: ${escHtml(formatDuration(run.started_at, run.ended_at))}</span>
           </div>
           <span class="risk-badge ${escHtml(badgeTier(run.risk_level))}">${escHtml(run.risk_level)}</span>
         </article>
