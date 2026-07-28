@@ -14,6 +14,8 @@ RestartSec=5
 
 NoNewPrivileges=true
 ProtectSystem=strict
+# See echidra-honeypot.service for why PrivateTmp=true is needed here too.
+PrivateTmp=true
 ReadWritePaths=/opt/echidra/logs
 
 [Install]

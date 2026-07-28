@@ -36,6 +36,12 @@ ExecStartPre=+/bin/sh -c 'mkdir -p /opt/echidra/data && chown echidra:echidra /o
 # ProtectSystem=strict and the SSH listener never comes up.
 NoNewPrivileges=true
 ProtectSystem=strict
+# ProtectSystem=strict leaves /tmp and /var/tmp read-only, and some
+# dependencies (e.g. the SSH library) call Python's tempfile module, which
+# fails outright with no writable temp dir otherwise. PrivateTmp=true gives
+# this unit its own private, writable /tmp instead of loosening
+# ReadWritePaths onto the host's real /tmp.
+PrivateTmp=true
 ReadWritePaths=/opt/echidra/logs /opt/echidra/data
 
 [Install]
