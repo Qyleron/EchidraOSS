@@ -499,7 +499,7 @@ class AlertConfigInput(BaseModel):
     smtp_from_email: str | None = None
     smtp_use_tls: bool = True
     global_min_risk_level: str = "high"
-    excluded_ips: str | None = None
+    excluded_ips: str | None = Field(default=None, max_length=4_000)
 
     @validator("global_min_risk_level")
     def validate_global_min_risk_level(cls, value: str) -> str:
