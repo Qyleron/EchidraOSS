@@ -189,6 +189,8 @@ def _dispatch_alert_email(
     session: SessionRecord,
     summary: ClassificationSummary,
 ) -> str | None:
+    from classifier.storage.geolocation import resolve_country
+
     subject = f"[Echidra Alert] {summary.risk_level.upper()} risk session on {session.persona_id}"
     fields = [
         ("Risk Level", summary.risk_level.upper()),
@@ -198,8 +200,8 @@ def _dispatch_alert_email(
         ("Intent", summary.intent),
         ("Persona", session.persona_id),
         ("Peer IP", str(session.peer_ip) if session.peer_ip else "unknown"),
+        ("Country", resolve_country(str(session.peer_ip)) or "unknown"),
         ("Session ID", str(session.session_id)),
-        ("Run ID", str(run.id) if run is not None else "live-session"),
         ("MITRE", _alert_mitre_str(summary)),
     ]
     body = (
@@ -225,6 +227,8 @@ def _dispatch_alert_slack(
     session: SessionRecord,
     summary: ClassificationSummary,
 ) -> str | None:
+    from classifier.storage.geolocation import resolve_country
+
     text = (
         f"*[Echidra Alert] {summary.risk_level.upper()} risk session on {session.persona_id}*\n"
         f"Risk Score: {summary.risk_score}/100\n"
@@ -232,8 +236,8 @@ def _dispatch_alert_slack(
         f"Behavior: {summary.behavior_stage}\n"
         f"Intent: {summary.intent}\n"
         f"Peer IP: {session.peer_ip or 'unknown'}\n"
+        f"Country: {resolve_country(str(session.peer_ip)) or 'unknown'}\n"
         f"Session ID: {session.session_id}\n"
-        f"Run ID: {run.id if run is not None else 'live-session'}\n"
         f"MITRE: {_alert_mitre_str(summary)}\n"
         f"Evidence:\n{_alert_evidence_lines(summary, bullet='- ')}"
     )
