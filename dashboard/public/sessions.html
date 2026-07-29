@@ -99,6 +99,7 @@
               </div>
             </div>
             <button id="downloadVisibleButton" class="text-button" type="button">Export CSV</button>
+            <button id="downloadVisibleXlsxButton" class="text-button" type="button">Export XLSX</button>
           </div>
         </div>
 
@@ -132,6 +133,7 @@
     </main>
   </div>
 
+  <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
   <script>
     let allSessions = [];
     let visibleSessions = [];
@@ -652,11 +654,14 @@
       }
     });
 
-    document.getElementById("downloadVisibleButton").addEventListener("click", () => {
-      // One row per unique source IP -- a repeat attacker shouldn't produce
-      // several rows for the same IP. Keep that IP's most recent session
-      // (by timestamp) as the representative row, and record how many
-      // sessions it actually had via the Sessions column.
+    const SESSIONS_EXPORT_HEADER = ["Time", "Source IP", "Country", "Sessions", "Persona", "Protocol", "Actor", "Risk", "Intent", "Status"];
+
+    // One row per unique source IP -- a repeat attacker shouldn't produce
+    // several rows for the same IP. Keeps that IP's most recent session (by
+    // timestamp) as the representative row, and records how many sessions
+    // it actually had via the Sessions column. Shared by both the CSV and
+    // XLSX export so the two formats can never drift apart.
+    function buildDedupedSessionRows() {
       const byIp = new Map();
       for (const session of visibleSessions) {
         const key = session.sourceIp || `unknown:${session.sessionId}`;
@@ -667,24 +672,48 @@
           existing.count += 1;
         }
       }
-      const rows = [
-        ["Time", "Source IP", "Country", "Sessions", "Persona", "Protocol", "Actor", "Risk", "Intent", "Status"],
-        ...Array.from(byIp.values())
-          .sort((a, b) => b.session.timestamp - a.session.timestamp)
-          .map(({ session, count }) => [
-            formatSessionTime(session.timestamp),
-            session.sourceIp,
-            session.country,
-            count,
-            session.persona,
-            session.protocol,
-            session.actor ? (ACTOR_LABELS[session.actor] || session.actor) : "Unclassified",
-            session.risk,
-            session.intent,
-            session.classificationStatus === "complete" ? "Complete" : "Partial"
-          ])
-      ];
-      downloadCsv(`echidra-sessions-visible_${dateRangeSuffix()}.csv`, rows);
+      return Array.from(byIp.values())
+        .sort((a, b) => b.session.timestamp - a.session.timestamp)
+        .map(({ session, count }) => [
+          formatSessionTime(session.timestamp),
+          session.sourceIp,
+          session.country,
+          count,
+          session.persona,
+          session.protocol,
+          session.actor ? (ACTOR_LABELS[session.actor] || session.actor) : "Unclassified",
+          session.risk,
+          session.intent,
+          session.classificationStatus === "complete" ? "Complete" : "Partial"
+        ]);
+    }
+
+    document.getElementById("downloadVisibleButton").addEventListener("click", () => {
+      downloadCsv(
+        `echidra-sessions-visible_${dateRangeSuffix()}.csv`,
+        [SESSIONS_EXPORT_HEADER, ...buildDedupedSessionRows()]
+      );
+    });
+
+    document.getElementById("downloadVisibleXlsxButton").addEventListener("click", () => {
+      if (!window.XLSX) return;
+      const rows = buildDedupedSessionRows();
+      const worksheet = XLSX.utils.aoa_to_sheet([SESSIONS_EXPORT_HEADER, ...rows]);
+      const range = XLSX.utils.decode_range(worksheet["!ref"]);
+      for (let col = range.s.c; col <= range.e.c; col++) {
+        const cellRef = XLSX.utils.encode_cell({ r: 0, c: col });
+        if (worksheet[cellRef]) worksheet[cellRef].s = { font: { bold: true } };
+      }
+      worksheet["!cols"] = SESSIONS_EXPORT_HEADER.map((_, colIndex) => {
+        const width = Math.max(
+          String(SESSIONS_EXPORT_HEADER[colIndex] || "").length,
+          ...rows.map((row) => String(row[colIndex] == null ? "" : row[colIndex]).length)
+        );
+        return { wch: Math.min(Math.max(width + 2, 10), 40) };
+      });
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, "Sessions");
+      XLSX.writeFile(workbook, `echidra-sessions-visible_${dateRangeSuffix()}.xlsx`, { cellStyles: true });
     });
 
     const HOUR_OPTIONS = Array.from({ length: 24 }, (_, hour) => {

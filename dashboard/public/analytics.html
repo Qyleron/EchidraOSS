@@ -80,15 +80,9 @@
                 </div>
               </div>
             </div>
-            <button id="exportCsvButton" class="text-button" type="button">Export CSV</button>
-            <button id="exportXlsxButton" class="text-button" type="button">Export XLSX</button>
+            <button id="exportCsvButton" class="text-button" type="button">Export Full Report (CSV)</button>
+            <button id="exportXlsxButton" class="text-button" type="button">Export Full Report (XLSX)</button>
           </div>
-        </div>
-        <div class="page-panel-header" style="padding-bottom:0;">
-          <div class="page-panel-title">
-            <h2 id="intentSectionTitle">Sessions by Intent</h2>
-          </div>
-          <button type="button" class="text-button panel-export-btn" data-section-key="intent">Export CSV</button>
         </div>
         <div class="chart-body">
           <section class="metric-grid" aria-label="Intent breakdown">
@@ -107,24 +101,6 @@
             <article class="metric-card">
               <strong class="metric-value metric-success" id="intentInteractiveOperation">0</strong>
               <span class="metric-label">Interactive Operation</span>
-            </article>
-          </section>
-        </div>
-        <div class="page-panel-header" style="padding-top:0;">
-          <div class="page-panel-title">
-            <h2 id="sessionOverviewTitle">Session Overview</h2>
-          </div>
-          <button type="button" class="text-button panel-export-btn" data-section-key="session_overview">Export CSV</button>
-        </div>
-        <div class="chart-body">
-          <section class="metric-grid" aria-label="Session overview">
-            <article class="metric-card">
-              <strong class="metric-value" id="metricAvgDwell">—</strong>
-              <span class="metric-label">Avg Attacker Dwell Time</span>
-            </article>
-            <article class="metric-card">
-              <strong class="metric-value" id="metricTopProtocol">—</strong>
-              <span class="metric-label">Top Targeted Protocol</span>
             </article>
           </section>
         </div>
@@ -220,6 +196,7 @@
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
   <script>
     const PERSONA_LABEL_OVERRIDES = {
       ubuntu_web_server: "Ubuntu Web Server",
@@ -278,8 +255,12 @@
       return `${from || "start"}_to_${to || "now"}`;
     }
 
+    function rowsToCsvString(rows) {
+      return rows.map((row) => row.map((value) => `"${sanitizeCsvCell(value).replaceAll('"', '""')}"`).join(",")).join("\n");
+    }
+
     function downloadCsv(filename, rows) {
-      const csv = rows.map((row) => row.map((value) => `"${sanitizeCsvCell(value).replaceAll('"', '""')}"`).join(",")).join("\n");
+      const csv = rowsToCsvString(rows);
       const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
@@ -374,15 +355,6 @@
       return bucket === "week" ? `Week of ${label}` : label;
     }
 
-    function formatDwellTime(seconds) {
-      if (seconds == null) return "—";
-      if (seconds < 60) return `${Math.round(seconds)}s`;
-      const minutes = Math.floor(seconds / 60);
-      if (minutes < 60) return `${minutes}m ${Math.round(seconds % 60)}s`;
-      const hours = Math.floor(minutes / 60);
-      return `${hours}h ${minutes % 60}m`;
-    }
-
     const PROTOCOL_LABELS = {
       tcp_shell: "SSH",
       http: "HTTP",
@@ -414,10 +386,6 @@
       renderRankedList("personasList", summary.top_personas.map((row) => [personaDisplay(row.persona_id), row.count]));
       renderRankedList("countriesList", summary.top_countries.map((row) => [row.country, row.count]));
       renderIntentMetrics(summary.intent_counts);
-
-      document.getElementById("metricAvgDwell").textContent = formatDwellTime(summary.avg_dwell_seconds);
-      const topProtocol = (summary.protocol_breakdown || [])[0];
-      document.getElementById("metricTopProtocol").textContent = topProtocol ? protocolDisplay(topProtocol.protocol) : "—";
     }
 
     const HOUR_OPTIONS = Array.from({ length: 24 }, (_, hour) => {
@@ -615,15 +583,6 @@
       const bucket = summary.risk_trend_bucket || "day";
       return [
         {
-          key: "session_overview",
-          name: "Session Overview",
-          header: ["Metric", "Value"],
-          rows: [
-            ["Avg Attacker Dwell Time", formatDwellTime(summary.avg_dwell_seconds)],
-            ["Top Targeted Protocol", (summary.protocol_breakdown || [])[0] ? protocolDisplay(summary.protocol_breakdown[0].protocol) : "—"],
-          ],
-        },
-        {
           key: "intent",
           name: "Sessions by Intent",
           header: ["Intent", "Count"],
@@ -685,27 +644,36 @@
       });
     });
 
-    document.getElementById("exportCsvButton").addEventListener("click", () => {
-      if (!currentSummary) return;
-      // Each table gets its own heading and is separated from the next by
-      // 4 blank rows, so scrolling through the file in a spreadsheet reads
-      // as a sequence of distinct labeled tables rather than one ragged
-      // grid or an unbroken wall of rows.
-      const GAP = 4;
-      const gap = () => Array.from({ length: GAP }, () => []);
+    document.getElementById("exportCsvButton").addEventListener("click", async () => {
+      if (!currentSummary || !window.JSZip) return;
+      // One CSV file per section, bundled into a single ZIP -- each file is
+      // its own clean flat table (same shape as a per-panel export) instead
+      // of one combined file with headings/gaps standing in for structure.
       const sections = buildAnalyticsSections(currentSummary);
+      const zip = new JSZip();
+      const usedNames = new Set();
 
-      const rows = [
-        [`Echidra Analytics Report — ${dateRangeSuffix().replaceAll("_", " ")}`],
-        ...gap(),
-        ...sections.flatMap((section) => [
-          [section.name],
-          section.header,
-          ...section.rows,
-          ...gap(),
-        ]),
-      ];
-      downloadCsv(`echidra-analytics_${dateRangeSuffix()}.csv`, rows);
+      for (const section of sections) {
+        let baseName = section.name.replace(/[^a-zA-Z0-9 _-]/g, "").trim().replaceAll(" ", "_");
+        let fileName = `${baseName}.csv`;
+        let suffix = 2;
+        while (usedNames.has(fileName)) {
+          fileName = `${baseName}_${suffix}.csv`;
+          suffix += 1;
+        }
+        usedNames.add(fileName);
+        zip.file(fileName, rowsToCsvString([section.header, ...section.rows]));
+      }
+
+      const blob = await zip.generateAsync({ type: "blob" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `echidra-analytics_${dateRangeSuffix()}.zip`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
     });
 
     document.getElementById("exportXlsxButton").addEventListener("click", () => {
