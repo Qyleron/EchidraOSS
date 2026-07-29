@@ -113,7 +113,6 @@
               <h2 id="attacksByHourTitle">Attacks By Hour</h2>
               <p>When captured sessions are most active.</p>
             </div>
-            <button type="button" class="text-button panel-export-btn" data-section-key="hourly">Export CSV</button>
           </div>
           <div class="chart-body">
             <div id="attacksByHourChart" class="bar-chart" aria-label="Bar chart of attacks by hour"></div>
@@ -126,7 +125,6 @@
               <h2 id="riskTrendTitle">Risk Trend</h2>
               <p>High, medium, and low risk session volume by day.</p>
             </div>
-            <button type="button" class="text-button panel-export-btn" data-section-key="risk_trend">Export CSV</button>
           </div>
           <div class="chart-body">
             <div id="riskTrendChart" class="bar-chart" aria-label="Stacked bar chart of risk over time"></div>
@@ -145,7 +143,6 @@
                 <h2 id="protocolBreakdownTitle">Protocol Breakdown</h2>
                 <p>Which listener protocols attackers connected to.</p>
               </div>
-              <button type="button" class="text-button panel-export-btn" data-section-key="protocol">Export CSV</button>
             </div>
             <div class="chart-body">
               <ol id="protocolBreakdownList" class="rank-list"></ol>
@@ -158,7 +155,6 @@
                 <h2 id="topCommandsTitle">Top Commands</h2>
                 <p>Most common commands observed in captured sessions.</p>
               </div>
-              <button type="button" class="text-button panel-export-btn" data-section-key="commands">Export CSV</button>
             </div>
             <div class="chart-body">
               <ol id="topCommandsList" class="rank-list"></ol>
@@ -171,7 +167,6 @@
                 <h2 id="targetedPersonasTitle">Top Targeted Personas</h2>
                 <p>Which deception profiles attracted the most activity.</p>
               </div>
-              <button type="button" class="text-button panel-export-btn" data-section-key="personas">Export CSV</button>
             </div>
             <div class="chart-body">
               <ol id="personasList" class="rank-list"></ol>
@@ -184,7 +179,6 @@
                 <h2 id="countriesTitle">Top Countries</h2>
                 <p>Source geography by captured session count.</p>
               </div>
-              <button type="button" class="text-button panel-export-btn" data-section-key="countries">Export CSV</button>
             </div>
             <div class="chart-body">
               <ol id="countriesList" class="rank-list"></ol>
@@ -631,18 +625,6 @@
         },
       ];
     }
-
-    document.querySelectorAll(".panel-export-btn").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        if (!currentSummary) return;
-        const section = buildAnalyticsSections(currentSummary).find((s) => s.key === btn.dataset.sectionKey);
-        if (!section) return;
-        downloadCsv(
-          `echidra-analytics_${section.key}_${dateRangeSuffix()}.csv`,
-          [section.header, ...section.rows]
-        );
-      });
-    });
 
     document.getElementById("exportCsvButton").addEventListener("click", async () => {
       if (!currentSummary || !window.JSZip) return;
