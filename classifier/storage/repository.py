@@ -676,6 +676,55 @@ GROUP BY date, cr.risk_level
 ORDER BY date
 """
 
+
+def _analytics_risk_trend_sql(bucket: str) -> str:
+    """Risk trend query, bucketed by day/week/month depending on how wide
+    the selected date range is (see _risk_trend_bucket_for_range) -- a
+    3-month range grouped daily would return 90+ rows and render as an
+    unreadable, always-scrolling bar chart, so wider ranges roll up to
+    coarser buckets instead of showing one bar per calendar day."""
+    if bucket == "week":
+        date_expr = "to_char(date_trunc('week', to_timestamp(s.started_at)), 'YYYY-MM-DD')"
+    elif bucket == "month":
+        date_expr = "to_char(date_trunc('month', to_timestamp(s.started_at)), 'YYYY-MM')"
+    else:
+        date_expr = "to_char(to_timestamp(s.started_at)::date, 'YYYY-MM-DD')"
+    return f"""
+SELECT
+    {date_expr} AS date,
+    cr.risk_level AS risk_level,
+    COUNT(*) AS count
+FROM classifier_runs cr
+JOIN sessions s ON s.id = cr.session_id
+WHERE s.started_at >= %(from_ts)s AND s.started_at <= %(to_ts)s
+GROUP BY date, cr.risk_level
+ORDER BY date
+"""
+
+
+def _risk_trend_bucket_for_range(from_ts: float, to_ts: float) -> str:
+    range_days = (to_ts - from_ts) / 86400
+    if range_days <= 31:
+        return "day"
+    if range_days <= 180:
+        return "week"
+    return "month"
+
+
+SELECT_ANALYTICS_PROTOCOL_BREAKDOWN_SQL = """
+SELECT protocol AS key, COUNT(*) AS count
+FROM sessions
+WHERE started_at >= %(from_ts)s AND started_at <= %(to_ts)s
+GROUP BY protocol
+ORDER BY count DESC
+"""
+
+SELECT_ANALYTICS_AVG_DWELL_SQL = """
+SELECT AVG(ended_at - started_at) AS avg_dwell_seconds
+FROM sessions
+WHERE started_at >= %(from_ts)s AND started_at <= %(to_ts)s AND ended_at IS NOT NULL
+"""
+
 SELECT_ANALYTICS_INTENT_COUNTS_SQL = """
 SELECT cr.intent AS key, COUNT(*) AS count
 FROM classifier_runs cr
@@ -1345,6 +1394,7 @@ class PostgresClassifierRepository:
         """Aggregate session + classifier data across all personas for one
         date range, backing the Analytics dashboard page."""
         params = {"from_ts": from_ts, "to_ts": to_ts}
+        bucket = _risk_trend_bucket_for_range(from_ts, to_ts)
         (
             hour_rows,
             risk_trend_rows,
@@ -1352,15 +1402,19 @@ class PostgresClassifierRepository:
             command_rows,
             persona_rows,
             country_rows,
+            protocol_rows,
+            dwell_row,
         ) = _fetch_aggregate_batch(
             self.database_url,
             [
                 (SELECT_ANALYTICS_ATTACKS_BY_HOUR_SQL, params, False),
-                (SELECT_ANALYTICS_RISK_TREND_SQL, params, False),
+                (_analytics_risk_trend_sql(bucket), params, False),
                 (SELECT_ANALYTICS_INTENT_COUNTS_SQL, params, False),
                 (SELECT_ANALYTICS_TOP_COMMANDS_SQL, params, False),
                 (SELECT_ANALYTICS_TOP_PERSONAS_SQL, params, False),
                 (SELECT_ANALYTICS_TOP_COUNTRIES_SQL, params, False),
+                (SELECT_ANALYTICS_PROTOCOL_BREAKDOWN_SQL, params, False),
+                (SELECT_ANALYTICS_AVG_DWELL_SQL, params, True),
             ],
         )
 
@@ -1368,13 +1422,18 @@ class PostgresClassifierRepository:
         for row in hour_rows:
             attacks_by_hour[f"{int(row['hour']):02d}"] = int(row["count"])
 
+        avg_dwell = dwell_row.get("avg_dwell_seconds") if dwell_row else None
+
         return AnalyticsSummary(
             intent_counts={str(row["key"]): int(row["count"]) for row in intent_rows},
             attacks_by_hour=attacks_by_hour,
             risk_trend=_pivot_risk_trend(risk_trend_rows),
+            risk_trend_bucket=bucket,
             top_commands=[{"command": str(row["key"]), "count": int(row["count"])} for row in command_rows],
             top_personas=[{"persona_id": str(row["key"]), "count": int(row["count"])} for row in persona_rows],
             top_countries=[{"country": str(row["key"]), "count": int(row["count"])} for row in country_rows],
+            protocol_breakdown=[{"protocol": str(row["key"]), "count": int(row["count"])} for row in protocol_rows],
+            avg_dwell_seconds=float(avg_dwell) if avg_dwell is not None else None,
         )
 
     def aggregate_classifier_runs_by_actor_and_technique(self) -> list[dict[str, Any]]:

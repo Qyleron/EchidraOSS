@@ -81,7 +81,14 @@
               </div>
             </div>
             <button id="exportCsvButton" class="text-button" type="button">Export CSV</button>
+            <button id="exportXlsxButton" class="text-button" type="button">Export XLSX</button>
           </div>
+        </div>
+        <div class="page-panel-header" style="padding-bottom:0;">
+          <div class="page-panel-title">
+            <h2 id="intentSectionTitle">Sessions by Intent</h2>
+          </div>
+          <button type="button" class="text-button panel-export-btn" data-section-key="intent">Export CSV</button>
         </div>
         <div class="chart-body">
           <section class="metric-grid" aria-label="Intent breakdown">
@@ -103,6 +110,24 @@
             </article>
           </section>
         </div>
+        <div class="page-panel-header" style="padding-top:0;">
+          <div class="page-panel-title">
+            <h2 id="sessionOverviewTitle">Session Overview</h2>
+          </div>
+          <button type="button" class="text-button panel-export-btn" data-section-key="session_overview">Export CSV</button>
+        </div>
+        <div class="chart-body">
+          <section class="metric-grid" aria-label="Session overview">
+            <article class="metric-card">
+              <strong class="metric-value" id="metricAvgDwell">—</strong>
+              <span class="metric-label">Avg Attacker Dwell Time</span>
+            </article>
+            <article class="metric-card">
+              <strong class="metric-value" id="metricTopProtocol">—</strong>
+              <span class="metric-label">Top Targeted Protocol</span>
+            </article>
+          </section>
+        </div>
       </section>
 
       <section class="analytics-grid" aria-label="Attack analytics">
@@ -112,6 +137,7 @@
               <h2 id="attacksByHourTitle">Attacks By Hour</h2>
               <p>When captured sessions are most active.</p>
             </div>
+            <button type="button" class="text-button panel-export-btn" data-section-key="hourly">Export CSV</button>
           </div>
           <div class="chart-body">
             <div id="attacksByHourChart" class="bar-chart" aria-label="Bar chart of attacks by hour"></div>
@@ -124,6 +150,7 @@
               <h2 id="riskTrendTitle">Risk Trend</h2>
               <p>High, medium, and low risk session volume by day.</p>
             </div>
+            <button type="button" class="text-button panel-export-btn" data-section-key="risk_trend">Export CSV</button>
           </div>
           <div class="chart-body">
             <div id="riskTrendChart" class="bar-chart" aria-label="Stacked bar chart of risk over time"></div>
@@ -136,12 +163,26 @@
         </section>
 
         <div class="chart-row">
+          <section class="chart-card" aria-labelledby="protocolBreakdownTitle">
+            <div class="page-panel-header">
+              <div class="page-panel-title">
+                <h2 id="protocolBreakdownTitle">Protocol Breakdown</h2>
+                <p>Which listener protocols attackers connected to.</p>
+              </div>
+              <button type="button" class="text-button panel-export-btn" data-section-key="protocol">Export CSV</button>
+            </div>
+            <div class="chart-body">
+              <ol id="protocolBreakdownList" class="rank-list"></ol>
+            </div>
+          </section>
+
           <section class="chart-card" aria-labelledby="topCommandsTitle">
             <div class="page-panel-header">
               <div class="page-panel-title">
                 <h2 id="topCommandsTitle">Top Commands</h2>
                 <p>Most common commands observed in captured sessions.</p>
               </div>
+              <button type="button" class="text-button panel-export-btn" data-section-key="commands">Export CSV</button>
             </div>
             <div class="chart-body">
               <ol id="topCommandsList" class="rank-list"></ol>
@@ -154,6 +195,7 @@
                 <h2 id="targetedPersonasTitle">Top Targeted Personas</h2>
                 <p>Which deception profiles attracted the most activity.</p>
               </div>
+              <button type="button" class="text-button panel-export-btn" data-section-key="personas">Export CSV</button>
             </div>
             <div class="chart-body">
               <ol id="personasList" class="rank-list"></ol>
@@ -166,6 +208,7 @@
                 <h2 id="countriesTitle">Top Countries</h2>
                 <p>Source geography by captured session count.</p>
               </div>
+              <button type="button" class="text-button panel-export-btn" data-section-key="countries">Export CSV</button>
             </div>
             <div class="chart-body">
               <ol id="countriesList" class="rank-list"></ol>
@@ -176,6 +219,7 @@
     </main>
   </div>
 
+  <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
   <script>
     const PERSONA_LABEL_OVERRIDES = {
       ubuntu_web_server: "Ubuntu Web Server",
@@ -315,10 +359,39 @@
       });
     }
 
-    function formatTrendLabel(dateKey) {
-      // dateKey is "YYYY-MM-DD" from the server; parse as local, not UTC midnight.
+    // Wider ranges get coarser buckets from the server (risk_trend_bucket:
+    // "day"/"week"/"month") so a 3-month range doesn't render 90+ daily
+    // bars -- the label format has to match whichever bucket came back.
+    function formatTrendLabel(dateKey, bucket) {
+      if (bucket === "month") {
+        // dateKey is "YYYY-MM".
+        const [year, month] = dateKey.split("-").map(Number);
+        return new Date(year, month - 1, 1).toLocaleDateString("en-GB", { month: "short", year: "numeric" });
+      }
+      // "day" and "week" both come back as "YYYY-MM-DD" (week's start date).
       const [year, month, day] = dateKey.split("-").map(Number);
-      return new Date(year, month - 1, day).toLocaleDateString("en-GB", { day: "2-digit", month: "short" });
+      const label = new Date(year, month - 1, day).toLocaleDateString("en-GB", { day: "2-digit", month: "short" });
+      return bucket === "week" ? `Week of ${label}` : label;
+    }
+
+    function formatDwellTime(seconds) {
+      if (seconds == null) return "—";
+      if (seconds < 60) return `${Math.round(seconds)}s`;
+      const minutes = Math.floor(seconds / 60);
+      if (minutes < 60) return `${minutes}m ${Math.round(seconds % 60)}s`;
+      const hours = Math.floor(minutes / 60);
+      return `${hours}h ${minutes % 60}m`;
+    }
+
+    const PROTOCOL_LABELS = {
+      tcp_shell: "SSH",
+      http: "HTTP",
+      ftp: "FTP",
+      telnet: "TELNET"
+    };
+
+    function protocolDisplay(protocol) {
+      return PROTOCOL_LABELS[protocol] || protocol || "Unknown";
     }
 
     function renderAnalytics(summary) {
@@ -329,14 +402,22 @@
       const attacksByHour = Object.entries(summary.attacks_by_hour)
         .map(([hour, count]) => [hour, count])
         .sort((a, b) => Number(a[0]) - Number(b[0]));
-      const riskTrend = summary.risk_trend.map((point) => ({ ...point, label: formatTrendLabel(point.date) }));
+      const bucket = summary.risk_trend_bucket || "day";
+      const riskTrend = summary.risk_trend.map((point) => ({ ...point, label: formatTrendLabel(point.date, bucket) }));
+      document.getElementById("riskTrendTitle").textContent =
+        bucket === "day" ? "Risk Trend" : `Risk Trend (by ${bucket})`;
 
       renderBars("attacksByHourChart", attacksByHour);
       renderStackedRiskBars("riskTrendChart", riskTrend);
+      renderRankedList("protocolBreakdownList", (summary.protocol_breakdown || []).map((row) => [protocolDisplay(row.protocol), row.count]));
       renderRankedList("topCommandsList", summary.top_commands.map((row) => [row.command, row.count]));
       renderRankedList("personasList", summary.top_personas.map((row) => [personaDisplay(row.persona_id), row.count]));
       renderRankedList("countriesList", summary.top_countries.map((row) => [row.country, row.count]));
       renderIntentMetrics(summary.intent_counts);
+
+      document.getElementById("metricAvgDwell").textContent = formatDwellTime(summary.avg_dwell_seconds);
+      const topProtocol = (summary.protocol_breakdown || [])[0];
+      document.getElementById("metricTopProtocol").textContent = topProtocol ? protocolDisplay(topProtocol.protocol) : "—";
     }
 
     const HOUR_OPTIONS = Array.from({ length: 24 }, (_, hour) => {
@@ -526,6 +607,84 @@
       }
     }
 
+    // Single source of truth for every exportable table on this page --
+    // both the whole-page CSV/XLSX exports and each panel's individual
+    // "Export CSV" button build off this, so a section only has to be
+    // defined once to show up everywhere it's exported from.
+    function buildAnalyticsSections(summary) {
+      const bucket = summary.risk_trend_bucket || "day";
+      return [
+        {
+          key: "session_overview",
+          name: "Session Overview",
+          header: ["Metric", "Value"],
+          rows: [
+            ["Avg Attacker Dwell Time", formatDwellTime(summary.avg_dwell_seconds)],
+            ["Top Targeted Protocol", (summary.protocol_breakdown || [])[0] ? protocolDisplay(summary.protocol_breakdown[0].protocol) : "—"],
+          ],
+        },
+        {
+          key: "intent",
+          name: "Sessions by Intent",
+          header: ["Intent", "Count"],
+          rows: [
+            ["Credential Access", summary.intent_counts.credential_theft || 0],
+            ["Reconnaissance", summary.intent_counts.reconnaissance || 0],
+            ["Data Access", summary.intent_counts.data_access || 0],
+            ["Interactive Operation", summary.intent_counts.interactive_operation || 0],
+          ],
+        },
+        {
+          key: "hourly",
+          name: "Attacks by Hour of Day",
+          header: ["Hour", "Attacks"],
+          rows: Object.entries(summary.attacks_by_hour).sort((a, b) => Number(a[0]) - Number(b[0])),
+        },
+        {
+          key: "risk_trend",
+          name: bucket === "day" ? "Risk Trend by Date" : `Risk Trend by ${bucket[0].toUpperCase()}${bucket.slice(1)}`,
+          header: ["Date", "High", "Medium", "Low"],
+          rows: summary.risk_trend.map((point) => [point.date, point.high, point.medium, point.low]),
+        },
+        {
+          key: "protocol",
+          name: "Protocol Breakdown",
+          header: ["Protocol", "Count"],
+          rows: (summary.protocol_breakdown || []).map((row) => [protocolDisplay(row.protocol), row.count]),
+        },
+        {
+          key: "commands",
+          name: "Top Commands",
+          header: ["Command", "Count"],
+          rows: summary.top_commands.map((row) => [row.command, row.count]),
+        },
+        {
+          key: "personas",
+          name: "Top Personas",
+          header: ["Persona", "Count"],
+          rows: summary.top_personas.map((row) => [personaDisplay(row.persona_id), row.count]),
+        },
+        {
+          key: "countries",
+          name: "Top Countries",
+          header: ["Country", "Count"],
+          rows: summary.top_countries.map((row) => [row.country, row.count]),
+        },
+      ];
+    }
+
+    document.querySelectorAll(".panel-export-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        if (!currentSummary) return;
+        const section = buildAnalyticsSections(currentSummary).find((s) => s.key === btn.dataset.sectionKey);
+        if (!section) return;
+        downloadCsv(
+          `echidra-analytics_${section.key}_${dateRangeSuffix()}.csv`,
+          [section.header, ...section.rows]
+        );
+      });
+    });
+
     document.getElementById("exportCsvButton").addEventListener("click", () => {
       if (!currentSummary) return;
       // Each table gets its own heading and is separated from the next by
@@ -534,44 +693,59 @@
       // grid or an unbroken wall of rows.
       const GAP = 4;
       const gap = () => Array.from({ length: GAP }, () => []);
+      const sections = buildAnalyticsSections(currentSummary);
 
       const rows = [
         [`Echidra Analytics Report — ${dateRangeSuffix().replaceAll("_", " ")}`],
         ...gap(),
-
-        ["Sessions by Intent"],
-        ["Intent", "Count"],
-        ["Credential Access", currentSummary.intent_counts.credential_theft || 0],
-        ["Reconnaissance", currentSummary.intent_counts.reconnaissance || 0],
-        ["Data Access", currentSummary.intent_counts.data_access || 0],
-        ["Interactive Operation", currentSummary.intent_counts.interactive_operation || 0],
-        ...gap(),
-
-        ["Attacks by Hour of Day"],
-        ["Hour", "Attacks"],
-        ...Object.entries(currentSummary.attacks_by_hour).sort((a, b) => Number(a[0]) - Number(b[0])),
-        ...gap(),
-
-        ["Risk Trend by Date"],
-        ["Date", "High", "Medium", "Low"],
-        ...currentSummary.risk_trend.map((point) => [point.date, point.high, point.medium, point.low]),
-        ...gap(),
-
-        ["Top Commands"],
-        ["Command", "Count"],
-        ...currentSummary.top_commands.map((row) => [row.command, row.count]),
-        ...gap(),
-
-        ["Top Personas"],
-        ["Persona", "Count"],
-        ...currentSummary.top_personas.map((row) => [personaDisplay(row.persona_id), row.count]),
-        ...gap(),
-
-        ["Top Countries"],
-        ["Country", "Count"],
-        ...currentSummary.top_countries.map((row) => [row.country, row.count]),
+        ...sections.flatMap((section) => [
+          [section.name],
+          section.header,
+          ...section.rows,
+          ...gap(),
+        ]),
       ];
       downloadCsv(`echidra-analytics_${dateRangeSuffix()}.csv`, rows);
+    });
+
+    document.getElementById("exportXlsxButton").addEventListener("click", () => {
+      if (!currentSummary || !window.XLSX) return;
+      const sections = buildAnalyticsSections(currentSummary);
+      const workbook = XLSX.utils.book_new();
+      const usedSheetNames = new Set();
+
+      for (const section of sections) {
+        // Excel sheet names: max 31 chars, no : \ / ? * [ ], must be unique.
+        let sheetName = section.name.replace(/[:\\/?*\[\]]/g, "").slice(0, 31);
+        let suffix = 2;
+        while (usedSheetNames.has(sheetName)) {
+          const base = section.name.replace(/[:\\/?*\[\]]/g, "").slice(0, 31 - String(suffix).length - 1);
+          sheetName = `${base} ${suffix}`;
+          suffix += 1;
+        }
+        usedSheetNames.add(sheetName);
+
+        const sheetData = [section.header, ...section.rows];
+        const worksheet = XLSX.utils.aoa_to_sheet(sheetData);
+        // Bold header row.
+        const headerRange = XLSX.utils.decode_range(worksheet["!ref"]);
+        for (let col = headerRange.s.c; col <= headerRange.e.c; col++) {
+          const cellRef = XLSX.utils.encode_cell({ r: 0, c: col });
+          if (worksheet[cellRef]) {
+            worksheet[cellRef].s = { font: { bold: true } };
+          }
+        }
+        worksheet["!cols"] = section.header.map((_, colIndex) => {
+          const width = Math.max(
+            String(section.header[colIndex] || "").length,
+            ...section.rows.map((row) => String(row[colIndex] == null ? "" : row[colIndex]).length)
+          );
+          return { wch: Math.min(Math.max(width + 2, 10), 40) };
+        });
+        XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
+      }
+
+      XLSX.writeFile(workbook, `echidra-analytics_${dateRangeSuffix()}.xlsx`, { cellStyles: true });
     });
 
     initTimeRangeControl();
