@@ -480,9 +480,15 @@ class AnalyticsSummary(BaseModel):
     intent_counts: dict[str, int] = Field(default_factory=dict)
     attacks_by_hour: dict[str, int] = Field(default_factory=dict)
     risk_trend: list[dict[str, Any]] = Field(default_factory=list)
+    # "day" (range <= 31 days), "week" (<= 180 days), or "month" (beyond
+    # that) -- tells the frontend how to label risk_trend's date buckets,
+    # which stop being one-per-calendar-day once the range widens.
+    risk_trend_bucket: str = "day"
     top_commands: list[dict[str, Any]] = Field(default_factory=list)
     top_personas: list[dict[str, Any]] = Field(default_factory=list)
     top_countries: list[dict[str, Any]] = Field(default_factory=list)
+    protocol_breakdown: list[dict[str, Any]] = Field(default_factory=list)
+    avg_dwell_seconds: float | None = None
 
     class Config:
         extra = "forbid"

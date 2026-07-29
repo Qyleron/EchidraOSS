@@ -673,7 +673,7 @@ def test_list_session_events_returns_ordered_timeline(monkeypatch):
 
 
 def test_get_analytics_summary_aggregates_all_dimensions_without_driver(monkeypatch):
-    """All six aggregate queries must run via the simple per-call fallback
+    """All eight aggregate queries must run via the simple per-call fallback
     (no psycopg installed / cursor-reuse path not exercised here)."""
     query_results = iter(
         [
@@ -689,6 +689,7 @@ def test_get_analytics_summary_aggregates_all_dimensions_without_driver(monkeypa
             [{"key": "whoami", "count": 9}],
             [{"key": "generic_linux", "count": 5}],
             [{"key": "United States", "count": 3}],
+            [{"key": "tcp_shell", "count": 7}],
         ]
     )
 
@@ -699,6 +700,10 @@ def test_get_analytics_summary_aggregates_all_dimensions_without_driver(monkeypa
     monkeypatch.setattr(
         "classifier.storage.repository._fetch_all",
         lambda database_url, sql, params: next(query_results),
+    )
+    monkeypatch.setattr(
+        "classifier.storage.repository._fetch_one",
+        lambda database_url, sql, params: {"avg_dwell_seconds": 42.5},
     )
 
     summary = PostgresClassifierRepository(
@@ -714,9 +719,12 @@ def test_get_analytics_summary_aggregates_all_dimensions_without_driver(monkeypa
         {"date": "2026-07-01", "high": 3, "medium": 3, "low": 0},
         {"date": "2026-07-02", "high": 0, "medium": 0, "low": 5},
     ]
+    assert summary.risk_trend_bucket == "day"  # 1000s-2000s range is well under 31 days
     assert summary.top_commands == [{"command": "whoami", "count": 9}]
     assert summary.top_personas == [{"persona_id": "generic_linux", "count": 5}]
     assert summary.top_countries == [{"country": "United States", "count": 3}]
+    assert summary.protocol_breakdown == [{"protocol": "tcp_shell", "count": 7}]
+    assert summary.avg_dwell_seconds == 42.5
 
 
 def test_repository_update_issue_status_returns_none_when_missing(monkeypatch):
