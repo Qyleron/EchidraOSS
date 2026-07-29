@@ -60,7 +60,8 @@
 
         <!-- Email (global SMTP) view -->
         <div id="emailView">
-          <div style="display:flex;justify-content:flex-end;padding:16px 22px 0;">
+          <div style="display:flex;justify-content:flex-end;align-items:center;gap:12px;padding:16px 22px 0;">
+            <span class="form-status" id="testEmailStatus"></span>
             <button type="button" class="text-button" id="testEmailBtn">Send Test Email</button>
           </div>
           <form id="smtpForm" autocomplete="off" style="padding:22px;">
@@ -196,6 +197,7 @@
             <thead>
               <tr>
                 <th>Time</th>
+                <th>Session</th>
                 <th>Persona</th>
                 <th>Risk</th>
                 <th>Actor</th>
@@ -286,12 +288,9 @@
       }
     }
 
-    smtpForm.addEventListener("submit", async function(evt) {
-      evt.preventDefault();
-      smtpStatus.textContent = "Saving…";
-      smtpStatus.style.color = "var(--muted)";
+    function buildAlertConfigPayload() {
       var pw = document.getElementById("smtpPassword").value;
-      var payload = {
+      return {
         enabled: document.getElementById("alertEnabled").checked,
         smtp_host: document.getElementById("smtpHost").value.trim() || null,
         smtp_port: parseInt(document.getElementById("smtpPort").value) || 587,
@@ -302,6 +301,11 @@
         global_min_risk_level: document.getElementById("globalMinRiskLevel").value,
         excluded_ips: document.getElementById("excludedIps").value.trim() || null,
       };
+    }
+
+    async function saveAlertConfig(payload, savedMessage) {
+      smtpStatus.textContent = "Saving…";
+      smtpStatus.style.color = "var(--muted)";
       try {
         var r = await fetch("/alerts/config", {
           method: "PUT",
@@ -309,29 +313,52 @@
           body: JSON.stringify(payload),
         });
         if (!r.ok) { var e = await r.json().catch(function(){return{};}); throw new Error(extractErrorDetail(e, "HTTP " + r.status)); }
-        smtpStatus.textContent = "Saved.";
+        var cfg = await r.json();
+        smtpStatus.textContent = savedMessage;
         smtpStatus.style.color = "var(--low)";
         document.getElementById("smtpPassword").value = "";
-        var cfg = await r.json();
         document.getElementById("pwConfigured").textContent = cfg.smtp_password_configured ? "Password saved." : "No password saved.";
+        return true;
       } catch (err) {
         smtpStatus.textContent = "Error: " + err.message;
         smtpStatus.style.color = "var(--critical)";
+        return false;
       }
+    }
+
+    smtpForm.addEventListener("submit", async function(evt) {
+      evt.preventDefault();
+      await saveAlertConfig(buildAlertConfigPayload(), "Saved.");
     });
+
+    // The enable/disable switch is styled and behaves like an instant
+    // on/off toggle everywhere else in the dashboard, so it saves
+    // immediately on change instead of waiting for "Save Configuration" --
+    // otherwise unchecking it without also clicking Save leaves the old
+    // value live in the database (Send Test Email would still fire, and a
+    // reload would show it "reset" back on since nothing was ever persisted).
+    document.getElementById("alertEnabled").addEventListener("change", async function() {
+      var checkbox = this;
+      var payload = buildAlertConfigPayload();
+      var ok = await saveAlertConfig(payload, payload.enabled ? "Email alerts enabled." : "Email alerts disabled.");
+      if (!ok) checkbox.checked = !checkbox.checked;
+    });
+
+    var testEmailStatus = document.getElementById("testEmailStatus");
 
     document.getElementById("testEmailBtn").addEventListener("click", async function() {
       var btn = this;
       btn.disabled = true;
       btn.textContent = "Sending…";
+      testEmailStatus.textContent = "";
       try {
         var r = await fetch("/alerts/test", { method: "POST" });
         if (!r.ok) { var e = await r.json().catch(function(){return{};}); throw new Error(extractErrorDetail(e, "HTTP " + r.status)); }
-        smtpStatus.textContent = "Test email sent.";
-        smtpStatus.style.color = "var(--low)";
+        testEmailStatus.textContent = "Test email sent.";
+        testEmailStatus.style.color = "var(--low)";
       } catch (err) {
-        smtpStatus.textContent = "Test failed: " + err.message;
-        smtpStatus.style.color = "var(--critical)";
+        testEmailStatus.textContent = "Test failed: " + err.message;
+        testEmailStatus.style.color = "var(--critical)";
       } finally {
         btn.disabled = false;
         btn.textContent = "Send Test Email";
@@ -378,7 +405,7 @@
         allAlertEvents = events;
         renderAlertEventsPage();
       } catch (err) {
-        tbody.innerHTML = '<tr><td colspan="7" class="empty-state">Could not load alert history. Is the database configured?</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="8" class="empty-state">Could not load alert history. Is the database configured?</td></tr>';
         ["metricTotal","metricLast24h","metricSuccess","metricFailed"].forEach(function(id) {
           var el = document.getElementById(id);
           if (el) el.textContent = "N/A";
@@ -389,7 +416,7 @@
     function renderAlertEventsPage() {
       var tbody = document.getElementById("alertEventsBody");
       if (!allAlertEvents.length) {
-        tbody.innerHTML = '<tr><td colspan="7" class="empty-state">No alerts dispatched yet.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="8" class="empty-state">No alerts dispatched yet.</td></tr>';
         renderAlertEventsPagination(1);
         return;
       }
@@ -406,8 +433,10 @@
           var statusHtml = ev.success
             ? '<span class="alert-status-badge ok">Delivered</span>'
             : '<span class="alert-status-badge fail">Failed</span>' + errorSnippet;
+          var sessionIdShort = ev.session_id ? String(ev.session_id).slice(0, 8) : "—";
           return '<tr>'
             + '<td class="mono-cell" style="font-size:12px;">' + escHtml(timeStr) + '</td>'
+            + '<td class="mono-cell" style="font-size:12px;" title="' + escAttr(ev.session_id || "") + '">' + escHtml(sessionIdShort) + '</td>'
             + '<td>' + escHtml(ev.persona_id) + '</td>'
             + '<td><span class="risk-badge ' + badgeTier(ev.risk_level) + '" style="min-width:60px;">' + escHtml(ev.risk_level) + '</span></td>'
             + '<td>' + escHtml(ev.actor_label || "—") + '</td>'
