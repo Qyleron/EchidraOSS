@@ -226,6 +226,14 @@
       return /^[=+\-@\t\r]/.test(stringValue) ? `'${stringValue}` : stringValue;
     }
 
+    function dateRangeSuffix() {
+      const from = document.getElementById("rangeFromDate").value;
+      const to = document.getElementById("rangeToDate").value;
+      if (!from && !to) return "all-time";
+      if (from === to) return from;
+      return `${from || "start"}_to_${to || "now"}`;
+    }
+
     function downloadCsv(filename, rows) {
       const csv = rows.map((row) => row.map((value) => `"${sanitizeCsvCell(value).replaceAll('"', '""')}"`).join(",")).join("\n");
       const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
@@ -542,7 +550,7 @@
         ["Country", "Count"],
         ...currentSummary.top_countries.map((row) => [row.country, row.count])
       ];
-      downloadCsv("echidra-analytics.csv", rows);
+      downloadCsv(`echidra-analytics_${dateRangeSuffix()}.csv`, rows);
     });
 
     initTimeRangeControl();

@@ -601,6 +601,14 @@
       return /^[=+\-@\t\r]/.test(stringValue) ? `'${stringValue}` : stringValue;
     }
 
+    function dateRangeSuffix() {
+      const from = document.getElementById("rangeFromDate").value;
+      const to = document.getElementById("rangeToDate").value;
+      if (!from && !to) return "all-time";
+      if (from === to) return from;
+      return `${from || "start"}_to_${to || "now"}`;
+    }
+
     function downloadCsv(filename, rows) {
       const csv = rows.map((row) => row.map((value) => `"${sanitizeCsvCell(value).replaceAll('"', '""')}"`).join(",")).join("\n");
       const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
@@ -633,21 +641,38 @@
     });
 
     document.getElementById("downloadVisibleButton").addEventListener("click", () => {
+      // One row per unique source IP -- a repeat attacker shouldn't produce
+      // several rows for the same IP. Keep that IP's most recent session
+      // (by timestamp) as the representative row, and record how many
+      // sessions it actually had via the Sessions column.
+      const byIp = new Map();
+      for (const session of visibleSessions) {
+        const key = session.sourceIp || `unknown:${session.sessionId}`;
+        const existing = byIp.get(key);
+        if (!existing || session.timestamp > existing.session.timestamp) {
+          byIp.set(key, { session, count: (existing ? existing.count : 0) + 1 });
+        } else {
+          existing.count += 1;
+        }
+      }
       const rows = [
-        ["Time", "Source IP", "Country", "Persona", "Protocol", "Actor", "Risk", "Intent", "Status"],
-        ...visibleSessions.map((session) => [
-          formatSessionTime(session.timestamp),
-          session.sourceIp,
-          session.country,
-          session.persona,
-          session.protocol,
-          session.actor ? (ACTOR_LABELS[session.actor] || session.actor) : "Unclassified",
-          session.risk,
-          session.intent,
-          session.classificationStatus === "complete" ? "Complete" : "Partial"
-        ])
+        ["Time", "Source IP", "Country", "Sessions", "Persona", "Protocol", "Actor", "Risk", "Intent", "Status"],
+        ...Array.from(byIp.values())
+          .sort((a, b) => b.session.timestamp - a.session.timestamp)
+          .map(({ session, count }) => [
+            formatSessionTime(session.timestamp),
+            session.sourceIp,
+            session.country,
+            count,
+            session.persona,
+            session.protocol,
+            session.actor ? (ACTOR_LABELS[session.actor] || session.actor) : "Unclassified",
+            session.risk,
+            session.intent,
+            session.classificationStatus === "complete" ? "Complete" : "Partial"
+          ])
       ];
-      downloadCsv("echidra-sessions-visible.csv", rows);
+      downloadCsv(`echidra-sessions-visible_${dateRangeSuffix()}.csv`, rows);
     });
 
     const HOUR_OPTIONS = Array.from({ length: 24 }, (_, hour) => {
