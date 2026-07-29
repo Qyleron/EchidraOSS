@@ -528,52 +528,48 @@
 
     document.getElementById("exportCsvButton").addEventListener("click", () => {
       if (!currentSummary) return;
-      // Analytics has no single row unit to export (unlike Sessions, where
-      // one row = one session) -- it's 6 unrelated dimensions: intents,
-      // hours, daily risk trend, commands, personas, countries. Rather than
-      // stacking each as its own mini-table with repeated headers (hard to
-      // read, ragged columns), lay them out as column groups side-by-side
-      // in one single table with one header row, so it's one real table a
-      // spreadsheet renders as a clean grid, not six.
-      const intentRows = [
+      // Each table gets its own heading and is separated from the next by
+      // 4 blank rows, so scrolling through the file in a spreadsheet reads
+      // as a sequence of distinct labeled tables rather than one ragged
+      // grid or an unbroken wall of rows.
+      const GAP = 4;
+      const gap = () => Array.from({ length: GAP }, () => []);
+
+      const rows = [
+        [`Echidra Analytics Report — ${dateRangeSuffix().replaceAll("_", " ")}`],
+        ...gap(),
+
+        ["Sessions by Intent"],
+        ["Intent", "Count"],
         ["Credential Access", currentSummary.intent_counts.credential_theft || 0],
         ["Reconnaissance", currentSummary.intent_counts.reconnaissance || 0],
         ["Data Access", currentSummary.intent_counts.data_access || 0],
         ["Interactive Operation", currentSummary.intent_counts.interactive_operation || 0],
-      ];
-      const hourRows = Object.entries(currentSummary.attacks_by_hour)
-        .sort((a, b) => Number(a[0]) - Number(b[0]));
-      const riskRows = currentSummary.risk_trend.map((p) => [p.date, p.high, p.medium, p.low]);
-      const commandRows = currentSummary.top_commands.map((r) => [r.command, r.count]);
-      const personaRows = currentSummary.top_personas.map((r) => [personaDisplay(r.persona_id), r.count]);
-      const countryRows = currentSummary.top_countries.map((r) => [r.country, r.count]);
+        ...gap(),
 
-      const groups = [
-        { header: ["Intent", "Count"], rows: intentRows },
-        { header: ["Hour", "Attacks"], rows: hourRows },
-        { header: ["Date", "High", "Medium", "Low"], rows: riskRows },
-        { header: ["Command", "Count"], rows: commandRows },
-        { header: ["Persona", "Count"], rows: personaRows },
-        { header: ["Country", "Count"], rows: countryRows },
-      ];
-      const maxRows = Math.max(...groups.map((g) => g.rows.length));
-      const padCell = (val) => (val == null ? "" : val);
-      const emptyGroupRow = (width) => new Array(width).fill("");
+        ["Attacks by Hour of Day"],
+        ["Hour", "Attacks"],
+        ...Object.entries(currentSummary.attacks_by_hour).sort((a, b) => Number(a[0]) - Number(b[0])),
+        ...gap(),
 
-      const headerRow = groups.flatMap((g) => g.header);
-      const dataRows = [];
-      for (let i = 0; i < maxRows; i++) {
-        dataRows.push(groups.flatMap((g) => {
-          const row = g.rows[i];
-          return row ? row.map(padCell) : emptyGroupRow(g.header.length);
-        }));
-      }
+        ["Risk Trend by Date"],
+        ["Date", "High", "Medium", "Low"],
+        ...currentSummary.risk_trend.map((point) => [point.date, point.high, point.medium, point.low]),
+        ...gap(),
 
-      const rows = [
-        [`Echidra Analytics Report — ${dateRangeSuffix().replaceAll("_", " ")}`],
-        [],
-        headerRow,
-        ...dataRows,
+        ["Top Commands"],
+        ["Command", "Count"],
+        ...currentSummary.top_commands.map((row) => [row.command, row.count]),
+        ...gap(),
+
+        ["Top Personas"],
+        ["Persona", "Count"],
+        ...currentSummary.top_personas.map((row) => [personaDisplay(row.persona_id), row.count]),
+        ...gap(),
+
+        ["Top Countries"],
+        ["Country", "Count"],
+        ...currentSummary.top_countries.map((row) => [row.country, row.count]),
       ];
       downloadCsv(`echidra-analytics_${dateRangeSuffix()}.csv`, rows);
     });
