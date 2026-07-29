@@ -41,9 +41,9 @@ def test_dashboard_map_and_events_are_backed_by_live_api_calls():
     html = (DASHBOARD_PUBLIC_PATH / "index.html").read_text(encoding="utf-8")
 
     assert 'id="attackOriginMap"' in html
-    assert "L.map(\"attackOriginMap\"" in html
-    assert "L.circle([run.latitude, run.longitude]" in html
-    assert "L.circleMarker([run.latitude, run.longitude]" in html
+    assert "L.map(container" in html
+    assert "L.circle([lat, lon]" in html
+    assert "L.circleMarker([lat, lon]" in html
     assert 'fetchJSON("/reports/summary")' in html
     assert 'fetchJSON("/classifier/runs?limit=8")' in html
     # The old static mock dataset must be gone.
@@ -262,7 +262,7 @@ def test_high_volume_tables_show_a_loader_inside_their_own_container():
     separate timer. Small, fast lookups (a handful of personas, aggregated
     issues, the 8 most recent events) don't need one."""
     table_pages = {
-        "sessions.html": 'tableBody.innerHTML = \'<tr><td colspan="8" class="table-loader-cell"><div class="spinner" role="status" aria-label="Loading sessions"></div></td></tr>\';',
+        "sessions.html": 'tableBody.innerHTML = \'<tr><td colspan="9" class="table-loader-cell"><div class="spinner" role="status" aria-label="Loading sessions"></div></td></tr>\';',
         "alerts.html": 'tbody.innerHTML = \'<tr><td colspan="7" class="table-loader-cell"><div class="spinner" role="status" aria-label="Loading alert history"></div></td></tr>\';',
     }
     for page, loader_line in table_pages.items():

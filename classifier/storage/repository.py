@@ -1519,7 +1519,13 @@ class PostgresClassifierRepository:
         from classifier.storage.geolocation import resolve_geo
 
         peer_ip = str(session.peer_ip)
-        country, latitude, longitude = resolve_geo(peer_ip)
+        geo_country, geo_latitude, geo_longitude = resolve_geo(peer_ip)
+        # A caller-supplied lat/lon (eg. a future precise geolocation source)
+        # takes precedence over the country-centroid fallback -- don't
+        # clobber a more precise value with a coarser one.
+        latitude = session.latitude if session.latitude is not None else geo_latitude
+        longitude = session.longitude if session.longitude is not None else geo_longitude
+        country = geo_country
         psycopg = _load_psycopg()
         with _connect(psycopg, self.database_url) as conn:
             with conn.transaction():
@@ -1715,15 +1721,20 @@ def session_insert_params(record: ClassifierRunRecord) -> dict[str, Any]:
     from classifier.storage.geolocation import resolve_geo
     session_record = record.session_record
     peer_ip = session_record.get("peer_ip")
-    country, latitude, longitude = resolve_geo(peer_ip)
+    geo_country, geo_latitude, geo_longitude = resolve_geo(peer_ip)
+    # A caller-supplied lat/lon (eg. a future precise geolocation source)
+    # takes precedence over the country-centroid fallback -- don't clobber
+    # a more precise value with a coarser one.
+    latitude = session_record.get("latitude")
+    longitude = session_record.get("longitude")
     return {
         "id": record.session_id,
         "protocol": record.protocol,
         "peer_ip": peer_ip,
         "peer_port": session_record.get("peer_port"),
-        "latitude": latitude,
-        "longitude": longitude,
-        "country": country,
+        "latitude": latitude if latitude is not None else geo_latitude,
+        "longitude": longitude if longitude is not None else geo_longitude,
+        "country": geo_country,
         "persona_id": record.persona_id,
         "started_at": session_record["started_at"],
         "ended_at": session_record["ended_at"],
