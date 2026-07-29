@@ -528,43 +528,52 @@
 
     document.getElementById("exportCsvButton").addEventListener("click", () => {
       if (!currentSummary) return;
-      // Every row is padded to this width so the sheet renders as one clean
-      // grid in Excel/Sheets instead of a ragged one where 2-column
-      // sections trail off next to the 4-column risk-trend section.
-      const CSV_WIDTH = 4;
-      const pad = (row) => { const r = row.slice(0, CSV_WIDTH); while (r.length < CSV_WIDTH) r.push(""); return r; };
-      const section = (title) => pad([title]);
-      const blank = () => pad([]);
+      // Analytics has no single row unit to export (unlike Sessions, where
+      // one row = one session) -- it's 6 unrelated dimensions: intents,
+      // hours, daily risk trend, commands, personas, countries. Rather than
+      // stacking each as its own mini-table with repeated headers (hard to
+      // read, ragged columns), lay them out as column groups side-by-side
+      // in one single table with one header row, so it's one real table a
+      // spreadsheet renders as a clean grid, not six.
+      const intentRows = [
+        ["Credential Access", currentSummary.intent_counts.credential_theft || 0],
+        ["Reconnaissance", currentSummary.intent_counts.reconnaissance || 0],
+        ["Data Access", currentSummary.intent_counts.data_access || 0],
+        ["Interactive Operation", currentSummary.intent_counts.interactive_operation || 0],
+      ];
+      const hourRows = Object.entries(currentSummary.attacks_by_hour)
+        .sort((a, b) => Number(a[0]) - Number(b[0]));
+      const riskRows = currentSummary.risk_trend.map((p) => [p.date, p.high, p.medium, p.low]);
+      const commandRows = currentSummary.top_commands.map((r) => [r.command, r.count]);
+      const personaRows = currentSummary.top_personas.map((r) => [personaDisplay(r.persona_id), r.count]);
+      const countryRows = currentSummary.top_countries.map((r) => [r.country, r.count]);
+
+      const groups = [
+        { header: ["Intent", "Count"], rows: intentRows },
+        { header: ["Hour", "Attacks"], rows: hourRows },
+        { header: ["Date", "High", "Medium", "Low"], rows: riskRows },
+        { header: ["Command", "Count"], rows: commandRows },
+        { header: ["Persona", "Count"], rows: personaRows },
+        { header: ["Country", "Count"], rows: countryRows },
+      ];
+      const maxRows = Math.max(...groups.map((g) => g.rows.length));
+      const padCell = (val) => (val == null ? "" : val);
+      const emptyGroupRow = (width) => new Array(width).fill("");
+
+      const headerRow = groups.flatMap((g) => g.header);
+      const dataRows = [];
+      for (let i = 0; i < maxRows; i++) {
+        dataRows.push(groups.flatMap((g) => {
+          const row = g.rows[i];
+          return row ? row.map(padCell) : emptyGroupRow(g.header.length);
+        }));
+      }
 
       const rows = [
-        pad(["Echidra Analytics Report", dateRangeSuffix().replaceAll("_", " ")]),
-        blank(),
-        section("Sessions by Intent"),
-        pad(["Intent", "Count"]),
-        pad(["Credential Access", currentSummary.intent_counts.credential_theft || 0]),
-        pad(["Reconnaissance", currentSummary.intent_counts.reconnaissance || 0]),
-        pad(["Data Access", currentSummary.intent_counts.data_access || 0]),
-        pad(["Interactive Operation", currentSummary.intent_counts.interactive_operation || 0]),
-        blank(),
-        section("Attacks by Hour of Day"),
-        pad(["Hour", "Attacks"]),
-        ...Object.entries(currentSummary.attacks_by_hour).sort((a, b) => Number(a[0]) - Number(b[0])).map(pad),
-        blank(),
-        section("Risk Trend by Date"),
-        pad(["Date", "High", "Medium", "Low"]),
-        ...currentSummary.risk_trend.map((point) => pad([point.date, point.high, point.medium, point.low])),
-        blank(),
-        section("Top Commands"),
-        pad(["Command", "Count"]),
-        ...currentSummary.top_commands.map((row) => pad([row.command, row.count])),
-        blank(),
-        section("Top Personas"),
-        pad(["Persona", "Count"]),
-        ...currentSummary.top_personas.map((row) => pad([personaDisplay(row.persona_id), row.count])),
-        blank(),
-        section("Top Countries"),
-        pad(["Country", "Count"]),
-        ...currentSummary.top_countries.map((row) => pad([row.country, row.count]))
+        [`Echidra Analytics Report — ${dateRangeSuffix().replaceAll("_", " ")}`],
+        [],
+        headerRow,
+        ...dataRows,
       ];
       downloadCsv(`echidra-analytics_${dateRangeSuffix()}.csv`, rows);
     });
