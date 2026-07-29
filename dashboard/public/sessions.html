@@ -457,22 +457,33 @@
         return;
       }
 
-      const totalPages = Math.max(1, Math.ceil(sessionsToRender.length / SESSIONS_PAGE_SIZE));
+      // Collapse repeat hits from the same IP showing the *same* attack
+      // pattern (actor label + intent) into one row, keeping the most
+      // recent session as the representative (still individually
+      // expandable for its command timeline) and an accurate count of how
+      // many times that exact pattern repeated. If the same IP's behavior
+      // changes -- eg. escalates from reconnaissance to credential theft --
+      // it surfaces as its own separate row instead of being silently
+      // folded away, so the classifier's signal isn't lost.
+      const groups = new Map();
+      for (const session of sessionsToRender) {
+        const key = `${session.sourceIp || "unknown"}|${session.actor || "unclassified"}|${session.intent || "unknown"}`;
+        const existing = groups.get(key);
+        if (!existing) {
+          groups.set(key, { session, count: 1 });
+        } else {
+          existing.count += 1;
+          if (session.timestamp > existing.session.timestamp) existing.session = session;
+        }
+      }
+      const groupedRows = Array.from(groups.values()).sort((a, b) => b.session.timestamp - a.session.timestamp);
+
+      const totalPages = Math.max(1, Math.ceil(groupedRows.length / SESSIONS_PAGE_SIZE));
       currentPage = Math.min(currentPage, totalPages);
       const pageStart = (currentPage - 1) * SESSIONS_PAGE_SIZE;
-      const pageItems = sessionsToRender.slice(pageStart, pageStart + SESSIONS_PAGE_SIZE);
+      const pageItems = groupedRows.slice(pageStart, pageStart + SESSIONS_PAGE_SIZE);
 
-      // Session count per source IP, over the same date-range-filtered set
-      // shown/exported elsewhere on this page -- rows stay one-per-session
-      // (so every session's command timeline is still individually
-      // expandable), this just surfaces how often that IP shows up.
-      const sessionCountByIp = new Map();
-      for (const session of sessionsToRender) {
-        const key = session.sourceIp || `unknown:${session.id}`;
-        sessionCountByIp.set(key, (sessionCountByIp.get(key) || 0) + 1);
-      }
-
-      tableBody.innerHTML = pageItems.map((session) => `
+      tableBody.innerHTML = pageItems.map(({ session, count }) => `
         <tr data-session-row="${session.id}" tabindex="0" aria-expanded="false">
           <td>
             <div class="cell-primary">
@@ -481,7 +492,7 @@
             </div>
           </td>
           <td class="mono-cell">${escHtml(session.sourceIp)}</td>
-          <td>${sessionCountByIp.get(session.sourceIp || `unknown:${session.id}`)}</td>
+          <td>${count}</td>
           <td>${escHtml(session.country)}</td>
           <td>
             <div class="cell-primary">
@@ -661,18 +672,23 @@
     // timestamp) as the representative row, and records how many sessions
     // it actually had via the Sessions column. Shared by both the CSV and
     // XLSX export so the two formats can never drift apart.
+    // Same (IP + actor + intent) grouping as the on-screen table, so the
+    // export never disagrees with what's shown -- a repeat identical
+    // pattern collapses to one row with a count, but a behavior change from
+    // the same IP still gets its own row.
     function buildDedupedSessionRows() {
-      const byIp = new Map();
+      const groups = new Map();
       for (const session of visibleSessions) {
-        const key = session.sourceIp || `unknown:${session.sessionId}`;
-        const existing = byIp.get(key);
-        if (!existing || session.timestamp > existing.session.timestamp) {
-          byIp.set(key, { session, count: (existing ? existing.count : 0) + 1 });
+        const key = `${session.sourceIp || "unknown"}|${session.actor || "unclassified"}|${session.intent || "unknown"}`;
+        const existing = groups.get(key);
+        if (!existing) {
+          groups.set(key, { session, count: 1 });
         } else {
           existing.count += 1;
+          if (session.timestamp > existing.session.timestamp) existing.session = session;
         }
       }
-      return Array.from(byIp.values())
+      return Array.from(groups.values())
         .sort((a, b) => b.session.timestamp - a.session.timestamp)
         .map(({ session, count }) => [
           formatSessionTime(session.timestamp),
