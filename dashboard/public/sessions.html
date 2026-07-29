@@ -115,6 +115,7 @@
               <tr>
                 <th>Time</th>
                 <th>Source IP</th>
+                <th>Sessions</th>
                 <th>Country</th>
                 <th>Persona</th>
                 <th>Protocol</th>
@@ -449,7 +450,7 @@
           : filtersActive
             ? "No sessions match the current filters in this range."
             : "No sessions in this range.";
-        tableBody.innerHTML = `<tr><td colspan="8" class="empty-state" style="text-align: center;">${message}</td></tr>`;
+        tableBody.innerHTML = `<tr><td colspan="9" class="empty-state" style="text-align: center;">${message}</td></tr>`;
         renderPagination(0);
         return;
       }
@@ -458,6 +459,16 @@
       currentPage = Math.min(currentPage, totalPages);
       const pageStart = (currentPage - 1) * SESSIONS_PAGE_SIZE;
       const pageItems = sessionsToRender.slice(pageStart, pageStart + SESSIONS_PAGE_SIZE);
+
+      // Session count per source IP, over the same date-range-filtered set
+      // shown/exported elsewhere on this page -- rows stay one-per-session
+      // (so every session's command timeline is still individually
+      // expandable), this just surfaces how often that IP shows up.
+      const sessionCountByIp = new Map();
+      for (const session of sessionsToRender) {
+        const key = session.sourceIp || `unknown:${session.id}`;
+        sessionCountByIp.set(key, (sessionCountByIp.get(key) || 0) + 1);
+      }
 
       tableBody.innerHTML = pageItems.map((session) => `
         <tr data-session-row="${session.id}" tabindex="0" aria-expanded="false">
@@ -468,6 +479,7 @@
             </div>
           </td>
           <td class="mono-cell">${escHtml(session.sourceIp)}</td>
+          <td>${sessionCountByIp.get(session.sourceIp || `unknown:${session.id}`)}</td>
           <td>${escHtml(session.country)}</td>
           <td>
             <div class="cell-primary">
@@ -558,7 +570,7 @@
       row.setAttribute("aria-expanded", "true");
       row.insertAdjacentHTML("afterend", `
         <tr id="${session.id}-detail" class="session-detail-row">
-          <td colspan="8">
+          <td colspan="9">
             <div class="session-detail">
               <section class="detail-block" aria-label="Session evidence">
                 <h3>Evidence</h3>
@@ -907,7 +919,7 @@
     async function loadSessions(from, to) {
       const requestId = ++latestSessionsRequestId;
       const truncatedNotice = document.getElementById("rangeTruncatedNotice");
-      tableBody.innerHTML = '<tr><td colspan="8" class="table-loader-cell"><div class="spinner" role="status" aria-label="Loading sessions"></div></td></tr>';
+      tableBody.innerHTML = '<tr><td colspan="9" class="table-loader-cell"><div class="spinner" role="status" aria-label="Loading sessions"></div></td></tr>';
       renderPagination(0);
       truncatedNotice.style.display = "none";
       let runs = null;
