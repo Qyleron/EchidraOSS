@@ -90,7 +90,7 @@
                 <input class="form-input" id="smtpUsername" type="text" placeholder="alerts@example.com" />
               </div>
               <div class="form-row">
-                <label class="form-label">Password</label>
+                <label class="form-label">Email App Password</label>
                 <div class="password-field-wrapper">
                   <input class="form-input" id="smtpPassword" type="password" placeholder="leave blank to keep existing" autocomplete="new-password" />
                   <button type="button" class="password-toggle-btn" id="smtpPasswordToggle" aria-label="Show password" aria-pressed="false"></button>
@@ -282,11 +282,23 @@
         document.getElementById("excludedIps").value = cfg.excluded_ips || "";
         var pwEl = document.getElementById("pwConfigured");
         pwEl.textContent = cfg.smtp_password_configured ? "Password saved." : "No password saved.";
+        updateSmtpFieldsDisabled();
       } catch (err) {
         smtpStatus.textContent = "Could not load config: " + err.message;
         smtpStatus.style.color = "var(--critical)";
       }
     }
+
+    var SMTP_FIELD_IDS = ["smtpHost", "smtpPort", "smtpUsername", "smtpPassword", "smtpFromEmail", "smtpUseTls"];
+
+    function updateSmtpFieldsDisabled() {
+      var enabled = document.getElementById("alertEnabled").checked;
+      SMTP_FIELD_IDS.forEach(function (id) {
+        document.getElementById(id).disabled = !enabled;
+      });
+    }
+
+    document.getElementById("alertEnabled").addEventListener("change", updateSmtpFieldsDisabled);
 
     function buildAlertConfigPayload() {
       var pw = document.getElementById("smtpPassword").value;

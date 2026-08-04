@@ -358,7 +358,7 @@
         + '<option value="">Use global default</option>'
         + buildOptions(["critical","high","medium","low"], config.alert_min_risk_level || "")
         + '</select></div>'
-        + formInput(personaId, "contact_email", "Contact Email", "email", config.contact_email || "")
+        + formInput(personaId, "contact_email", "Recipient Email", "email", config.contact_email || "")
         + formInput(personaId, "slack_webhook", "Slack Webhook", "url", config.slack_webhook || "")
         + '</div></div>'
 
@@ -443,7 +443,7 @@
         + '<option value="">Use global default</option>'
         + buildOptions(["critical","high","medium","low"], "")
         + '</select></div>'
-        + formInput(_CREATE_SENTINEL, "contact_email", "Contact Email", "email", "")
+        + formInput(_CREATE_SENTINEL, "contact_email", "Recipient Email", "email", "")
         + formInput(_CREATE_SENTINEL, "slack_webhook", "Slack Webhook", "url", "")
         + '</div></div>'
 
