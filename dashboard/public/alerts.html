@@ -286,10 +286,12 @@
       } catch (err) {
         smtpStatus.textContent = "Could not load config: " + err.message;
         smtpStatus.style.color = "var(--critical)";
+        document.getElementById("alertEnabled").checked = false;
+        updateSmtpFieldsDisabled();
       }
     }
 
-    var SMTP_FIELD_IDS = ["smtpHost", "smtpPort", "smtpUsername", "smtpPassword", "smtpFromEmail", "smtpUseTls"];
+    var SMTP_FIELD_IDS = ["smtpHost", "smtpPort", "smtpUsername", "smtpPassword", "smtpFromEmail", "smtpUseTls", "smtpPasswordToggle"];
 
     function updateSmtpFieldsDisabled() {
       var enabled = document.getElementById("alertEnabled").checked;

@@ -11,7 +11,7 @@ real attacker behavior, classifies it against MITRE ATT&CK techniques, and
 surfaces the result in a web dashboard — without ever executing real commands
 or exposing real data.
 
-**[Docs & full setup guide](https://qyleron.com/docs/) · [Dashboard guide](https://qyleron.com/docs/dashboard-guide.html)**
+**[Docs & full setup guide](https://qyleron.com/setup-and-onboarding/) · [Dashboard guide](https://qyleron.com/console-guide/)**
 
 ---
 
@@ -23,8 +23,8 @@ banners, users, files, running processes, and (for the shell) an interactive
 fake command set. Nothing they type touches the real host or filesystem.
 
 Every completed session is logged, classified (actor type, risk, MITRE ATT&CK
-technique, intent), geolocated, and stored in PostgreSQL for review in the
-dashboard.
+technique, intent), geolocated, and stored in PostgreSQL — or `logs/sessions.jsonl`
+if PostgreSQL isn't configured — for review in the dashboard.
 
 ## Features
 
@@ -33,7 +33,7 @@ dashboard.
 - **Storage & API** — PostgreSQL schema for sessions/events/classifier runs, always mirrored to `logs/sessions.jsonl`; FastAPI backend serves the classifier endpoints and dashboard
 - **Dashboard** — Sessions, Analytics, Intelligence (recurring issues + fixes), Personas, and Alerts (email/Slack)
 
-See the [Dashboard guide](https://qyleron.com/docs/dashboard-guide.html) for a full field-by-field reference.
+See the [Dashboard guide](https://qyleron.com/console-guide/) for a full field-by-field reference.
 
 ## Quick Start
 
@@ -51,7 +51,7 @@ the honeypot still runs and logs to `logs/sessions.jsonl` without it.
 
 For PostgreSQL setup, `.env` configuration, Docker Compose / systemd
 deployment, and troubleshooting, see the full
-**[Setup Guide](https://qyleron.com/docs/)**.
+**[Setup Guide](https://qyleron.com/setup-and-onboarding/)**.
 
 ## Safety Model
 
