@@ -1057,6 +1057,13 @@
         window.location.reload();
       }
     });
+    // Arriving from an Intelligence issue's session-count link
+    // (/dashboard/sessions?actor=brute_force_bot) preselects that actor so
+    // the table opens already scoped to the sessions behind that issue.
+    const requestedActor = new URLSearchParams(window.location.search).get("actor");
+    if (requestedActor && [...actorLabelFilter.options].some((opt) => opt.value === requestedActor)) {
+      actorLabelFilter.value = requestedActor;
+    }
     initTimeRangeControl();
     // initCustomSelects wraps each <select> and snapshots its current
     // options into the overlay listbox -- it must run after personaFilter's

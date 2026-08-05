@@ -135,7 +135,11 @@
               ${(issue.mitre || []).map((technique) => `<li>${escHtml(technique.id)} - ${escHtml(technique.name)}</li>`).join("")}
             </ul>
           </td>
-          <td>${escHtml(issue.session_count)}</td>
+          <td>${
+            issue.actor_label
+              ? `<a href="/dashboard/sessions?actor=${encodeURIComponent(issue.actor_label)}" class="session-count-link" title="View this actor's sessions">${escHtml(issue.session_count)}</a>`
+              : escHtml(issue.session_count)
+          }</td>
           <td>${escHtml(issue.persona_count)}</td>
           <td>
             <button
@@ -263,6 +267,9 @@
       const statusButton = event.target.closest(".status-toggle");
       if (statusButton) {
         handleStatusToggle(statusButton);
+        return;
+      }
+      if (event.target.closest(".session-count-link")) {
         return;
       }
       const row = event.target.closest("[data-issue-row]");
