@@ -109,6 +109,7 @@
         <p id="personaFilterWarning" style="display:none;padding:0 22px 12px;font-size:12px;color:var(--muted);" role="alert">
           Persona filter list may be incomplete — some personas failed to load. Reload the page to retry.
         </p>
+        <p id="groupFilterNotice" style="display:none;padding:0 22px 12px;font-size:12px;color:var(--muted);"></p>
 
         <div class="table-shell">
           <table class="data-table" aria-describedby="sessionsTitle">
@@ -139,10 +140,15 @@
     let visibleSessions = [];
     let sessionsLoadFailed = false;
     let currentPage = 1;
+    // When set, the table shows every individual session in this
+    // (sourceIp, actor, intent) group instead of the collapsed one-row-per-
+    // group view -- entered by clicking a group's repeat count.
+    let groupFilter = null;
     const SESSIONS_PAGE_SIZE = 10;
     const eventsCache = new Map();
     const tableBody = document.getElementById("sessionsTableBody");
     const paginationContainer = document.getElementById("sessionsPagination");
+    const groupFilterNotice = document.getElementById("groupFilterNotice");
 
     const ACTOR_LABELS = {
       automated_scanner: "Automated Scanner",
@@ -180,6 +186,10 @@
         .replace(/&/g, "&amp;")
         .replace(/</g, "&lt;")
         .replace(/>/g, "&gt;");
+    }
+
+    function escAttr(str) {
+      return escHtml(str).replace(/"/g, "&quot;");
     }
 
     // ── Custom-styled dropdowns (native <select> popups can't be restyled via
@@ -457,26 +467,52 @@
         return;
       }
 
-      // Collapse repeat hits from the same IP showing the *same* attack
-      // pattern (actor label + intent) into one row, keeping the most
-      // recent session as the representative (still individually
-      // expandable for its command timeline) and an accurate count of how
-      // many times that exact pattern repeated. If the same IP's behavior
-      // changes -- eg. escalates from reconnaissance to credential theft --
-      // it surfaces as its own separate row instead of being silently
-      // folded away, so the classifier's signal isn't lost.
-      const groups = new Map();
-      for (const session of sessionsToRender) {
-        const key = `${session.sourceIp || "unknown"}|${session.actor || "unclassified"}|${session.intent || "unknown"}`;
-        const existing = groups.get(key);
-        if (!existing) {
-          groups.set(key, { session, count: 1 });
-        } else {
-          existing.count += 1;
-          if (session.timestamp > existing.session.timestamp) existing.session = session;
+      let groupedRows;
+      if (groupFilter) {
+        // Drilled into one collapsed group -- show every individual session
+        // in it (no re-collapsing), each still expandable for its own
+        // evidence/timeline, so a 20+ hit group doesn't have to be inlined
+        // under its row and clutter the page.
+        const matches = sessionsToRender.filter((session) =>
+          (session.sourceIp || "unknown") === groupFilter.sourceIp &&
+          (session.actor || "unclassified") === groupFilter.actor &&
+          (session.intent || "unknown") === groupFilter.intent
+        );
+        groupedRows = matches
+          .sort((a, b) => b.timestamp - a.timestamp)
+          .map((session) => ({ session, count: null }));
+        groupFilterNotice.style.display = "block";
+        groupFilterNotice.innerHTML = `Showing all ${matches.length} session${matches.length === 1 ? "" : "s"} from ${escHtml(groupFilter.sourceIp)} · ${escHtml(groupFilter.actor)} · ${escHtml(groupFilter.intent)} <button type="button" id="clearGroupFilterBtn" class="text-button" style="margin-left:8px;">Back to all sessions</button>`;
+        document.getElementById("clearGroupFilterBtn").addEventListener("click", () => {
+          groupFilter = null;
+          currentPage = 1;
+          renderSessions(visibleSessions);
+        });
+      } else {
+        groupFilterNotice.style.display = "none";
+        groupFilterNotice.innerHTML = "";
+        // Collapse repeat hits from the same IP showing the *same* attack
+        // pattern (actor label + intent) into one row, keeping the most
+        // recent session as the representative (still individually
+        // expandable for its command timeline) and an accurate count of how
+        // many times that exact pattern repeated. If the same IP's behavior
+        // changes -- eg. escalates from reconnaissance to credential theft --
+        // it surfaces as its own separate row instead of being silently
+        // folded away, so the classifier's signal isn't lost. Clicking the
+        // count drills into every individual session in the group.
+        const groups = new Map();
+        for (const session of sessionsToRender) {
+          const key = `${session.sourceIp || "unknown"}|${session.actor || "unclassified"}|${session.intent || "unknown"}`;
+          const existing = groups.get(key);
+          if (!existing) {
+            groups.set(key, { session, count: 1 });
+          } else {
+            existing.count += 1;
+            if (session.timestamp > existing.session.timestamp) existing.session = session;
+          }
         }
+        groupedRows = Array.from(groups.values()).sort((a, b) => b.session.timestamp - a.session.timestamp);
       }
-      const groupedRows = Array.from(groups.values()).sort((a, b) => b.session.timestamp - a.session.timestamp);
 
       const totalPages = Math.max(1, Math.ceil(groupedRows.length / SESSIONS_PAGE_SIZE));
       currentPage = Math.min(currentPage, totalPages);
@@ -492,7 +528,9 @@
             </div>
           </td>
           <td class="mono-cell">${escHtml(session.sourceIp)}</td>
-          <td>${count}</td>
+          <td>${count == null ? "" : count > 1
+            ? `<button type="button" class="text-button group-count-btn" data-group-ip="${escAttr(session.sourceIp || "unknown")}" data-group-actor="${escAttr(session.actor || "unclassified")}" data-group-intent="${escAttr(session.intent || "unknown")}">${count}</button>`
+            : count}</td>
           <td>${escHtml(session.country)}</td>
           <td>
             <div class="cell-primary">
@@ -648,6 +686,17 @@
     }
 
     tableBody.addEventListener("click", (event) => {
+      const countBtn = event.target.closest(".group-count-btn");
+      if (countBtn) {
+        groupFilter = {
+          sourceIp: countBtn.dataset.groupIp,
+          actor: countBtn.dataset.groupActor,
+          intent: countBtn.dataset.groupIntent
+        };
+        currentPage = 1;
+        renderSessions(visibleSessions);
+        return;
+      }
       const row = event.target.closest("[data-session-row]");
       if (row) {
         toggleSession(row.dataset.sessionRow);
@@ -665,36 +714,21 @@
       }
     });
 
-    const SESSIONS_EXPORT_HEADER = ["Time", "Source IP", "Country", "Sessions", "Persona", "Protocol", "Actor", "Risk", "Intent", "Status"];
+    const SESSIONS_EXPORT_HEADER = ["Time", "Source IP", "Country", "Persona", "Protocol", "Actor", "Risk", "Intent", "Status"];
 
-    // One row per unique source IP -- a repeat attacker shouldn't produce
-    // several rows for the same IP. Keeps that IP's most recent session (by
-    // timestamp) as the representative row, and records how many sessions
-    // it actually had via the Sessions column. Shared by both the CSV and
-    // XLSX export so the two formats can never drift apart.
-    // Same (IP + actor + intent) grouping as the on-screen table, so the
-    // export never disagrees with what's shown -- a repeat identical
-    // pattern collapses to one row with a count, but a behavior change from
-    // the same IP still gets its own row.
-    function buildDedupedSessionRows() {
-      const groups = new Map();
-      for (const session of visibleSessions) {
-        const key = `${session.sourceIp || "unknown"}|${session.actor || "unclassified"}|${session.intent || "unknown"}`;
-        const existing = groups.get(key);
-        if (!existing) {
-          groups.set(key, { session, count: 1 });
-        } else {
-          existing.count += 1;
-          if (session.timestamp > existing.session.timestamp) existing.session = session;
-        }
-      }
-      return Array.from(groups.values())
-        .sort((a, b) => b.session.timestamp - a.session.timestamp)
-        .map(({ session, count }) => [
+    // Unlike the on-screen table, exports don't collapse repeat hits from
+    // the same (IP, actor, intent) into one row -- there's no drill-in UI in
+    // a flat file, so collapsing here would just discard rows a CSV/XLSX
+    // export is specifically for (offline pivoting over the raw data).
+    // Shared by both CSV and XLSX so the two formats can never drift apart.
+    function buildSessionRows() {
+      return visibleSessions
+        .slice()
+        .sort((a, b) => b.timestamp - a.timestamp)
+        .map((session) => [
           formatSessionTime(session.timestamp),
           session.sourceIp,
           session.country,
-          count,
           session.persona,
           session.protocol,
           session.actor ? (ACTOR_LABELS[session.actor] || session.actor) : "Unclassified",
@@ -707,13 +741,13 @@
     document.getElementById("downloadVisibleButton").addEventListener("click", () => {
       downloadCsv(
         `echidra-sessions-visible_${dateRangeSuffix()}.csv`,
-        [SESSIONS_EXPORT_HEADER, ...buildDedupedSessionRows()]
+        [SESSIONS_EXPORT_HEADER, ...buildSessionRows()]
       );
     });
 
     document.getElementById("downloadVisibleXlsxButton").addEventListener("click", () => {
       if (!window.XLSX) return;
-      const rows = buildDedupedSessionRows();
+      const rows = buildSessionRows();
       const worksheet = XLSX.utils.aoa_to_sheet([SESSIONS_EXPORT_HEADER, ...rows]);
       const range = XLSX.utils.decode_range(worksheet["!ref"]);
       for (let col = range.s.c; col <= range.e.c; col++) {
@@ -998,6 +1032,7 @@
       }
       visibleSessions = allSessions;
       currentPage = 1;
+      groupFilter = null;
       renderSessions(visibleSessions);
     }
 
