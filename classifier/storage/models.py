@@ -260,6 +260,7 @@ class IssueRecord(BaseModel):
     session_count: int = Field(ge=0)
     persona_count: int = Field(ge=0)
     status: str = "open"
+    actor_label: str | None = None
     mitre: list[MitreTechnique] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=_utc_now)
 

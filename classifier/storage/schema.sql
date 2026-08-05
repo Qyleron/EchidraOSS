@@ -159,6 +159,10 @@ CREATE TABLE IF NOT EXISTS issues (
     created_at TIMESTAMPTZ NOT NULL
 );
 
+-- Lets the dashboard link an issue straight to the Sessions page filtered to
+-- the actor that drove it, instead of leaving analysts to search manually.
+ALTER TABLE issues ADD COLUMN IF NOT EXISTS actor_label TEXT;
+
 CREATE INDEX IF NOT EXISTS issues_status_idx
     ON issues (status);
 

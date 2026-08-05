@@ -414,6 +414,7 @@ SELECT
     session_count,
     persona_count,
     status,
+    actor_label,
     created_at
 FROM issues
 """
@@ -448,6 +449,7 @@ INSERT INTO issues (
     session_count,
     persona_count,
     status,
+    actor_label,
     created_at
 ) VALUES (
     %(id)s,
@@ -459,6 +461,7 @@ INSERT INTO issues (
     %(session_count)s,
     %(persona_count)s,
     %(status)s,
+    %(actor_label)s,
     %(created_at)s
 )
 ON CONFLICT (id) DO UPDATE SET
@@ -468,7 +471,8 @@ ON CONFLICT (id) DO UPDATE SET
     recommended_fix = EXCLUDED.recommended_fix,
     impact = EXCLUDED.impact,
     session_count = EXCLUDED.session_count,
-    persona_count = EXCLUDED.persona_count
+    persona_count = EXCLUDED.persona_count,
+    actor_label = EXCLUDED.actor_label
 """
 
 DELETE_ISSUE_MITRE_TECHNIQUES_SQL = """
@@ -1898,6 +1902,7 @@ def issue_insert_params(issue: IssueRecord) -> dict[str, Any]:
         "session_count": issue.session_count,
         "persona_count": issue.persona_count,
         "status": issue.status,
+        "actor_label": issue.actor_label,
         "created_at": issue.created_at,
     }
 
