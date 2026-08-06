@@ -700,7 +700,7 @@
       const pageItems = groupedRows.slice(pageStart, pageStart + SESSIONS_PAGE_SIZE);
 
       tableBody.innerHTML = pageItems.map(({ session, count }) => `
-        <tr data-session-row="${session.id}" tabindex="0" aria-expanded="false">
+        <tr data-session-row="${session.id}" tabindex="0" aria-haspopup="dialog">
           <td>
             <div class="cell-primary">
               <strong>${formatSessionTime(session.timestamp)}</strong>
@@ -850,7 +850,6 @@
       sessionInspector.classList.remove("open");
       document.querySelectorAll("[data-session-row]").forEach((sessionRow) => {
         sessionRow.classList.remove("selected");
-        sessionRow.setAttribute("aria-expanded", "false");
       });
       if (lastFocusedTrigger) {
         lastFocusedTrigger.focus();
@@ -875,9 +874,7 @@
       lastFocusedTrigger = document.querySelector(`[data-session-row="${sessionId}"]`) || document.activeElement;
 
       document.querySelectorAll("[data-session-row]").forEach((sessionRow) => {
-        const isThisRow = sessionRow.dataset.sessionRow === String(sessionId);
-        sessionRow.classList.toggle("selected", isThisRow);
-        sessionRow.setAttribute("aria-expanded", isThisRow ? "true" : "false");
+        sessionRow.classList.toggle("selected", sessionRow.dataset.sessionRow === String(sessionId));
       });
 
       const shortId = session.sessionId ? `#SES-${session.sessionId.slice(0, 8)}` : `#SES-${session.id}`;
