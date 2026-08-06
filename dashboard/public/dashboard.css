@@ -32,6 +32,13 @@ body {
   color: var(--text);
 }
 
+/* Applied while the Session Inspector drawer is open, so the page behind
+   it can't be scrolled -- only .session-inspector-body's own overflow-y
+   should move. */
+body.body-scroll-locked {
+  overflow: hidden;
+}
+
 body::before {
   content: "";
   position: fixed;
@@ -83,6 +90,30 @@ a {
 .text-button:active {
   box-shadow: 0 1px 1px rgba(0, 0, 0, 0.4);
   transform: translateY(1px);
+}
+
+/* Repeat-hit count in the Sessions table -- a plain underlined number
+   instead of a full raised .text-button box, so it doesn't look heavier
+   than the plain (non-clickable) count shown when there's only one hit. */
+.group-count-btn {
+  border: none;
+  border-radius: 4px;
+  padding: 1px 5px;
+  color: var(--text);
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 650;
+  text-decoration: underline;
+  text-decoration-color: var(--border-strong);
+  text-underline-offset: 2px;
+}
+
+.group-count-btn:hover,
+.group-count-btn:focus-visible {
+  color: var(--text);
+  background: var(--surface-hover);
+  text-decoration-color: var(--text);
 }
 
 .app-shell {
@@ -541,6 +572,15 @@ a {
 
 .data-table tbody tr:last-child td {
   border-bottom: 0;
+}
+
+/* Faux row-gap for the "drilled into one IP's group" view -- border-collapse
+   means adjacent <tr>s can't have real margin between them, so a thick
+   border-bottom colored to match the panel background reads as a gap
+   instead of a hairline divider, making each repeat session from the same
+   IP visually distinct instead of blurring into one solid block. */
+.data-table.grouped-view tbody tr:not(:last-child) td {
+  border-bottom: 10px solid var(--surface);
 }
 
 .cell-primary {
@@ -1710,18 +1750,23 @@ a {
   flex: 1;
   padding: 20px 22px 28px;
   display: grid;
-  gap: 22px;
+  gap: 28px;
 }
 
 .session-inspector-meta {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 12px 16px;
+  gap: 18px 16px;
+  margin-top: 4px;
 }
 
 .session-inspector-meta-item {
   display: grid;
-  gap: 4px;
+  gap: 6px;
+}
+
+.session-inspector-meta-item--full {
+  grid-column: 1 / -1;
 }
 
 .session-inspector-meta-item span {
