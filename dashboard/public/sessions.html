@@ -909,13 +909,7 @@
             <div class="session-inspector-meta-item"><span>Duration</span><strong>${escHtml(session.duration)}</strong></div>
             <div class="session-inspector-meta-item"><span>Risk</span><strong><span class="risk-badge ${badgeTier(session.risk)}">${escHtml(session.risk)}</span></strong></div>
           </div>
-          <!--
-            Threat-tag placeholder -- wire this up once the issue bridge
-            table (issue_sessions) ships and the session record starts
-            carrying a linked_issue_id, then point the href at
-            /dashboard/intelligence?issue=<linked_issue_id>.
-            <span class="badge-linked-issue">Linked Issue #{linked_issue_id}</span>
-          -->
+          <div class="session-inspector-linked-issues" id="${session.id}-linked-issues"></div>
         </section>
         <section class="detail-block" aria-label="Command timeline">
           <h3>Command Timeline</h3>
@@ -940,22 +934,45 @@
 
       showSessionInspector();
 
-      try {
-        const events = await loadSessionEvents(session.sessionId);
-        if (inspectorSessionId !== sessionId) return; // closed/switched before the fetch resolved
-        const commandList = document.getElementById(`${session.id}-commands`);
-        if (!commandList) return;
-        const commands = events.filter((event) => event.event_type === "command");
-        commandList.innerHTML = commands.length
-          ? commands.map((event) => `<li>${escHtml(event.event_value)}</li>`).join("")
-          : `<li>No commands were captured in this session.</li>`;
-      } catch (error) {
-        console.error(error);
-        if (inspectorSessionId !== sessionId) return;
-        const commandList = document.getElementById(`${session.id}-commands`);
-        if (!commandList) return;
-        commandList.innerHTML = `<li>Could not load the command timeline. Close and reopen this session to retry.</li>`;
-      }
+      // Fired independently (not awaited in sequence) so a slow/failed
+      // fetch on one never delays or gets skipped by an early return in
+      // the other.
+      (async () => {
+        try {
+          const events = await loadSessionEvents(session.sessionId);
+          if (inspectorSessionId !== sessionId) return; // closed/switched before the fetch resolved
+          const commandList = document.getElementById(`${session.id}-commands`);
+          if (!commandList) return;
+          const commands = events.filter((event) => event.event_type === "command");
+          commandList.innerHTML = commands.length
+            ? commands.map((event) => `<li>${escHtml(event.event_value)}</li>`).join("")
+            : `<li>No commands were captured in this session.</li>`;
+        } catch (error) {
+          console.error(error);
+          if (inspectorSessionId !== sessionId) return;
+          const commandList = document.getElementById(`${session.id}-commands`);
+          if (!commandList) return;
+          commandList.innerHTML = `<li>Could not load the command timeline. Close and reopen this session to retry.</li>`;
+        }
+      })();
+
+      (async () => {
+        try {
+          const linkedIssues = await fetchJSON(`/sessions/${session.sessionId}/issues`);
+          if (inspectorSessionId !== sessionId) return;
+          const container = document.getElementById(`${session.id}-linked-issues`);
+          if (!container) return;
+          container.innerHTML = linkedIssues
+            .map((linkedIssue) => `<a class="badge-linked-issue" href="/dashboard/intelligence?issue=${encodeURIComponent(linkedIssue.id)}">Linked Issue: ${escHtml(linkedIssue.title)}</a>`)
+            .join("");
+        } catch (error) {
+          console.error(error);
+          // Silent otherwise -- this is a supplementary cross-link, not
+          // core session detail, so a failed fetch just leaves the badge
+          // area empty instead of showing an error alongside Evidence/
+          // Command Timeline for something this secondary.
+        }
+      })();
     }
 
     sessionInspectorBackdrop.addEventListener("click", closeSessionInspector);
@@ -1382,7 +1399,26 @@
     if (requestedActor && [...actorLabelFilter.options].some((opt) => opt.value === requestedActor)) {
       actorLabelFilter.value = requestedActor;
     }
-    initTimeRangeControl();
+    // Arriving from an Intelligence issue's "Linked Sessions" list
+    // (/dashboard/sessions?session=<uuid>) or a Session Inspector's own
+    // "Linked Issue" round-trip opens that exact session's Inspector, once
+    // it's loaded -- widening the date range once if it isn't found in the
+    // default 7-day window, since the linked session could be older.
+    const requestedSessionId = new URLSearchParams(window.location.search).get("session");
+    function openRequestedSessionIfPresent() {
+      if (!requestedSessionId) return false;
+      const match = allSessions.find((item) => item.sessionId === requestedSessionId);
+      if (!match) return false;
+      openSessionInspector(match.id);
+      return true;
+    }
+    initTimeRangeControl().then(() => {
+      if (!requestedSessionId || openRequestedSessionIfPresent()) return;
+      const fromDateInput = document.getElementById("rangeFromDate");
+      fromDateInput.value = "2000-01-01";
+      fromDateInput.dispatchEvent(new Event("change", { bubbles: true }));
+      applyRange().then(openRequestedSessionIfPresent);
+    });
     // initCustomSelects wraps each <select> and snapshots its current
     // options into the overlay listbox -- it must run after personaFilter's
     // options are populated, or newly-added personas would never appear in

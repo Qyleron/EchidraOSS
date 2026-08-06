@@ -217,6 +217,16 @@
                 <h3>Impact</h3>
                 <p>${escHtml(issue.impact)}</p>
               </section>
+              ${(issue.session_ids || []).length ? `
+              <section class="detail-block" style="grid-column: 1 / -1;" aria-label="Linked sessions">
+                <h3>Linked Sessions</h3>
+                <ul class="linked-session-list">
+                  ${issue.session_ids.map((sessionId) => `
+                    <li><a href="/dashboard/sessions?session=${encodeURIComponent(sessionId)}">#SES-${escHtml(String(sessionId).slice(0, 8))}</a></li>
+                  `).join("")}
+                </ul>
+              </section>
+              ` : ""}
             </div>
           </td>
         </tr>
@@ -228,9 +238,30 @@
       try {
         currentIssues = await fetchIssues();
         renderIssueRows(currentIssues);
+        openRequestedIssue();
       } catch (error) {
         tableBody.innerHTML = `<tr><td colspan="6" class="empty-state" style="text-align: center;">Could not load issues. Is the database configured?</td></tr>`;
       }
+    }
+
+    // Arriving from a Session Inspector's "Linked Issue" badge
+    // (/dashboard/intelligence?issue=<uuid>) jumps straight to that issue's
+    // row -- paginating to it and expanding its detail -- instead of
+    // leaving an analyst to search for it by hand across however many pages
+    // of issues exist.
+    let requestedIssueOpened = false;
+    function openRequestedIssue() {
+      if (requestedIssueOpened) return;
+      const requestedIssueId = new URLSearchParams(window.location.search).get("issue");
+      if (!requestedIssueId) return;
+      const index = currentIssues.findIndex((item) => String(item.id) === requestedIssueId);
+      if (index === -1) return;
+      requestedIssueOpened = true;
+      currentIssuePage = Math.floor(index / ISSUES_PAGE_SIZE) + 1;
+      renderIssueRows(currentIssues);
+      toggleIssue(requestedIssueId);
+      const row = document.querySelector(`[data-issue-row="${requestedIssueId}"]`);
+      if (row) row.scrollIntoView({ block: "center" });
     }
 
     async function handleStatusToggle(button) {

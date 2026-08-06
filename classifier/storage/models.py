@@ -248,6 +248,20 @@ class MitreTechnique(BaseModel):
         extra = "forbid"
 
 
+class LinkedIssueSummary(BaseModel):
+    """One issue a given session was aggregated into -- the reverse of
+    IssueRecord.session_ids, used for the Sessions-side "linked issue" badge
+    without pulling in an issue's full evidence/fix/impact text."""
+
+    id: UUID
+    title: str
+    severity: str
+    status: str
+
+    class Config:
+        extra = "forbid"
+
+
 class IssueRecord(BaseModel):
     """One persisted issue detected from recurring attacker behavior."""
 
@@ -262,6 +276,10 @@ class IssueRecord(BaseModel):
     status: str = "open"
     actor_label: str | None = None
     mitre: list[MitreTechnique] = Field(default_factory=list)
+    # The exact sessions aggregated into this issue (see issue_sessions in
+    # schema.sql) -- lets the dashboard link straight to one specific
+    # session instead of only a bare session_count.
+    session_ids: list[UUID] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=_utc_now)
 
     @validator("severity")

@@ -631,24 +631,34 @@ def test_repository_list_issues_batches_mitre_techniques(monkeypatch):
             "technique_name": "System Information Discovery",
         },
     ]
+    session_id_1 = uuid4()
+    session_rows = [
+        {"issue_id": issue_id_1, "session_id": session_id_1},
+    ]
     fetch_all_calls = []
 
     def fake_fetch_all(database_url, sql, params):
         fetch_all_calls.append((sql, params))
         if "FROM issues" in sql:
             return rows
-        return mitre_rows
+        if "FROM issue_mitre_techniques" in sql:
+            return mitre_rows
+        return session_rows
 
     monkeypatch.setattr("classifier.storage.repository._fetch_all", fake_fetch_all)
 
     issues = PostgresClassifierRepository("postgresql://example/echidra").list_issues(status="open")
 
-    # One query for issues, one batched query for all their MITRE techniques (no N+1).
-    assert len(fetch_all_calls) == 2
+    # One query for issues, one batched query for all their MITRE techniques,
+    # one batched query for all their linked sessions (no N+1).
+    assert len(fetch_all_calls) == 3
     assert fetch_all_calls[1][1] == {"issue_ids": [issue_id_1, issue_id_2]}
+    assert fetch_all_calls[2][1] == {"issue_ids": [issue_id_1, issue_id_2]}
     assert [issue.id for issue in issues] == [issue_id_1, issue_id_2]
     assert issues[0].mitre[0].id == "T1110"
     assert issues[1].mitre[0].id == "T1082"
+    assert issues[0].session_ids == [session_id_1]
+    assert issues[1].session_ids == []
 
 
 def test_list_session_events_returns_ordered_timeline(monkeypatch):
@@ -755,10 +765,14 @@ def test_repository_update_issue_status_returns_updated_record(monkeypatch):
     mitre_rows = [
         {"issue_id": issue_id, "technique_index": 0, "technique_id": "T1595", "technique_name": "Active Scanning"}
     ]
+    session_rows = [{"issue_id": issue_id, "session_id": uuid4()}]
+
+    def fake_fetch_all(database_url, sql, params):
+        return mitre_rows if "FROM issue_mitre_techniques" in sql else session_rows
 
     monkeypatch.setattr("classifier.storage.repository._execute_insert", lambda *args, **kwargs: None)
     monkeypatch.setattr("classifier.storage.repository._fetch_one", lambda *args, **kwargs: row)
-    monkeypatch.setattr("classifier.storage.repository._fetch_all", lambda *args, **kwargs: mitre_rows)
+    monkeypatch.setattr("classifier.storage.repository._fetch_all", fake_fetch_all)
 
     updated = PostgresClassifierRepository("postgresql://example/echidra").update_issue_status(
         issue_id, "closed"
@@ -766,6 +780,7 @@ def test_repository_update_issue_status_returns_updated_record(monkeypatch):
 
     assert updated.status == "closed"
     assert updated.mitre[0].id == "T1595"
+    assert updated.session_ids == [session_rows[0]["session_id"]]
 
 
 def make_issue(**overrides):
@@ -798,11 +813,13 @@ def test_issue_insert_params_match_storage_columns():
 
 
 def test_issue_upsert_statements_includes_parent_and_child_writes():
+    session_id_1, session_id_2 = uuid4(), uuid4()
     issue = make_issue(
         mitre=[
             MitreTechnique(id="T1110", name="Brute Force"),
             MitreTechnique(id="T1078", name="Valid Accounts"),
-        ]
+        ],
+        session_ids=[session_id_1, session_id_2],
     )
 
     statements = issue_upsert_statements(issue)
@@ -812,9 +829,13 @@ def test_issue_upsert_statements_includes_parent_and_child_writes():
     assert "status" not in statements[0][0].split("DO UPDATE SET")[1]
     assert "DELETE FROM issue_mitre_techniques" in statements[1][0]
     assert statements[1][1] == {"issue_id": issue.id}
-    assert len(statements) == 4
     assert statements[2][1]["technique_id"] == "T1110"
     assert statements[3][1]["technique_id"] == "T1078"
+    assert "DELETE FROM issue_sessions" in statements[4][0]
+    assert statements[4][1] == {"issue_id": issue.id}
+    assert statements[5][1] == {"issue_id": issue.id, "session_id": session_id_1}
+    assert statements[6][1] == {"issue_id": issue.id, "session_id": session_id_2}
+    assert len(statements) == 7
 
 
 def test_repository_aggregate_classifier_runs_by_actor_and_technique_queries_signals(monkeypatch):

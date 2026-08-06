@@ -178,6 +178,20 @@ CREATE TABLE IF NOT EXISTS issue_mitre_techniques (
 CREATE INDEX IF NOT EXISTS issue_mitre_techniques_issue_id_idx
     ON issue_mitre_techniques (issue_id);
 
+-- Bridges an issue to the exact sessions that were aggregated into it (see
+-- issue_sync.py), so the dashboard can link Intelligence -> a specific
+-- session and Sessions -> the specific issue(s) it belongs to, instead of
+-- only knowing session_count/persona_count as bare numbers. Rebuilt in full
+-- (delete+reinsert) on every issue upsert, same as issue_mitre_techniques.
+CREATE TABLE IF NOT EXISTS issue_sessions (
+    issue_id UUID NOT NULL REFERENCES issues(id) ON DELETE CASCADE,
+    session_id UUID NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    PRIMARY KEY (issue_id, session_id)
+);
+
+CREATE INDEX IF NOT EXISTS issue_sessions_session_id_idx
+    ON issue_sessions (session_id);
+
 CREATE TABLE IF NOT EXISTS persona_configs (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
