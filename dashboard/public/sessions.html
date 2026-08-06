@@ -1402,23 +1402,32 @@
     // Arriving from an Intelligence issue's "Linked Sessions" list
     // (/dashboard/sessions?session=<uuid>) or a Session Inspector's own
     // "Linked Issue" round-trip opens that exact session's Inspector, once
-    // it's loaded -- widening the date range once if it isn't found in the
-    // default 7-day window, since the linked session could be older.
+    // it's loaded. If it isn't in the default 7-day window, this fetches
+    // that one session directly by ID (a bounded, exact-match request)
+    // instead of widening the table's own date range to all-time just to
+    // search for it -- which would force an unbounded full-history query
+    // even when the link is stale/bad and no such session exists at all.
     const requestedSessionId = new URLSearchParams(window.location.search).get("session");
-    function openRequestedSessionIfPresent() {
+    async function openRequestedSessionIfPresent() {
       if (!requestedSessionId) return false;
       const match = allSessions.find((item) => item.sessionId === requestedSessionId);
-      if (!match) return false;
-      openSessionInspector(match.id);
-      return true;
+      if (match) {
+        openSessionInspector(match.id);
+        return true;
+      }
+      try {
+        const runs = await fetchJSON(`/classifier/runs?session_id=${encodeURIComponent(requestedSessionId)}&limit=1`);
+        if (runs.length === 0) return false;
+        const mapped = mapRun(runs[0]);
+        allSessions = [mapped, ...allSessions];
+        openSessionInspector(mapped.id);
+        return true;
+      } catch (error) {
+        console.error(error);
+        return false;
+      }
     }
-    initTimeRangeControl().then(() => {
-      if (!requestedSessionId || openRequestedSessionIfPresent()) return;
-      const fromDateInput = document.getElementById("rangeFromDate");
-      fromDateInput.value = "2000-01-01";
-      fromDateInput.dispatchEvent(new Event("change", { bubbles: true }));
-      applyRange().then(openRequestedSessionIfPresent);
-    });
+    initTimeRangeControl().then(openRequestedSessionIfPresent);
     // initCustomSelects wraps each <select> and snapshots its current
     // options into the overlay listbox -- it must run after personaFilter's
     // options are populated, or newly-added personas would never appear in
