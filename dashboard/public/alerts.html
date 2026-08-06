@@ -442,7 +442,7 @@
         if (globalMinRiskLevelEl._refreshCustomSelect) globalMinRiskLevelEl._refreshCustomSelect();
         document.getElementById("excludedIps").value = cfg.excluded_ips || "";
         var pwEl = document.getElementById("pwConfigured");
-        pwEl.textContent = cfg.smtp_password_configured ? "Password saved." : "No password saved.";
+        pwEl.textContent = cfg.smtp_password_configured ? "Email App Password saved." : "No password saved.";
         updateSmtpFieldsDisabled();
       } catch (err) {
         smtpStatus.textContent = "Could not load config: " + err.message;
@@ -492,7 +492,7 @@
         smtpStatus.textContent = savedMessage;
         smtpStatus.style.color = "var(--low)";
         document.getElementById("smtpPassword").value = "";
-        document.getElementById("pwConfigured").textContent = cfg.smtp_password_configured ? "Password saved." : "No password saved.";
+        document.getElementById("pwConfigured").textContent = cfg.smtp_password_configured ? "Email App Password saved." : "No password saved.";
         return true;
       } catch (err) {
         smtpStatus.textContent = "Error: " + err.message;
