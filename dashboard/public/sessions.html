@@ -45,6 +45,15 @@
       </div>
     </div>
 
+    <div id="sessionInspectorBackdrop" class="session-inspector-backdrop" hidden></div>
+    <aside id="sessionInspector" class="session-inspector" hidden aria-modal="true" role="dialog" aria-labelledby="sessionInspectorTitle">
+      <div class="session-inspector-header">
+        <h2 id="sessionInspectorTitle">Session Inspector</h2>
+        <button class="modal-close" id="sessionInspectorCloseBtn" type="button" aria-label="Close">&times;</button>
+      </div>
+      <div class="session-inspector-body" id="sessionInspectorBody"></div>
+    </aside>
+
     <main class="dashboard-main">
       <section class="page-panel" aria-labelledby="sessionsTitle">
         <div class="page-panel-header">
@@ -774,56 +783,122 @@
       }
     }
 
-    async function toggleSession(sessionId) {
-      const row = document.querySelector(`[data-session-row="${sessionId}"]`);
-      const existingDetail = document.getElementById(`${sessionId}-detail`);
-      document.querySelectorAll(".session-detail-row").forEach((detail) => detail.remove());
+    // ── Session Inspector slide-over (replaces the old inline <tr> row
+    // expansion) -- the main table's rows/pagination/filters are never
+    // touched by opening or closing this, since it's a separate fixed-
+    // position panel reading from the already-fetched `allSessions` list
+    // rather than mutating the table DOM.
+    const sessionInspector = document.getElementById("sessionInspector");
+    const sessionInspectorBackdrop = document.getElementById("sessionInspectorBackdrop");
+    const sessionInspectorBody = document.getElementById("sessionInspectorBody");
+    // Tracks which session the drawer is currently showing, so a background
+    // refresh's async command-list fetch can tell it was closed/switched
+    // away from before overwriting a now-stale or unrelated panel.
+    let inspectorSessionId = null;
+
+    function showSessionInspector() {
+      sessionInspectorBackdrop.hidden = false;
+      sessionInspector.hidden = false;
+      // Force a layout flush between un-hiding and adding .open so the
+      // transform/opacity transition actually animates instead of the
+      // panel just appearing already in its open state.
+      requestAnimationFrame(() => {
+        sessionInspectorBackdrop.classList.add("open");
+        sessionInspector.classList.add("open");
+      });
+    }
+
+    function closeSessionInspector() {
+      inspectorSessionId = null;
+      sessionInspectorBackdrop.classList.remove("open");
+      sessionInspector.classList.remove("open");
       document.querySelectorAll("[data-session-row]").forEach((sessionRow) => {
         sessionRow.classList.remove("selected");
         sessionRow.setAttribute("aria-expanded", "false");
       });
+      setTimeout(() => {
+        sessionInspectorBackdrop.hidden = true;
+        sessionInspector.hidden = true;
+      }, 250);
+    }
 
-      if (existingDetail) {
-        return;
-      }
+    function formatInspectorTimestamp(date) {
+      return date ? formatSessionTime(date) : "—";
+    }
 
+    async function openSessionInspector(sessionId) {
       const session = allSessions.find((item) => String(item.id) === String(sessionId));
-      row.classList.add("selected");
-      row.setAttribute("aria-expanded", "true");
-      row.insertAdjacentHTML("afterend", `
-        <tr id="${session.id}-detail" class="session-detail-row">
-          <td colspan="9">
-            <div class="session-detail">
-              <section class="detail-block" aria-label="Session evidence">
-                <h3>Evidence</h3>
-                <p>${escHtml(session.evidence || "No rule evidence recorded for this session.")}</p>
-              </section>
-              <section class="detail-block" aria-label="Command timeline">
-                <h3>Command Timeline</h3>
-                <ul class="command-list" id="${session.id}-commands">
-                  <li>Loading…</li>
-                </ul>
-              </section>
-              <section class="detail-block" aria-label="Analyst recommendation">
-                <h3>Analyst Recommendation</h3>
-                <p>${escHtml(
-                  ANALYST_RECOMMENDATION_TEXT[session.analystRecommendationAction] ||
-                  "Review the evidence and preserve the session transcript."
-                )}</p>
-              </section>
-            </div>
-          </td>
-        </tr>
-      `);
+      if (!session) return;
+      inspectorSessionId = sessionId;
+
+      document.querySelectorAll("[data-session-row]").forEach((sessionRow) => {
+        const isThisRow = sessionRow.dataset.sessionRow === String(sessionId);
+        sessionRow.classList.toggle("selected", isThisRow);
+        sessionRow.setAttribute("aria-expanded", isThisRow ? "true" : "false");
+      });
+
+      const shortId = session.sessionId ? `#SES-${session.sessionId.slice(0, 8)}` : `#SES-${session.id}`;
+      const endedDate = session.endedAt ? new Date(session.endedAt * 1000) : null;
+
+      sessionInspectorBody.innerHTML = `
+        <section class="detail-block" aria-label="Session summary">
+          <h3>${escHtml(shortId)}</h3>
+          <div class="session-inspector-meta">
+            <div class="session-inspector-meta-item"><span>Source IP</span><strong>${escHtml(session.sourceIp)}</strong></div>
+            <div class="session-inspector-meta-item"><span>Target Persona</span><strong>${escHtml(session.persona)}</strong></div>
+            <div class="session-inspector-meta-item"><span>Start</span><strong>${escHtml(formatInspectorTimestamp(session.timestamp))}</strong></div>
+            <div class="session-inspector-meta-item"><span>End</span><strong>${escHtml(formatInspectorTimestamp(endedDate))}</strong></div>
+            <div class="session-inspector-meta-item"><span>Duration</span><strong>${escHtml(session.duration)}</strong></div>
+            <div class="session-inspector-meta-item"><span>Risk</span><strong><span class="risk-badge ${badgeTier(session.risk)}">${escHtml(session.risk)}</span></strong></div>
+          </div>
+          <!--
+            Threat-tag placeholder -- wire this up once the issue bridge
+            table (issue_sessions) ships and the session record starts
+            carrying a linked_issue_id, then point the href at
+            /dashboard/intelligence?issue=<linked_issue_id>.
+            <span class="badge-linked-issue">Linked Issue #{linked_issue_id}</span>
+          -->
+        </section>
+        <section class="detail-block" aria-label="Command timeline">
+          <h3>Command Timeline</h3>
+          <div class="command-block">
+            <ul class="command-list" id="${session.id}-commands">
+              <li>Loading…</li>
+            </ul>
+          </div>
+        </section>
+        <section class="detail-block" aria-label="Session evidence">
+          <h3>Evidence</h3>
+          <p>${escHtml(session.evidence || "No rule evidence recorded for this session.")}</p>
+        </section>
+        <section class="detail-block" aria-label="Analyst recommendation">
+          <h3>Analyst Recommendation</h3>
+          <p>${escHtml(
+            ANALYST_RECOMMENDATION_TEXT[session.analystRecommendationAction] ||
+            "Review the evidence and preserve the session transcript."
+          )}</p>
+        </section>
+      `;
+
+      showSessionInspector();
 
       const events = await loadSessionEvents(session.sessionId);
+      if (inspectorSessionId !== sessionId) return; // closed/switched before the fetch resolved
       const commandList = document.getElementById(`${session.id}-commands`);
-      if (!commandList) return; // row was collapsed again before the fetch resolved
+      if (!commandList) return;
       const commands = events.filter((event) => event.event_type === "command");
       commandList.innerHTML = commands.length
         ? commands.map((event) => `<li>${escHtml(event.event_value)}</li>`).join("")
         : `<li>No commands were captured in this session.</li>`;
     }
+
+    sessionInspectorBackdrop.addEventListener("click", closeSessionInspector);
+    document.getElementById("sessionInspectorCloseBtn").addEventListener("click", closeSessionInspector);
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && sessionInspector.classList.contains("open")) {
+        closeSessionInspector();
+      }
+    });
 
     // Neutralizes CSV/formula injection: a cell starting with =, +, -, @ (or
     // tab/CR) is interpreted as a live formula by Excel/Sheets/LibreOffice
@@ -870,7 +945,7 @@
       }
       const row = event.target.closest("[data-session-row]");
       if (row) {
-        toggleSession(row.dataset.sessionRow);
+        openSessionInspector(row.dataset.sessionRow);
       }
     });
 
@@ -881,7 +956,7 @@
       const row = event.target.closest("[data-session-row]");
       if (row) {
         event.preventDefault();
-        toggleSession(row.dataset.sessionRow);
+        openSessionInspector(row.dataset.sessionRow);
       }
     });
 
@@ -1245,11 +1320,12 @@
     // options are populated, or newly-added personas would never appear in
     // the custom dropdown despite being real <option>s on the native select.
     initPersonaFilterOptions().then(() => initCustomSelects(document));
-    // Skip a tick while a session's detail row is expanded -- renderSessions()
+    // Skip a tick while the Session Inspector is open -- renderSessions()
     // rebuilds the whole table body from scratch, which would otherwise
-    // collapse it out from under someone mid-read of its command timeline.
+    // reset the "selected" row highlight (and could shift pagination)
+    // out from under someone mid-read of a session's command timeline.
     setInterval(() => {
-      if (!document.querySelector(".session-detail-row")) applyRange();
+      if (!sessionInspector.classList.contains("open")) applyRange();
     }, 30000);
   </script>
 </body>
