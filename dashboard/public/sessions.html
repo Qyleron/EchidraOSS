@@ -49,7 +49,7 @@
     <aside id="sessionInspector" class="session-inspector" hidden aria-modal="true" role="dialog" aria-labelledby="sessionInspectorTitle">
       <div class="session-inspector-header">
         <h2 id="sessionInspectorTitle">Session Inspector</h2>
-        <button class="modal-close" id="sessionInspectorCloseBtn" type="button" aria-label="Close">&times;</button>
+        <button class="modal-close modal-close-danger" id="sessionInspectorCloseBtn" type="button" aria-label="Close">&times;</button>
       </div>
       <div class="session-inspector-body" id="sessionInspectorBody"></div>
     </aside>
@@ -647,6 +647,11 @@
         return;
       }
 
+      // Extra vertical breathing room between rows while drilled into one
+      // IP's group, so repeat hits from the same IP/actor/intent read as
+      // distinct sessions instead of blurring into one solid block.
+      tableBody.closest("table").classList.toggle("grouped-view", Boolean(groupFilter));
+
       let groupedRows;
       if (groupFilter) {
         // Drilled into one collapsed group -- show every individual session
@@ -709,7 +714,7 @@
           </td>
           <td class="mono-cell">${escHtml(session.sourceIp)}</td>
           <td>${count == null ? "" : count > 1
-            ? `<button type="button" class="text-button group-count-btn" data-group-ip="${escAttr(session.sourceIp || "unknown")}" data-group-actor="${escAttr(session.actor || "unclassified")}" data-group-intent="${escAttr(session.intent || "unknown")}">${count}</button>`
+            ? `<button type="button" class="group-count-btn" data-group-ip="${escAttr(session.sourceIp || "unknown")}" data-group-actor="${escAttr(session.actor || "unclassified")}" data-group-intent="${escAttr(session.intent || "unknown")}">${count}</button>`
             : count}</td>
           <td>${escHtml(session.country)}</td>
           <td>
@@ -833,6 +838,10 @@
       }
       sessionInspectorBackdrop.hidden = false;
       sessionInspector.hidden = false;
+      // Lock the page's own scroll while the drawer is up -- only the
+      // drawer's own .session-inspector-body should scroll vertically,
+      // not the sessions table underneath it.
+      document.body.classList.add("body-scroll-locked");
       // Force a layout flush between un-hiding and adding .open so the
       // transform/opacity transition actually animates instead of the
       // panel just appearing already in its open state.
@@ -846,6 +855,7 @@
 
     function closeSessionInspector() {
       inspectorSessionId = null;
+      document.body.classList.remove("body-scroll-locked");
       sessionInspectorBackdrop.classList.remove("open");
       sessionInspector.classList.remove("open");
       document.querySelectorAll("[data-session-row]").forEach((sessionRow) => {
@@ -884,6 +894,7 @@
         <section class="detail-block" aria-label="Session summary">
           <h3>${escHtml(shortId)}</h3>
           <div class="session-inspector-meta">
+            <div class="session-inspector-meta-item session-inspector-meta-item--full"><span>Session ID</span><strong class="mono-cell">${escHtml(session.sessionId || String(session.id))}</strong></div>
             <div class="session-inspector-meta-item"><span>Source IP</span><strong>${escHtml(session.sourceIp)}</strong></div>
             <div class="session-inspector-meta-item"><span>Target Persona</span><strong>${escHtml(session.persona)}</strong></div>
             <div class="session-inspector-meta-item"><span>Start</span><strong>${escHtml(formatInspectorTimestamp(session.timestamp))}</strong></div>
@@ -1370,12 +1381,22 @@
     // options are populated, or newly-added personas would never appear in
     // the custom dropdown despite being real <option>s on the native select.
     initPersonaFilterOptions().then(() => initCustomSelects(document));
-    // Skip a tick while the Session Inspector is open -- renderSessions()
-    // rebuilds the whole table body from scratch, which would otherwise
-    // reset the "selected" row highlight (and could shift pagination)
-    // out from under someone mid-read of a session's command timeline.
+    // Skip a tick while the Session Inspector is open, the analyst has
+    // paged past page 1, or is drilled into a group's sessions --
+    // loadSessions() always resets currentPage/groupFilter back to their
+    // defaults, so an unconditional refresh here would silently bounce
+    // someone back to page 1 (or out of a group view) every 30s. Instead,
+    // background refreshes are simply skipped while away from page 1; the
+    // next fetch happens once the analyst navigates back there themselves
+    // (or leaves this page entirely, which stops the interval for free).
     setInterval(() => {
-      if (!sessionInspector.classList.contains("open")) applyRange();
+      if (
+        !sessionInspector.classList.contains("open") &&
+        currentPage === 1 &&
+        !groupFilter
+      ) {
+        applyRange();
+      }
     }, 30000);
   </script>
 </body>
