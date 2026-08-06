@@ -214,6 +214,168 @@
       return `${year}-${month}-${day}`;
     }
 
+    // ── Custom-styled date picker (native <input type="date"> popups can't
+    // be restyled via CSS) -- ported from sessions.html. The native input
+    // stays in the DOM, hidden, as the source of truth so
+    // syncRangeConstraints()'s min/max and every existing .value read keeps
+    // working unmodified; this only replaces what's visible.
+    function initCustomDateInputs(root) {
+      var inputs = root.querySelectorAll('input[type="date"]:not([data-custom-date-init])');
+      Array.prototype.forEach.call(inputs, function(input) {
+        input.setAttribute("data-custom-date-init", "true");
+
+        var wrapper = document.createElement("div");
+        wrapper.className = "custom-date";
+        input.parentNode.insertBefore(wrapper, input);
+        wrapper.appendChild(input);
+        input.classList.add("custom-date-native");
+
+        var trigger = document.createElement("button");
+        trigger.type = "button";
+        trigger.className = "custom-date-trigger";
+        trigger.setAttribute("aria-haspopup", "dialog");
+        trigger.setAttribute("aria-expanded", "false");
+        wrapper.appendChild(trigger);
+
+        var popup = document.createElement("div");
+        popup.className = "custom-date-popup";
+        popup.setAttribute("role", "dialog");
+        wrapper.appendChild(popup);
+
+        var viewMonth = input.value ? new Date(input.value + "T00:00:00") : new Date();
+        viewMonth = new Date(viewMonth.getFullYear(), viewMonth.getMonth(), 1);
+
+        function setOpen(open) {
+          wrapper.classList.toggle("open", open);
+          trigger.setAttribute("aria-expanded", open ? "true" : "false");
+          if (open) renderCalendar();
+        }
+        wrapper._setOpen = setOpen;
+
+        function syncTrigger() {
+          trigger.textContent = input.value
+            ? new Date(input.value + "T00:00:00").toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })
+            : "Select date";
+        }
+        input._refreshCustomDate = syncTrigger;
+
+        function renderCalendar() {
+          var year = viewMonth.getFullYear();
+          var month = viewMonth.getMonth();
+          var monthLabel = viewMonth.toLocaleDateString("en-GB", { month: "long", year: "numeric" });
+          var firstWeekday = new Date(year, month, 1).getDay();
+          var daysInMonth = new Date(year, month + 1, 0).getDate();
+          var daysInPrevMonth = new Date(year, month, 0).getDate();
+          var todayKey = localDateKey(new Date());
+          var min = input.min || null;
+          var max = input.max || null;
+
+          var cells = [];
+          for (var i = 0; i < firstWeekday; i++) {
+            cells.push({ day: daysInPrevMonth - firstWeekday + 1 + i, outside: true });
+          }
+          for (var d = 1; d <= daysInMonth; d++) {
+            cells.push({ day: d, outside: false, key: year + "-" + String(month + 1).padStart(2, "0") + "-" + String(d).padStart(2, "0") });
+          }
+          var trailing = 1;
+          while (cells.length % 7 !== 0) {
+            cells.push({ day: trailing++, outside: true });
+          }
+
+          var weekdayLabels = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
+
+          popup.innerHTML =
+            '<div class="custom-date-header">' +
+              '<button type="button" class="custom-date-nav" data-nav="prev" aria-label="Previous month">&lsaquo;</button>' +
+              '<span class="custom-date-label">' + escHtml(monthLabel) + "</span>" +
+              '<button type="button" class="custom-date-nav" data-nav="next" aria-label="Next month">&rsaquo;</button>' +
+            "</div>" +
+            '<div class="custom-date-weekdays">' +
+              weekdayLabels.map(function(w) { return '<span class="custom-date-weekday">' + w + "</span>"; }).join("") +
+            "</div>" +
+            '<div class="custom-date-grid">' +
+              cells.map(function(c) {
+                if (c.outside) return '<span class="custom-date-cell is-outside">' + c.day + "</span>";
+                var disabled = (min && c.key < min) || (max && c.key > max);
+                var classes = "custom-date-cell" + (c.key === input.value ? " is-selected" : "") + (c.key === todayKey ? " is-today" : "");
+                return '<button type="button" class="' + classes + '" data-date="' + c.key + '"' + (disabled ? " disabled" : "") + ">" + c.day + "</button>";
+              }).join("") +
+            "</div>";
+
+          popup.querySelector('[data-nav="prev"]').addEventListener("click", function(evt) {
+            evt.stopPropagation();
+            viewMonth = new Date(year, month - 1, 1);
+            renderCalendar();
+          });
+          popup.querySelector('[data-nav="next"]').addEventListener("click", function(evt) {
+            evt.stopPropagation();
+            viewMonth = new Date(year, month + 1, 1);
+            renderCalendar();
+          });
+          Array.prototype.forEach.call(popup.querySelectorAll(".custom-date-cell[data-date]"), function(cell) {
+            cell.addEventListener("click", function(evt) {
+              evt.stopPropagation();
+              input.value = cell.getAttribute("data-date");
+              input.dispatchEvent(new Event("change", { bubbles: true }));
+              syncTrigger();
+              setOpen(false);
+            });
+          });
+        }
+
+        trigger.addEventListener("click", function(evt) {
+          evt.stopPropagation();
+          if (wrapper.classList.contains("open")) {
+            setOpen(false);
+            return;
+          }
+          viewMonth = input.value ? new Date(input.value + "T00:00:00") : new Date();
+          viewMonth = new Date(viewMonth.getFullYear(), viewMonth.getMonth(), 1);
+          var rect = trigger.getBoundingClientRect();
+          popup.style.left = rect.left + "px";
+          popup.style.top = (rect.bottom + 4) + "px";
+          setOpen(true);
+        });
+
+        trigger.addEventListener("keydown", function(evt) {
+          if (evt.key === "Escape") setOpen(false);
+        });
+
+        wrapper.addEventListener("focusout", function(evt) {
+          if (!wrapper.contains(evt.relatedTarget)) setOpen(false);
+        });
+
+        syncTrigger();
+      });
+    }
+
+    document.addEventListener("click", function(evt) {
+      Array.prototype.forEach.call(document.querySelectorAll(".custom-date.open"), function(w) {
+        if (!w.contains(evt.target) && w._setOpen) w._setOpen(false);
+      });
+    });
+
+    document.addEventListener("keydown", function(evt) {
+      if (evt.key === "Escape") {
+        Array.prototype.forEach.call(document.querySelectorAll(".custom-date.open"), function(w) {
+          if (w._setOpen) w._setOpen(false);
+        });
+      }
+    });
+
+    window.addEventListener("scroll", function(evt) {
+      if (evt.target instanceof Element && evt.target.closest(".custom-date-popup")) return;
+      Array.prototype.forEach.call(document.querySelectorAll(".custom-date.open"), function(w) {
+        if (w._setOpen) w._setOpen(false);
+      });
+    }, true);
+
+    window.addEventListener("resize", function() {
+      Array.prototype.forEach.call(document.querySelectorAll(".custom-date.open"), function(w) {
+        if (w._setOpen) w._setOpen(false);
+      });
+    });
+
     async function fetchJSON(url) {
       const response = await fetch(url);
       if (!response.ok) {
@@ -408,6 +570,8 @@
       if (fromDateInput.value && toDateInput.value && toDateInput.value < fromDateInput.value) {
         toDateInput.value = fromDateInput.value;
       }
+      if (fromDateInput._refreshCustomDate) fromDateInput._refreshCustomDate();
+      if (toDateInput._refreshCustomDate) toDateInput._refreshCustomDate();
 
       const sameDay = Boolean(fromDateInput.value) && fromDateInput.value === toDateInput.value;
       const currentFromHour = Number(fromHourSelect.value || 0);
@@ -468,6 +632,8 @@
     }
 
     function initTimeRangeControl() {
+      initCustomDateInputs(document);
+
       const fromDateInput = document.getElementById("rangeFromDate");
       const toDateInput = document.getElementById("rangeToDate");
       const fromHourSelect = document.getElementById("rangeFromHour");

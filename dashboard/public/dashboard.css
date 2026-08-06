@@ -1889,3 +1889,151 @@ select:hover,
   color: #ffffff;
   cursor: pointer;
 }
+
+/* ── Custom date-picker widget (Sessions/Analytics range filter) ──
+   Native <input type="date"> popups are OS-rendered like <select>'s and
+   ignore CSS just the same, so the visible picker is replaced at runtime
+   with this div-based calendar (see initCustomDateInputs). The native
+   input stays in the DOM (hidden) as the actual source of truth so every
+   existing .value read/min/max/change-event consumer keeps working
+   unmodified. */
+.custom-date {
+  position: relative;
+}
+
+.custom-date-native {
+  display: none;
+}
+
+.custom-date-trigger {
+  width: 100%;
+  min-height: 36px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0 10px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.custom-date-trigger::after {
+  content: "";
+  flex-shrink: 0;
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+  border: 1.5px solid var(--muted);
+  box-shadow: -3px 0 0 -1.7px var(--muted);
+}
+
+.custom-date-trigger:hover,
+.custom-date-trigger:focus,
+.custom-date.open .custom-date-trigger {
+  border-color: var(--border-strong);
+}
+
+.custom-date-popup {
+  display: none;
+  position: fixed;
+  z-index: 3000;
+  width: 232px;
+  background: var(--surface-strong);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  padding: 10px;
+}
+
+.custom-date.open .custom-date-popup {
+  display: block;
+}
+
+.custom-date-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.custom-date-label {
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.custom-date-nav {
+  min-width: 24px;
+  min-height: 24px;
+  border: none;
+  border-radius: 6px;
+  padding: 0;
+  color: var(--muted);
+  background: transparent;
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+}
+
+.custom-date-nav:hover {
+  color: var(--text);
+  background-color: #3f3f3f;
+}
+
+.custom-date-weekdays,
+.custom-date-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+}
+
+.custom-date-weekday {
+  text-align: center;
+  padding: 2px 0;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 650;
+  text-transform: uppercase;
+}
+
+.custom-date-cell {
+  min-height: 28px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 0;
+  color: var(--text);
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+}
+
+span.custom-date-cell {
+  color: var(--subtle);
+  cursor: default;
+}
+
+.custom-date-cell.is-today {
+  border-color: var(--border-strong);
+}
+
+button.custom-date-cell:hover,
+.custom-date-cell.is-selected {
+  background-color: #3f3f3f;
+  color: #ffffff;
+}
+
+.custom-date-cell.is-selected {
+  font-weight: 650;
+}
+
+.custom-date-cell:disabled {
+  color: var(--subtle);
+  opacity: 0.4;
+  cursor: not-allowed;
+}
