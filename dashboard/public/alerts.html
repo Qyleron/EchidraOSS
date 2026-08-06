@@ -503,7 +503,15 @@
 
     smtpForm.addEventListener("submit", async function(evt) {
       evt.preventDefault();
-      await saveAlertConfig(buildAlertConfigPayload(), "Saved.");
+      // SMTP fields are locked (greyed out, unreachable by typing) while
+      // alerts are disabled, so a save in that state can only be updating
+      // the still-editable risk threshold/excluded IPs -- call that out so
+      // it's not read as "your SMTP settings were saved" when alerts won't
+      // actually use them until re-enabled.
+      var savedMessage = document.getElementById("alertEnabled").checked
+        ? "Saved."
+        : "Saved. Email alerts are disabled, so SMTP settings won't be used until re-enabled.";
+      await saveAlertConfig(buildAlertConfigPayload(), savedMessage);
     });
 
     // The enable/disable switch is styled and behaves like an instant
