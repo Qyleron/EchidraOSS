@@ -1906,8 +1906,10 @@ select:hover,
 }
 
 .custom-date-trigger {
+  box-sizing: border-box;
   width: 100%;
   min-height: 36px;
+  margin: 0;
   border: 1px solid var(--line);
   border-radius: 6px;
   padding: 0 10px;
@@ -1925,11 +1927,17 @@ select:hover,
 .custom-date-trigger::after {
   content: "";
   flex-shrink: 0;
-  width: 12px;
-  height: 12px;
-  border-radius: 2px;
+  width: 14px;
+  height: 13px;
   border: 1.5px solid var(--muted);
-  box-shadow: -3px 0 0 -1.7px var(--muted);
+  border-radius: 2px;
+  /* Calendar glyph: a rectangle with a top "hanger" bar and one ring dot,
+     built from box-shadow/gradient instead of an SVG so it inherits
+     var(--muted)/var(--text) for free on hover, like the select chevron. */
+  background:
+    linear-gradient(var(--muted), var(--muted)) top / 100% 3px no-repeat,
+    radial-gradient(circle, var(--muted) 1.1px, transparent 1.1px) left 3px top 7px / 4px 4px no-repeat,
+    radial-gradient(circle, var(--muted) 1.1px, transparent 1.1px) left 9px top 7px / 4px 4px no-repeat;
 }
 
 .custom-date-trigger:hover,
@@ -1939,15 +1947,20 @@ select:hover,
 }
 
 .custom-date-popup {
+  box-sizing: border-box;
   display: none;
   position: fixed;
   z-index: 3000;
-  width: 232px;
+  width: 240px;
   background: var(--surface-strong);
   border: 1px solid var(--border-strong);
-  border-radius: 8px;
+  border-radius: 10px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
-  padding: 10px;
+  padding: 12px;
+}
+
+.custom-date-popup * {
+  box-sizing: border-box;
 }
 
 .custom-date.open .custom-date-popup {
@@ -1958,7 +1971,7 @@ select:hover,
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 8px;
+  margin-bottom: 10px;
 }
 
 .custom-date-label {
@@ -1968,16 +1981,21 @@ select:hover,
 }
 
 .custom-date-nav {
-  min-width: 24px;
-  min-height: 24px;
+  width: 26px;
+  height: 26px;
+  margin: 0;
   border: none;
-  border-radius: 6px;
+  border-radius: 50%;
   padding: 0;
   color: var(--muted);
   background: transparent;
   cursor: pointer;
-  font-size: 15px;
+  font: inherit;
+  font-size: 16px;
   line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .custom-date-nav:hover {
@@ -1993,8 +2011,10 @@ select:hover,
 }
 
 .custom-date-weekday {
-  text-align: center;
-  padding: 2px 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 22px;
   color: var(--muted);
   font-size: 10px;
   font-weight: 650;
@@ -2002,15 +2022,21 @@ select:hover,
 }
 
 .custom-date-cell {
-  min-height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  margin: 0;
   border: 1px solid transparent;
-  border-radius: 6px;
+  border-radius: 50%;
   padding: 0;
   color: var(--text);
   background: transparent;
   cursor: pointer;
   font: inherit;
   font-size: 12px;
+  line-height: 1;
 }
 
 span.custom-date-cell {
