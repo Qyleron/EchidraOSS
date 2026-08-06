@@ -795,8 +795,43 @@
     // refresh's async command-list fetch can tell it was closed/switched
     // away from before overwriting a now-stale or unrelated panel.
     let inspectorSessionId = null;
+    // Element to return focus to when the drawer closes -- the row that
+    // triggered it, so keyboard/screen-reader users land back where they
+    // were instead of focus silently falling back to <body>.
+    let lastFocusedTrigger = null;
+    // Pending "finish hiding after the close transition" timeout. Without
+    // tracking and cancelling this, a quick close-then-reopen (click one
+    // row, immediately click another) races the drawer's own reopen: the
+    // stale timeout from the first close still fires ~250ms later and sets
+    // hidden = true on the panel that's now showing the second session.
+    let hideTimeoutId = null;
+
+    function getSessionInspectorFocusable() {
+      return Array.from(
+        sessionInspector.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')
+      ).filter((el) => !el.disabled);
+    }
+
+    function trapSessionInspectorTab(event) {
+      if (event.key !== "Tab" || !sessionInspector.classList.contains("open")) return;
+      const focusable = getSessionInspectorFocusable();
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
 
     function showSessionInspector() {
+      if (hideTimeoutId !== null) {
+        clearTimeout(hideTimeoutId);
+        hideTimeoutId = null;
+      }
       sessionInspectorBackdrop.hidden = false;
       sessionInspector.hidden = false;
       // Force a layout flush between un-hiding and adding .open so the
@@ -805,6 +840,8 @@
       requestAnimationFrame(() => {
         sessionInspectorBackdrop.classList.add("open");
         sessionInspector.classList.add("open");
+        const [first] = getSessionInspectorFocusable();
+        if (first) first.focus();
       });
     }
 
@@ -816,9 +853,15 @@
         sessionRow.classList.remove("selected");
         sessionRow.setAttribute("aria-expanded", "false");
       });
-      setTimeout(() => {
+      if (lastFocusedTrigger) {
+        lastFocusedTrigger.focus();
+        lastFocusedTrigger = null;
+      }
+      if (hideTimeoutId !== null) clearTimeout(hideTimeoutId);
+      hideTimeoutId = setTimeout(() => {
         sessionInspectorBackdrop.hidden = true;
         sessionInspector.hidden = true;
+        hideTimeoutId = null;
       }, 250);
     }
 
@@ -830,6 +873,7 @@
       const session = allSessions.find((item) => String(item.id) === String(sessionId));
       if (!session) return;
       inspectorSessionId = sessionId;
+      lastFocusedTrigger = document.querySelector(`[data-session-row="${sessionId}"]`) || document.activeElement;
 
       document.querySelectorAll("[data-session-row]").forEach((sessionRow) => {
         const isThisRow = sessionRow.dataset.sessionRow === String(sessionId);
@@ -897,7 +941,9 @@
     document.addEventListener("keydown", (event) => {
       if (event.key === "Escape" && sessionInspector.classList.contains("open")) {
         closeSessionInspector();
+        return;
       }
+      trapSessionInspectorTab(event);
     });
 
     // Neutralizes CSV/formula injection: a cell starting with =, +, -, @ (or
