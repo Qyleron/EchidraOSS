@@ -760,7 +760,14 @@
       prevButton.addEventListener("click", () => {
         if (currentPage > 1) {
           currentPage -= 1;
-          renderSessions(visibleSessions);
+          // Landing back on page 1 is exactly the moment background
+          // refreshes were being skipped for -- fetch fresh data now
+          // instead of showing whatever was last fetched while away.
+          if (currentPage === 1) {
+            applyRange();
+          } else {
+            renderSessions(visibleSessions);
+          }
         }
       });
       nextButton.addEventListener("click", () => {
@@ -894,7 +901,7 @@
         <section class="detail-block" aria-label="Session summary">
           <h3>${escHtml(shortId)}</h3>
           <div class="session-inspector-meta">
-            <div class="session-inspector-meta-item session-inspector-meta-item--full"><span>Session ID</span><strong class="mono-cell">${escHtml(session.sessionId || String(session.id))}</strong></div>
+            <div class="session-inspector-meta-item"><span>Session ID</span><strong class="mono-cell">${escHtml(shortId)}</strong></div>
             <div class="session-inspector-meta-item"><span>Source IP</span><strong>${escHtml(session.sourceIp)}</strong></div>
             <div class="session-inspector-meta-item"><span>Target Persona</span><strong>${escHtml(session.persona)}</strong></div>
             <div class="session-inspector-meta-item"><span>Start</span><strong>${escHtml(formatInspectorTimestamp(session.timestamp))}</strong></div>
@@ -1398,6 +1405,22 @@
         applyRange();
       }
     }, 30000);
+
+    // Returning to this browser tab (from another tab, or from another
+    // dashboard page and back) can leave the on-screen data well past 30s
+    // stale, since background refreshes are skipped the whole time it was
+    // away from page 1 -- fetch immediately on regaining visibility instead
+    // of waiting for the next interval tick.
+    document.addEventListener("visibilitychange", () => {
+      if (
+        document.visibilityState === "visible" &&
+        !sessionInspector.classList.contains("open") &&
+        currentPage === 1 &&
+        !groupFilter
+      ) {
+        applyRange();
+      }
+    });
   </script>
 </body>
 </html>
