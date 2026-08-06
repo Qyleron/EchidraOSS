@@ -643,7 +643,9 @@ def test_repository_list_issues_batches_mitre_techniques(monkeypatch):
             return rows
         if "FROM issue_mitre_techniques" in sql:
             return mitre_rows
-        return session_rows
+        if "FROM issue_sessions" in sql:
+            return session_rows
+        raise AssertionError(f"Unexpected _fetch_all query: {sql}")
 
     monkeypatch.setattr("classifier.storage.repository._fetch_all", fake_fetch_all)
 
@@ -768,7 +770,11 @@ def test_repository_update_issue_status_returns_updated_record(monkeypatch):
     session_rows = [{"issue_id": issue_id, "session_id": uuid4()}]
 
     def fake_fetch_all(database_url, sql, params):
-        return mitre_rows if "FROM issue_mitre_techniques" in sql else session_rows
+        if "FROM issue_mitre_techniques" in sql:
+            return mitre_rows
+        if "FROM issue_sessions" in sql:
+            return session_rows
+        raise AssertionError(f"Unexpected _fetch_all query: {sql}")
 
     monkeypatch.setattr("classifier.storage.repository._execute_insert", lambda *args, **kwargs: None)
     monkeypatch.setattr("classifier.storage.repository._fetch_one", lambda *args, **kwargs: row)
@@ -867,7 +873,11 @@ def test_repository_upsert_issue_refetches_persisted_status(monkeypatch):
     session_rows = [{"issue_id": issue.id, "session_id": uuid4()}]
 
     def fake_fetch_all(database_url, sql, params):
-        return mitre_rows if "FROM issue_mitre_techniques" in sql else session_rows
+        if "FROM issue_mitre_techniques" in sql:
+            return mitre_rows
+        if "FROM issue_sessions" in sql:
+            return session_rows
+        raise AssertionError(f"Unexpected _fetch_all query: {sql}")
 
     monkeypatch.setattr("classifier.storage.repository._execute_statements", lambda *args, **kwargs: None)
     monkeypatch.setattr("classifier.storage.repository._fetch_one", lambda *args, **kwargs: persisted_row)
