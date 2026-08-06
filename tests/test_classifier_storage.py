@@ -860,14 +860,18 @@ def test_repository_aggregate_classifier_runs_by_actor_and_technique_queries_sig
 
 def test_repository_upsert_issue_refetches_persisted_status(monkeypatch):
     issue = make_issue(status="open")
-    persisted_row = {**issue.dict(exclude={"mitre"}), "status": "closed"}
+    persisted_row = {**issue.dict(exclude={"mitre", "session_ids"}), "status": "closed"}
     mitre_rows = [
         {"issue_id": issue.id, "technique_index": 0, "technique_id": "T1110", "technique_name": "Brute Force"}
     ]
+    session_rows = [{"issue_id": issue.id, "session_id": uuid4()}]
+
+    def fake_fetch_all(database_url, sql, params):
+        return mitre_rows if "FROM issue_mitre_techniques" in sql else session_rows
 
     monkeypatch.setattr("classifier.storage.repository._execute_statements", lambda *args, **kwargs: None)
     monkeypatch.setattr("classifier.storage.repository._fetch_one", lambda *args, **kwargs: persisted_row)
-    monkeypatch.setattr("classifier.storage.repository._fetch_all", lambda *args, **kwargs: mitre_rows)
+    monkeypatch.setattr("classifier.storage.repository._fetch_all", fake_fetch_all)
 
     result = PostgresClassifierRepository("postgresql://example/echidra").upsert_issue(issue)
 
@@ -875,6 +879,7 @@ def test_repository_upsert_issue_refetches_persisted_status(monkeypatch):
     # issue closed by an analyst — the upsert must not silently reopen it.
     assert result.status == "closed"
     assert result.mitre[0].id == "T1110"
+    assert result.session_ids == [session_rows[0]["session_id"]]
 
 
 def test_dashboard_report_summary_combines_database_aggregates_without_driver(monkeypatch):
