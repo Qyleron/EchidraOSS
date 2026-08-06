@@ -302,17 +302,26 @@
               }).join("") +
             "</div>";
 
-          popup.querySelector('[data-nav="prev"]').addEventListener("click", function(evt) {
+          var prevBtn = popup.querySelector('[data-nav="prev"]');
+          var nextBtn = popup.querySelector('[data-nav="next"]');
+          // Without this, a plain click's mousedown blurs the trigger first,
+          // synchronously firing the wrapper's focusout handler and closing
+          // (display:none-ing) the popup before the click itself can fire on
+          // it -- same race the custom-select options guard against below.
+          prevBtn.addEventListener("mousedown", function(evt) { evt.preventDefault(); });
+          nextBtn.addEventListener("mousedown", function(evt) { evt.preventDefault(); });
+          prevBtn.addEventListener("click", function(evt) {
             evt.stopPropagation();
             viewMonth = new Date(year, month - 1, 1);
             renderCalendar();
           });
-          popup.querySelector('[data-nav="next"]').addEventListener("click", function(evt) {
+          nextBtn.addEventListener("click", function(evt) {
             evt.stopPropagation();
             viewMonth = new Date(year, month + 1, 1);
             renderCalendar();
           });
           Array.prototype.forEach.call(popup.querySelectorAll(".custom-date-cell[data-date]"), function(cell) {
+            cell.addEventListener("mousedown", function(evt) { evt.preventDefault(); });
             cell.addEventListener("click", function(evt) {
               evt.stopPropagation();
               input.value = cell.getAttribute("data-date");
