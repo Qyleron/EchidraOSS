@@ -1765,10 +1765,6 @@ a {
   gap: 6px;
 }
 
-.session-inspector-meta-item--full {
-  grid-column: 1 / -1;
-}
-
 .session-inspector-meta-item span {
   color: var(--muted);
   font-size: 11px;
