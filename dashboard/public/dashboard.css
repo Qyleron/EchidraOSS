@@ -1679,8 +1679,15 @@ a {
   transform: translateX(0);
 }
 
+/* The base .session-inspector rule's own `display: flex` already beats the
+   UA stylesheet's `[hidden] { display: none }` by cascade origin (author
+   beats user-agent at equal specificity), so without this explicit,
+   higher-specificity re-assertion, setting the hidden attribute would
+   silently do nothing -- the panel would stay display:flex (in the layout,
+   hit-testing, and focus/tab order) even while "hidden", just visually
+   parked off-screen by the transform. Mirrors .modal-backdrop[hidden] above. */
 .session-inspector[hidden] {
-  display: flex;
+  display: none;
 }
 
 .session-inspector-header {
