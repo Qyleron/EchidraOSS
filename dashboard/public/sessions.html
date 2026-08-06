@@ -773,14 +773,13 @@
       if (eventsCache.has(sessionId)) {
         return eventsCache.get(sessionId);
       }
-      try {
-        const events = await fetchJSON(`/sessions/${sessionId}/events`);
-        eventsCache.set(sessionId, events);
-        return events;
-      } catch (error) {
-        console.error(error);
-        return [];
-      }
+      // Left uncaught -- a failed fetch must not be swallowed into an empty
+      // array here, or the caller can't tell "this session genuinely had no
+      // commands" from "the request failed," and would render the same
+      // reassuring "No commands were captured" message either way.
+      const events = await fetchJSON(`/sessions/${sessionId}/events`);
+      eventsCache.set(sessionId, events);
+      return events;
     }
 
     // ── Session Inspector slide-over (replaces the old inline <tr> row
@@ -926,14 +925,22 @@
 
       showSessionInspector();
 
-      const events = await loadSessionEvents(session.sessionId);
-      if (inspectorSessionId !== sessionId) return; // closed/switched before the fetch resolved
-      const commandList = document.getElementById(`${session.id}-commands`);
-      if (!commandList) return;
-      const commands = events.filter((event) => event.event_type === "command");
-      commandList.innerHTML = commands.length
-        ? commands.map((event) => `<li>${escHtml(event.event_value)}</li>`).join("")
-        : `<li>No commands were captured in this session.</li>`;
+      try {
+        const events = await loadSessionEvents(session.sessionId);
+        if (inspectorSessionId !== sessionId) return; // closed/switched before the fetch resolved
+        const commandList = document.getElementById(`${session.id}-commands`);
+        if (!commandList) return;
+        const commands = events.filter((event) => event.event_type === "command");
+        commandList.innerHTML = commands.length
+          ? commands.map((event) => `<li>${escHtml(event.event_value)}</li>`).join("")
+          : `<li>No commands were captured in this session.</li>`;
+      } catch (error) {
+        console.error(error);
+        if (inspectorSessionId !== sessionId) return;
+        const commandList = document.getElementById(`${session.id}-commands`);
+        if (!commandList) return;
+        commandList.innerHTML = `<li>Could not load the command timeline. Close and reopen this session to retry.</li>`;
+      }
     }
 
     sessionInspectorBackdrop.addEventListener("click", closeSessionInspector);
