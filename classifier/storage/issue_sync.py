@@ -212,6 +212,7 @@ def _build_issue(
         persona_count=aggregate["persona_count"],
         actor_label=actor_label,
         mitre=[MitreTechnique(id=mitre_tag, name=technique_name)],
+        session_ids=aggregate.get("session_ids", []),
     )
 
 
@@ -252,6 +253,7 @@ def _build_repeat_connection_issue(
         persona_count=aggregate["persona_count"],
         actor_label=actor_label,
         mitre=[MitreTechnique(id=mitre_tag, name=technique_name)],
+        session_ids=aggregate.get("session_ids", []),
     )
 
 

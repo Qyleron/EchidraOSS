@@ -866,6 +866,33 @@ a {
   background: var(--surface-strong);
 }
 
+.linked-session-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.linked-session-list a {
+  display: inline-block;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 5px 9px;
+  color: var(--text);
+  background: var(--surface-strong);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 13px;
+  text-decoration: none;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.linked-session-list a:hover {
+  border-color: var(--border-strong);
+  background: var(--surface-hover);
+}
+
 .issue-detail {
   display: grid;
   grid-template-columns: 1fr 1fr 1fr;
@@ -1794,6 +1821,13 @@ a {
   gap: 6px;
 }
 
+.session-inspector-linked-issues {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+
 .badge-linked-issue {
   display: inline-flex;
   align-items: center;
@@ -1805,6 +1839,12 @@ a {
   font-size: 12px;
   font-weight: 650;
   text-decoration: none;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.badge-linked-issue:hover {
+  border-color: var(--text);
+  background: var(--surface-strong);
 }
 
 /* ── Alert page styles ── */

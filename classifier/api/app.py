@@ -38,6 +38,7 @@ from classifier.storage import (
     DatabaseNotConfiguredError,
     IssueRecord,
     IssueStatusUpdate,
+    LinkedIssueSummary,
     ManualLabelRecord,
     PersonaAnalytics,
     PersonaConfigAlreadyExistsError,
@@ -664,6 +665,30 @@ def create_app() -> FastAPI:
         except Exception as exc:
             logger.exception(
                 "Unhandled exception in list_session_events_endpoint: %s",
+                exc,
+            )
+            raise HTTPException(status_code=500, detail="Internal server error")
+
+    @api.get(
+        "/sessions/{session_id}/issues",
+        response_model=list[LinkedIssueSummary],
+        tags=["storage", "intelligence"],
+    )
+    def list_issues_for_session_endpoint(
+        session_id: UUID,
+        request: Request,
+    ) -> list[LinkedIssueSummary]:
+        """Return the Intelligence issue(s) this session was aggregated into,
+        if any -- the reverse of an IssueRecord's session_ids."""
+        _require_dashboard_auth(request)
+        try:
+            repository = PostgresClassifierRepository()
+            return repository.list_issues_for_session(session_id)
+        except (DatabaseDriverMissingError, DatabaseNotConfiguredError) as exc:
+            raise HTTPException(status_code=503, detail=_user_facing_error_detail(exc))
+        except Exception as exc:
+            logger.exception(
+                "Unhandled exception in list_issues_for_session_endpoint: %s",
                 exc,
             )
             raise HTTPException(status_code=500, detail="Internal server error")

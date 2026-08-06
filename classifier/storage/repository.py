@@ -24,6 +24,7 @@ from classifier.storage.models import (
     DashboardUserRecord,
     DecoyFile,
     IssueRecord,
+    LinkedIssueSummary,
     ManualLabelInput,
     ManualLabelRecord,
     MitreTechnique,
@@ -432,6 +433,26 @@ WHERE issue_id = ANY(%(issue_ids)s)
 ORDER BY issue_id, technique_index
 """
 
+SELECT_ISSUE_SESSIONS_SQL = """
+SELECT
+    issue_id,
+    session_id
+FROM issue_sessions
+WHERE issue_id = ANY(%(issue_ids)s)
+"""
+
+SELECT_ISSUES_FOR_SESSION_SQL = """
+SELECT
+    issues.id,
+    issues.title,
+    issues.severity,
+    issues.status
+FROM issue_sessions
+JOIN issues ON issues.id = issue_sessions.issue_id
+WHERE issue_sessions.session_id = %(session_id)s
+ORDER BY issues.created_at DESC
+"""
+
 UPDATE_ISSUE_STATUS_SQL = """
 UPDATE issues
 SET status = %(status)s
@@ -494,6 +515,17 @@ INSERT INTO issue_mitre_techniques (
 )
 """
 
+DELETE_ISSUE_SESSIONS_SQL = """
+DELETE FROM issue_sessions
+WHERE issue_id = %(issue_id)s
+"""
+
+INSERT_ISSUE_SESSION_SQL = """
+INSERT INTO issue_sessions (issue_id, session_id)
+VALUES (%(issue_id)s, %(session_id)s)
+ON CONFLICT (issue_id, session_id) DO NOTHING
+"""
+
 SELECT_ACTOR_MITRE_AGGREGATES_SQL = """
 SELECT
     classifier_runs.actor_label AS actor_label,
@@ -508,7 +540,8 @@ SELECT
             WHEN 'low' THEN 1
             ELSE 0
         END
-    ) AS max_risk_rank
+    ) AS max_risk_rank,
+    ARRAY_AGG(DISTINCT classifier_runs.session_id) AS session_ids
 FROM classifier_runs
 JOIN sessions ON sessions.id = classifier_runs.session_id
 JOIN classifier_signals AS mitre_signals
@@ -530,7 +563,8 @@ WITH offending_ips AS (
 SELECT
     COUNT(*) AS session_count,
     COUNT(DISTINCT sessions.persona_id) AS persona_count,
-    COUNT(DISTINCT sessions.peer_ip) AS source_ip_count
+    COUNT(DISTINCT sessions.peer_ip) AS source_ip_count,
+    ARRAY_AGG(DISTINCT sessions.id) AS session_ids
 FROM sessions
 JOIN offending_ips ON offending_ips.peer_ip = sessions.peer_ip
 WHERE sessions.started_at >= EXTRACT(EPOCH FROM now()) - %(window_seconds)s
@@ -1244,8 +1278,21 @@ class PostgresClassifierRepository:
         for mitre_row in mitre_rows:
             mitre_by_issue_id.setdefault(mitre_row["issue_id"], []).append(mitre_row)
 
+        session_rows = _fetch_all(
+            self.database_url,
+            SELECT_ISSUE_SESSIONS_SQL,
+            {"issue_ids": issue_ids},
+        )
+        sessions_by_issue_id: dict[UUID, list[dict[str, Any]]] = {}
+        for session_row in session_rows:
+            sessions_by_issue_id.setdefault(session_row["issue_id"], []).append(session_row)
+
         return [
-            issue_from_row(row, mitre_by_issue_id.get(row["id"], []))
+            issue_from_row(
+                row,
+                mitre_by_issue_id.get(row["id"], []),
+                sessions_by_issue_id.get(row["id"], []),
+            )
             for row in rows
         ]
 
@@ -1265,7 +1312,21 @@ class PostgresClassifierRepository:
             SELECT_ISSUE_MITRE_TECHNIQUES_SQL,
             {"issue_ids": [issue_id]},
         )
-        return issue_from_row(row, mitre_rows)
+        session_rows = _fetch_all(
+            self.database_url,
+            SELECT_ISSUE_SESSIONS_SQL,
+            {"issue_ids": [issue_id]},
+        )
+        return issue_from_row(row, mitre_rows, session_rows)
+
+    def list_issues_for_session(self, session_id: UUID) -> list[LinkedIssueSummary]:
+        """Return every issue the given session was aggregated into."""
+        rows = _fetch_all(
+            self.database_url,
+            SELECT_ISSUES_FOR_SESSION_SQL,
+            {"session_id": session_id},
+        )
+        return [LinkedIssueSummary(**row) for row in rows]
 
     def create_persona_config(
         self,
@@ -1467,7 +1528,8 @@ class PostgresClassifierRepository:
         return row
 
     def upsert_issue(self, issue: IssueRecord) -> IssueRecord:
-        """Persist one issue and its MITRE techniques, preserving its prior status."""
+        """Persist one issue, its MITRE techniques, and its linked sessions,
+        preserving its prior status."""
         _execute_statements(self.database_url, issue_upsert_statements(issue))
         row = _fetch_one(self.database_url, SELECT_ISSUE_BY_ID_SQL, {"id": issue.id})
         mitre_rows = _fetch_all(
@@ -1475,7 +1537,12 @@ class PostgresClassifierRepository:
             SELECT_ISSUE_MITRE_TECHNIQUES_SQL,
             {"issue_ids": [issue.id]},
         )
-        return issue_from_row(row, mitre_rows)
+        session_rows = _fetch_all(
+            self.database_url,
+            SELECT_ISSUE_SESSIONS_SQL,
+            {"issue_ids": [issue.id]},
+        )
+        return issue_from_row(row, mitre_rows, session_rows)
 
     def count_sessions_from_ip(
         self,
@@ -1879,6 +1946,7 @@ def dashboard_user_from_row(row: dict[str, Any]) -> DashboardUserRecord:
 def issue_from_row(
     row: dict[str, Any],
     mitre_rows: list[dict[str, Any]],
+    session_rows: list[dict[str, Any]] | None = None,
 ) -> IssueRecord:
     """Build the storage model for one issue query result."""
     return IssueRecord(
@@ -1887,6 +1955,7 @@ def issue_from_row(
             MitreTechnique(id=mitre_row["technique_id"], name=mitre_row["technique_name"])
             for mitre_row in mitre_rows
         ],
+        session_ids=[session_row["session_id"] for session_row in session_rows or []],
     )
 
 
@@ -1908,7 +1977,8 @@ def issue_insert_params(issue: IssueRecord) -> dict[str, Any]:
 
 
 def issue_upsert_statements(issue: IssueRecord) -> list[tuple[str, dict[str, Any]]]:
-    """Return all SQL writes needed to upsert one issue and its MITRE techniques."""
+    """Return all SQL writes needed to upsert one issue, its MITRE techniques,
+    and the bridge rows to the exact sessions it was aggregated from."""
     statements = [
         (UPSERT_ISSUE_SQL, issue_insert_params(issue)),
         (DELETE_ISSUE_MITRE_TECHNIQUES_SQL, {"issue_id": issue.id}),
@@ -1924,6 +1994,14 @@ def issue_upsert_statements(issue: IssueRecord) -> list[tuple[str, dict[str, Any
             },
         )
         for index, technique in enumerate(issue.mitre)
+    )
+    statements.append((DELETE_ISSUE_SESSIONS_SQL, {"issue_id": issue.id}))
+    statements.extend(
+        (
+            INSERT_ISSUE_SESSION_SQL,
+            {"issue_id": issue.id, "session_id": session_id},
+        )
+        for session_id in issue.session_ids
     )
     return statements
 
