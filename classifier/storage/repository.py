@@ -541,7 +541,12 @@ SELECT
             ELSE 0
         END
     ) AS max_risk_rank,
-    ARRAY_AGG(DISTINCT classifier_runs.session_id) AS session_ids
+    -- session_count above stays the true total; this array is only what
+    -- gets persisted into issue_sessions and returned over the API, so it's
+    -- capped independently -- a long-running actor/technique pair could
+    -- otherwise aggregate into thousands of session UUIDs, bloating every
+    -- GET /issues response and the bridge table itself without bound.
+    (ARRAY_AGG(DISTINCT classifier_runs.session_id))[1:200] AS session_ids
 FROM classifier_runs
 JOIN sessions ON sessions.id = classifier_runs.session_id
 JOIN classifier_signals AS mitre_signals
@@ -564,7 +569,9 @@ SELECT
     COUNT(*) AS session_count,
     COUNT(DISTINCT sessions.persona_id) AS persona_count,
     COUNT(DISTINCT sessions.peer_ip) AS source_ip_count,
-    ARRAY_AGG(DISTINCT sessions.id) AS session_ids
+    -- Capped for the same reason as SELECT_ACTOR_MITRE_AGGREGATES_SQL's
+    -- session_ids -- session_count stays the true total.
+    (ARRAY_AGG(DISTINCT sessions.id))[1:200] AS session_ids
 FROM sessions
 JOIN offending_ips ON offending_ips.peer_ip = sessions.peer_ip
 WHERE sessions.started_at >= EXTRACT(EPOCH FROM now()) - %(window_seconds)s
