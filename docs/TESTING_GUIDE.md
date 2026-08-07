@@ -397,8 +397,10 @@ psql "$ECHIDRA_DATABASE_URL" -c "\dt"
 ```
 Expect: `dashboard_users`, `login_failures`, `sessions`, `session_events`,
 `classifier_runs`, `classifier_signals`, `manual_labels`, `issues`,
-`issue_mitre_techniques`, `persona_configs`, `alert_config`, `alert_events`
-(12 tables — `login_failures` backs the dashboard login rate limit).
+`issue_mitre_techniques`, `issue_sessions`, `persona_configs`, `alert_config`,
+`alert_events` (13 tables — `login_failures` backs the dashboard login rate
+limit; `issue_sessions` bridges an issue to the exact sessions aggregated
+into it).
 
 **Docker Compose**: `db`'s `5432` isn't published to the host, and neither
 the `honeypot` nor `api` image has the `psql` client installed — every
@@ -466,9 +468,9 @@ credentials, and walk each page:
 
 | Page | URL | What to check |
 |---|---|---|
-| Sessions | `/dashboard/sessions` | Table lists captured sessions; clicking one opens a session detail view with its command history |
-| Analytics | `/dashboard/analytics` | Aggregate charts render (not blank) once at least one session/classifier run exists |
-| Intelligence | `/dashboard/intelligence` | 4 seeded issues appear with title, severity, recommended fix, impact, MITRE tags; toggling status calls `PATCH /issues/{id}/status` |
+| Sessions | `/dashboard/sessions` | Table lists captured sessions; clicking one opens a slide-over Session Inspector drawer (not an inline row) with its command history and, once loaded, a "Linked Issue" badge if that session was aggregated into an Intelligence issue; the date-range filter uses a custom calendar popup, not the browser's native date picker; repeat-hit count in the Sessions column shows as a plain underlined number, not a boxed button |
+| Analytics | `/dashboard/analytics` | Aggregate charts render (not blank) once at least one session/classifier run exists; the date-range filter uses the same custom calendar popup as Sessions |
+| Intelligence | `/dashboard/intelligence` | 4 seeded issues appear with title, severity, recommended fix, impact, MITRE tags; toggling status calls `PATCH /issues/{id}/status`; expanding a row also shows a "Linked Sessions" list (the exact sessions behind that issue) each linking to that session's Inspector on the Sessions page |
 | Personas | `/dashboard/personas` | Table of preset + custom personas; "Customize"/"Edit Config" opens the modal — check all three dropdowns (HTTP Server Type, Alert Routing, Min Risk Level) show rounded corners, grey hover, and a pointer cursor, not the browser's native blue highlight; save and confirm the row updates; switch to the Analytics tab and confirm the "N/A" placeholder shows until you pick a persona. Alert Routing/Min Risk Level/Recipient Email/Slack Webhook are per-persona fields inside this modal's Alerting section — not the same thing as the global SMTP config on the separate Alerts page below |
 | Alerts | `/dashboard/alerts` | SMTP config form saves via `PUT /alerts/config`; "Send test alert" only succeeds once `enabled`, `smtp_host`, and `smtp_from_email` are set — otherwise expect `400 Alerts are not enabled` or `400 SMTP host and from email are required`. Per-persona routing overrides (Alert Routing, Min Risk Level, Recipient Email, Slack Webhook) are set on the Personas page, not here |
 
