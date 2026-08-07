@@ -61,55 +61,59 @@
             <h1 id="sessionsTitle" tabindex="-1">Captured Attacker Sessions</h1>
           </div>
           <div class="page-panel-actions">
-            <select id="riskLevelFilter" class="form-select" style="width:150px;flex-shrink:0;" aria-label="Filter by risk level">
-              <option value="">All risk levels</option>
-              <option value="critical">Critical</option>
-              <option value="high">High</option>
-              <option value="medium">Medium</option>
-              <option value="low">Low</option>
-            </select>
-            <select id="actorLabelFilter" class="form-select" style="width:190px;flex-shrink:0;" aria-label="Filter by actor">
-              <option value="">All actors</option>
-              <option value="automated_scanner">Automated Scanner</option>
-              <option value="brute_force_bot">Brute-Force Bot</option>
-              <option value="commodity_bot">Commodity Bot</option>
-              <option value="script_kiddie">Script Kiddie</option>
-              <option value="skilled_human_operator">Skilled Human Operator</option>
-            </select>
-            <select id="personaFilter" class="form-select" style="width:190px;flex-shrink:0;" aria-label="Filter by persona">
-              <option value="">All personas</option>
-            </select>
-            <div class="time-range-control">
-              <button id="timeRangeButton" class="text-button" type="button">Loading range...</button>
-              <div id="timeRangePanel" class="time-range-panel">
-                <div class="time-range-row">
-                  <div class="time-range-group">
-                    <label for="rangeFromDate">From date</label>
-                    <input type="date" id="rangeFromDate" />
-                  </div>
-                  <div class="time-range-group">
-                    <label for="rangeFromHour">From hour</label>
-                    <select id="rangeFromHour"></select>
-                  </div>
-                </div>
-                <div class="time-range-row">
-                  <div class="time-range-group">
-                    <label for="rangeToDate">To date</label>
-                    <input type="date" id="rangeToDate" />
-                  </div>
-                  <div class="time-range-group">
-                    <label for="rangeToHour">To hour</label>
-                    <select id="rangeToHour"></select>
-                  </div>
-                </div>
-                <div class="time-range-actions">
-                  <button id="applyRangeButton" class="text-button" type="button">Apply</button>
-                </div>
-              </div>
-            </div>
             <button id="downloadVisibleButton" class="text-button" type="button">Export CSV</button>
             <button id="downloadVisibleXlsxButton" class="text-button" type="button">Export XLSX</button>
           </div>
+        </div>
+
+        <div class="page-panel-filters">
+          <select id="riskLevelFilter" class="form-select filter-control" aria-label="Filter by risk level">
+            <option value="">All risk levels</option>
+            <option value="critical">Critical</option>
+            <option value="high">High</option>
+            <option value="medium">Medium</option>
+            <option value="low">Low</option>
+          </select>
+          <select id="actorLabelFilter" class="form-select filter-control" aria-label="Filter by actor">
+            <option value="">All actors</option>
+            <option value="automated_scanner">Automated Scanner</option>
+            <option value="brute_force_bot">Brute-Force Bot</option>
+            <option value="commodity_bot">Commodity Bot</option>
+            <option value="script_kiddie">Script Kiddie</option>
+            <option value="skilled_human_operator">Skilled Human Operator</option>
+          </select>
+          <select id="personaFilter" class="form-select filter-control" aria-label="Filter by persona">
+            <option value="">All personas</option>
+          </select>
+          <div class="time-range-control filter-control">
+            <button id="timeRangeButton" class="text-button" type="button">Loading range...</button>
+            <div id="timeRangePanel" class="time-range-panel">
+              <div class="time-range-row">
+                <div class="time-range-group">
+                  <label for="rangeFromDate">From date</label>
+                  <input type="date" id="rangeFromDate" />
+                </div>
+                <div class="time-range-group">
+                  <label for="rangeFromHour">From hour</label>
+                  <select id="rangeFromHour"></select>
+                </div>
+              </div>
+              <div class="time-range-row">
+                <div class="time-range-group">
+                  <label for="rangeToDate">To date</label>
+                  <input type="date" id="rangeToDate" />
+                </div>
+                <div class="time-range-group">
+                  <label for="rangeToHour">To hour</label>
+                  <select id="rangeToHour"></select>
+                </div>
+              </div>
+              <div class="time-range-actions">
+                <button id="applyRangeButton" class="text-button" type="button">Apply</button>
+              </div>
+            </div>
+          </div>
+          <input type="search" id="sessionSearchInput" class="form-input filter-control" placeholder="Search IP, actor, session ID…" aria-label="Search sessions" />
         </div>
 
         <p id="rangeTruncatedNotice" style="display:none;padding:0 22px 12px;font-size:12px;color:var(--muted);">
@@ -180,14 +184,6 @@
       credential_theft: "Credential Access",
       data_access: "Data Access",
       interactive_operation: "Interactive Operation"
-    };
-
-    const ANALYST_RECOMMENDATION_TEXT = {
-      increase_source_monitoring: "Increase monitoring on this source — discovery activity may precede credential access or exploitation.",
-      preserve_session_transcript: "Preserve this session transcript for analyst review and replay.",
-      review_decoy_exposure: "Review which decoy files were surfaced and whether they need rotation.",
-      rotate_exposed_credentials: "Rotate any credentials this session may have captured or exposed.",
-      escalate_incident_review: "Escalate this session for incident review before any external action."
     };
 
     function escHtml(str) {
@@ -636,7 +632,7 @@
 
     function renderSessions(sessionsToRender) {
       if (sessionsToRender.length === 0) {
-        const filtersActive = Boolean(riskLevelFilter.value || actorLabelFilter.value || personaFilter.value);
+        const filtersActive = Boolean(riskLevelFilter.value || actorLabelFilter.value || personaFilter.value || sessionSearchInput.value.trim());
         const message = sessionsLoadFailed
           ? "Could not load sessions. Is the database configured?"
           : filtersActive
@@ -901,7 +897,6 @@
         <section class="detail-block" aria-label="Session summary">
           <h3>${escHtml(shortId)}</h3>
           <div class="session-inspector-meta">
-            <div class="session-inspector-meta-item"><span>Session ID</span><strong class="mono-cell">${escHtml(shortId)}</strong></div>
             <div class="session-inspector-meta-item"><span>Source IP</span><strong>${escHtml(session.sourceIp)}</strong></div>
             <div class="session-inspector-meta-item"><span>Target Persona</span><strong>${escHtml(session.persona)}</strong></div>
             <div class="session-inspector-meta-item"><span>Start</span><strong>${escHtml(formatInspectorTimestamp(session.timestamp))}</strong></div>
@@ -918,17 +913,6 @@
               <li>Loading…</li>
             </ul>
           </div>
-        </section>
-        <section class="detail-block" aria-label="Session evidence">
-          <h3>Evidence</h3>
-          <p>${escHtml(session.evidence || "No rule evidence recorded for this session.")}</p>
-        </section>
-        <section class="detail-block" aria-label="Analyst recommendation">
-          <h3>Analyst Recommendation</h3>
-          <p>${escHtml(
-            ANALYST_RECOMMENDATION_TEXT[session.analystRecommendationAction] ||
-            "Review the evidence and preserve the session transcript."
-          )}</p>
         </section>
       `;
 
@@ -1178,6 +1162,26 @@
     const riskLevelFilter = document.getElementById("riskLevelFilter");
     const actorLabelFilter = document.getElementById("actorLabelFilter");
     const personaFilter = document.getElementById("personaFilter");
+    const sessionSearchInput = document.getElementById("sessionSearchInput");
+
+    // Free-text search runs client-side over the already-loaded/range-and-
+    // filter-scoped sessions (not a new server request) -- it's a quick
+    // narrow-down over what's on screen, not another server-side filter.
+    function applySearchToSessions(sessions) {
+      const query = sessionSearchInput.value.trim().toLowerCase();
+      if (!query) return sessions;
+      return sessions.filter((session) =>
+        [session.sourceIp, session.sessionId, session.actor, session.persona, session.country]
+          .some((field) => (field || "").toLowerCase().includes(query))
+      );
+    }
+
+    sessionSearchInput.addEventListener("input", () => {
+      visibleSessions = applySearchToSessions(allSessions);
+      currentPage = 1;
+      groupFilter = null;
+      renderSessions(visibleSessions);
+    });
 
     // Populated from both preset and custom personas so a persona created
     // via section 2's "custom_demo" flow shows up here too, not just the
@@ -1365,7 +1369,7 @@
         sessionsLoadFailed = true;
         truncatedNotice.style.display = "none";
       }
-      visibleSessions = allSessions;
+      visibleSessions = applySearchToSessions(allSessions);
       currentPage = 1;
       groupFilter = null;
       renderSessions(visibleSessions);
