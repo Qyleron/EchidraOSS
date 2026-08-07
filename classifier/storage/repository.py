@@ -433,12 +433,22 @@ WHERE issue_id = ANY(%(issue_ids)s)
 ORDER BY issue_id, technique_index
 """
 
+# issue_sessions itself holds every real association (see
+# issue_upsert_statements) -- the cap here is purely on what's serialized
+# back out over the API. Windowed per issue_id (not a flat LIMIT) so a
+# batch fetch across many issues can't let one issue's rows crowd out
+# another's.
 SELECT_ISSUE_SESSIONS_SQL = """
-SELECT
-    issue_id,
-    session_id
-FROM issue_sessions
-WHERE issue_id = ANY(%(issue_ids)s)
+SELECT issue_id, session_id
+FROM (
+    SELECT
+        issue_id,
+        session_id,
+        ROW_NUMBER() OVER (PARTITION BY issue_id ORDER BY session_id) AS rn
+    FROM issue_sessions
+    WHERE issue_id = ANY(%(issue_ids)s)
+) ranked
+WHERE rn <= 200
 """
 
 SELECT_ISSUES_FOR_SESSION_SQL = """
@@ -541,12 +551,12 @@ SELECT
             ELSE 0
         END
     ) AS max_risk_rank,
-    -- session_count above stays the true total; this array is only what
-    -- gets persisted into issue_sessions and returned over the API, so it's
-    -- capped independently -- a long-running actor/technique pair could
-    -- otherwise aggregate into thousands of session UUIDs, bloating every
-    -- GET /issues response and the bridge table itself without bound.
-    (ARRAY_AGG(DISTINCT classifier_runs.session_id))[1:200] AS session_ids
+    -- Uncapped and full on purpose -- this feeds issue_upsert_statements,
+    -- which must persist every real (issue, session) association into
+    -- issue_sessions for the reverse lookup (GET /sessions/{id}/issues) to
+    -- be correct for any session, not just the first N. The response-size
+    -- concern is bounded separately, on read, by SELECT_ISSUE_SESSIONS_SQL.
+    ARRAY_AGG(DISTINCT classifier_runs.session_id) AS session_ids
 FROM classifier_runs
 JOIN sessions ON sessions.id = classifier_runs.session_id
 JOIN classifier_signals AS mitre_signals
@@ -569,9 +579,9 @@ SELECT
     COUNT(*) AS session_count,
     COUNT(DISTINCT sessions.persona_id) AS persona_count,
     COUNT(DISTINCT sessions.peer_ip) AS source_ip_count,
-    -- Capped for the same reason as SELECT_ACTOR_MITRE_AGGREGATES_SQL's
-    -- session_ids -- session_count stays the true total.
-    (ARRAY_AGG(DISTINCT sessions.id))[1:200] AS session_ids
+    -- Uncapped for the same reason as SELECT_ACTOR_MITRE_AGGREGATES_SQL's
+    -- session_ids -- see that comment.
+    ARRAY_AGG(DISTINCT sessions.id) AS session_ids
 FROM sessions
 JOIN offending_ips ON offending_ips.peer_ip = sessions.peer_ip
 WHERE sessions.started_at >= EXTRACT(EPOCH FROM now()) - %(window_seconds)s
