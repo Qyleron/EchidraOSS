@@ -222,7 +222,7 @@
                 <h3>Linked Sessions</h3>
                 <ul class="linked-session-list">
                   ${issue.session_ids.map((sessionId) => `
-                    <li><a href="/dashboard/sessions?session=${encodeURIComponent(sessionId)}">#SES-${escHtml(String(sessionId).slice(0, 8))}</a></li>
+                    <li>#SES-${escHtml(String(sessionId).slice(0, 8))}</li>
                   `).join("")}
                 </ul>
               </section>

@@ -104,16 +104,13 @@ a {
   cursor: pointer;
   font: inherit;
   font-weight: 650;
-  text-decoration: underline;
-  text-decoration-color: var(--border-strong);
-  text-underline-offset: 2px;
+  text-decoration: none;
 }
 
 .group-count-btn:hover,
 .group-count-btn:focus-visible {
   color: var(--text);
   background: var(--surface-hover);
-  text-decoration-color: var(--text);
 }
 
 .app-shell {
@@ -418,6 +415,47 @@ a {
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
+}
+
+.page-panel-filters {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 14px 22px;
+  border-bottom: 1px solid var(--line);
+}
+
+/* Tablet and up: filters sit in a row and wrap as needed, each control
+   keeping a usable minimum width instead of getting squeezed illegibly
+   thin before wrapping to the next line. */
+@media (min-width: 768px) {
+  .page-panel-filters > .filter-control,
+  .page-panel-filters > .custom-select {
+    flex: 1 1 160px;
+    min-width: 160px;
+  }
+
+  .page-panel-filters > #sessionSearchInput,
+  .page-panel-filters > .time-range-control.filter-control {
+    flex: 1 1 200px;
+    min-width: 200px;
+  }
+}
+
+/* Below tablet width: stack filters full-width, one per row, rather than
+   wrapping several partial-width controls awkwardly. */
+@media (max-width: 767px) {
+  .page-panel-filters {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .page-panel-filters > .filter-control,
+  .page-panel-filters > .custom-select {
+    width: 100%;
+  }
 }
 
 .time-range-control {
@@ -875,22 +913,15 @@ a {
   list-style: none;
 }
 
-.linked-session-list a {
+.linked-session-list li {
   display: inline-block;
   border: 1px solid var(--line);
   border-radius: 5px;
   padding: 5px 9px;
-  color: var(--text);
+  color: var(--muted);
   background: var(--surface-strong);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
   font-size: 13px;
-  text-decoration: none;
-  transition: border-color 0.15s ease, background 0.15s ease;
-}
-
-.linked-session-list a:hover {
-  border-color: var(--border-strong);
-  background: var(--surface-hover);
 }
 
 .issue-detail {
