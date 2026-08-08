@@ -2,6 +2,8 @@
 // CSS) -- shared by every dashboard page instead of each maintaining its own
 // copy, so a fix here (or a future one) doesn't need to be repeated four
 // times and inevitably drift out of sync between pages.
+var _customSelectAutoId = 0;
+
 function initCustomSelects(root) {
   var selects = root.querySelectorAll("select.form-select:not([data-custom-select-init])");
   Array.prototype.forEach.call(selects, function(select) {
@@ -21,19 +23,39 @@ function initCustomSelects(root) {
 
     var trigger = document.createElement("div");
     trigger.className = "custom-select-trigger";
+    trigger.id = select.id ? select.id + "-trigger" : "custom-select-trigger-" + (++_customSelectAutoId);
     trigger.setAttribute("tabindex", "0");
     trigger.setAttribute("role", "combobox");
     trigger.setAttribute("aria-haspopup", "listbox");
     trigger.setAttribute("aria-expanded", "false");
-    // An explicit aria-label -- even an empty one -- always wins over a
-    // combobox's own text content when a browser computes its accessible
-    // name. Selects that rely on their visible option text as their only
-    // name (no aria-label of their own, no <label for> pointing at them)
-    // would otherwise go nameless: only set the attribute when the source
-    // select actually has one to carry over.
-    var sourceAriaLabel = select.getAttribute("aria-label");
-    if (sourceAriaLabel) {
-      trigger.setAttribute("aria-label", sourceAriaLabel);
+    // Accessible-name priority mirrors how the browser would have named the
+    // native select it replaces: an explicit aria-labelledby first, then
+    // any <label> actually associated with it (select.labels -- covers
+    // <label for="id">), and only if neither exists does aria-label (or
+    // nothing) apply. Getting this order wrong either strips a name a
+    // <label for> was already providing, or -- the previous bug here --
+    // sets aria-label="" and strips the name entirely for selects with
+    // neither. Referencing the trigger's own id alongside the label id(s)
+    // folds the trigger's live text (the current selection) into the
+    // computed name too, the same way a native select announces label +
+    // current value together -- aria-labelledby/aria-label alone would
+    // otherwise silently drop the "which option is selected" part.
+    var sourceAriaLabelledby = select.getAttribute("aria-labelledby");
+    if (sourceAriaLabelledby) {
+      trigger.setAttribute("aria-labelledby", sourceAriaLabelledby + " " + trigger.id);
+    } else if (select.labels && select.labels.length > 0) {
+      var labelIds = Array.prototype.map.call(select.labels, function(label) {
+        if (!label.id) {
+          label.id = trigger.id + "-label-" + Array.prototype.indexOf.call(select.labels, label);
+        }
+        return label.id;
+      });
+      trigger.setAttribute("aria-labelledby", labelIds.join(" ") + " " + trigger.id);
+    } else {
+      var sourceAriaLabel = select.getAttribute("aria-label");
+      if (sourceAriaLabel) {
+        trigger.setAttribute("aria-label", sourceAriaLabel);
+      }
     }
     wrapper.appendChild(trigger);
 
