@@ -537,13 +537,55 @@ ON CONFLICT (issue_id, session_id) DO NOTHING
 """
 
 SELECT_ACTOR_MITRE_AGGREGATES_SQL = """
+WITH run_groups AS (
+    SELECT
+        classifier_runs.id AS run_id,
+        classifier_runs.session_id AS session_id,
+        classifier_runs.actor_label AS actor_label,
+        classifier_runs.risk_level AS risk_level,
+        mitre_signals.signal_value AS mitre_tag,
+        sessions.persona_id AS persona_id,
+        sessions.peer_ip AS peer_ip,
+        sessions.started_at AS started_at
+    FROM classifier_runs
+    JOIN sessions ON sessions.id = classifier_runs.session_id
+    JOIN classifier_signals AS mitre_signals
+        ON mitre_signals.classifier_run_id = classifier_runs.id
+        AND mitre_signals.signal_type = 'mitre_tag'
+    WHERE classifier_runs.actor_label IS NOT NULL
+),
+actor_mitre_pairs AS (
+    SELECT DISTINCT actor_label, mitre_tag FROM run_groups
+),
+-- Capped at 5 per (actor, technique) pair -- these feed the issue's
+-- Evidence text as a handful of real matched commands, not an unbounded
+-- transcript dump.
+evidence_samples AS (
+    SELECT
+        pairs.actor_label,
+        pairs.mitre_tag,
+        ARRAY(
+            SELECT DISTINCT evidence_signals.signal_value
+            FROM run_groups
+            JOIN classifier_signals AS evidence_signals
+                ON evidence_signals.classifier_run_id = run_groups.run_id
+                AND evidence_signals.signal_type = 'evidence'
+            WHERE run_groups.actor_label = pairs.actor_label
+                AND run_groups.mitre_tag = pairs.mitre_tag
+            LIMIT 5
+        ) AS sample_evidence
+    FROM actor_mitre_pairs AS pairs
+)
 SELECT
-    classifier_runs.actor_label AS actor_label,
-    mitre_signals.signal_value AS mitre_tag,
-    COUNT(DISTINCT classifier_runs.session_id) AS session_count,
-    COUNT(DISTINCT sessions.persona_id) AS persona_count,
+    run_groups.actor_label AS actor_label,
+    run_groups.mitre_tag AS mitre_tag,
+    COUNT(DISTINCT run_groups.session_id) AS session_count,
+    COUNT(DISTINCT run_groups.persona_id) AS persona_count,
+    COUNT(DISTINCT run_groups.peer_ip) AS source_ip_count,
+    MIN(run_groups.started_at) AS first_seen,
+    MAX(run_groups.started_at) AS last_seen,
     MAX(
-        CASE classifier_runs.risk_level
+        CASE run_groups.risk_level
             WHEN 'critical' THEN 4
             WHEN 'high' THEN 3
             WHEN 'medium' THEN 2
@@ -556,14 +598,13 @@ SELECT
     -- issue_sessions for the reverse lookup (GET /sessions/{id}/issues) to
     -- be correct for any session, not just the first N. The response-size
     -- concern is bounded separately, on read, by SELECT_ISSUE_SESSIONS_SQL.
-    ARRAY_AGG(DISTINCT classifier_runs.session_id) AS session_ids
-FROM classifier_runs
-JOIN sessions ON sessions.id = classifier_runs.session_id
-JOIN classifier_signals AS mitre_signals
-    ON mitre_signals.classifier_run_id = classifier_runs.id
-    AND mitre_signals.signal_type = 'mitre_tag'
-WHERE classifier_runs.actor_label IS NOT NULL
-GROUP BY classifier_runs.actor_label, mitre_signals.signal_value
+    ARRAY_AGG(DISTINCT run_groups.session_id) AS session_ids,
+    MIN(evidence_samples.sample_evidence) AS sample_evidence
+FROM run_groups
+LEFT JOIN evidence_samples
+    ON evidence_samples.actor_label = run_groups.actor_label
+    AND evidence_samples.mitre_tag = run_groups.mitre_tag
+GROUP BY run_groups.actor_label, run_groups.mitre_tag
 """
 
 SELECT_REPEAT_CONNECTION_AGGREGATE_SQL = """

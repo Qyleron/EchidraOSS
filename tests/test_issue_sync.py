@@ -41,7 +41,7 @@ def test_build_issue_uses_curated_fix_when_pair_has_an_entry():
     assert issue.session_count == 24
     assert issue.persona_count == 3
     assert issue.mitre == [MitreTechnique(id="T1087", name="Account Discovery")]
-    assert "24 sessions across 3 personas exhibited Account Discovery behavior in captured data." == issue.evidence
+    assert "24 sessions across 3 personas exhibited Account Discovery behavior." == issue.evidence
 
 
 def test_build_issue_falls_back_to_technique_playbook_when_pair_has_no_curated_fix():
@@ -100,6 +100,22 @@ def test_build_issue_prefers_playbook_technique_name_override_over_catalog():
     issue = issue_sync._build_issue(aggregate, playbook, mitre_catalog)
 
     assert issue.mitre == [MitreTechnique(id="T1087", name="Custom Override Name")]
+
+
+def test_build_evidence_includes_source_ips_window_and_matched_samples():
+    aggregate = make_aggregate(
+        source_ip_count=3,
+        first_seen=1_700_000_000.0,
+        last_seen=1_700_003_600.0,
+        sample_evidence=["cat /etc/passwd", "whoami"],
+    )
+
+    evidence = issue_sync._build_evidence(aggregate, "Account Discovery")
+
+    assert "3 source IPs" in evidence
+    assert "first seen 2023-11-14" in evidence
+    assert "most recently 2023-11-14" in evidence
+    assert "Matched: cat /etc/passwd; whoami." in evidence
 
 
 def test_issue_id_for_pair_is_stable_and_unique():

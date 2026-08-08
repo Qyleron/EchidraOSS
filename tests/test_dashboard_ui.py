@@ -87,7 +87,7 @@ def test_sessions_page_uses_shared_styles_and_session_table_columns():
     assert ">Report<" not in html
     assert "Export CSV" in html
     assert "data-session-row" in html
-    assert "Analyst Recommendation" in html
+    assert "Analyst Recommendation" not in html
 
 
 def test_sessions_page_is_backed_by_live_api_calls():
