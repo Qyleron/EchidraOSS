@@ -217,16 +217,6 @@
                 <h3>Impact</h3>
                 <p>${escHtml(issue.impact)}</p>
               </section>
-              ${(issue.session_ids || []).length ? `
-              <section class="detail-block" style="grid-column: 1 / -1;" aria-label="Linked sessions">
-                <h3>Linked Sessions</h3>
-                <ul class="linked-session-list">
-                  ${issue.session_ids.map((sessionId) => `
-                    <li>#SES-${escHtml(String(sessionId).slice(0, 8))}</li>
-                  `).join("")}
-                </ul>
-              </section>
-              ` : ""}
             </div>
           </td>
         </tr>
