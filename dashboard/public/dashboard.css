@@ -736,6 +736,15 @@ a {
   margin: 0 0 8px;
 }
 
+.evidence-samples-label {
+  display: block;
+  margin: 0 0 6px;
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  font-weight: 650;
+}
+
 .evidence-samples {
   display: grid;
   gap: 6px;
