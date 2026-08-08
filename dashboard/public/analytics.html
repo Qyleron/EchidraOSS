@@ -189,8 +189,8 @@
     </main>
   </div>
 
-  <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js" integrity="sha384-OUW9euuUyxyHcAhTqbhI+Iyb8LMssXt/cpz0yXhs9UWG2/R/uaWdakx/4cfww7Vb" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js" integrity="sha384-+mbV2IY1Zk/X1p/nWllGySJSUN8uMs+gUAN10Or95UBH0fpj6GfKgPmgC5EXieXG" crossorigin="anonymous"></script>
   <script>
     const PERSONA_LABEL_OVERRIDES = {
       ubuntu_web_server: "Ubuntu Web Server",
@@ -802,7 +802,11 @@
     }
 
     document.getElementById("exportCsvButton").addEventListener("click", async () => {
-      if (!currentSummary || !window.JSZip) return;
+      if (!currentSummary) return;
+      if (!window.JSZip) {
+        alert("Export failed: the ZIP library didn't load. Check your connection (or an ad-blocker/content blocker) and try again.");
+        return;
+      }
       // One CSV file per section, bundled into a single ZIP -- each file is
       // its own clean flat table (same shape as a per-panel export) instead
       // of one combined file with headings/gaps standing in for structure.
@@ -834,7 +838,11 @@
     });
 
     document.getElementById("exportXlsxButton").addEventListener("click", () => {
-      if (!currentSummary || !window.XLSX) return;
+      if (!currentSummary) return;
+      if (!window.XLSX) {
+        alert("Export failed: the XLSX library didn't load. Check your connection (or an ad-blocker/content blocker) and try again.");
+        return;
+      }
       const sections = buildAnalyticsSections(currentSummary);
       const workbook = XLSX.utils.book_new();
       const usedSheetNames = new Set();

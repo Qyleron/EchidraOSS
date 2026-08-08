@@ -151,7 +151,7 @@
     </main>
   </div>
 
-  <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js" integrity="sha384-OUW9euuUyxyHcAhTqbhI+Iyb8LMssXt/cpz0yXhs9UWG2/R/uaWdakx/4cfww7Vb" crossorigin="anonymous"></script>
   <script>
     let allSessions = [];
     let visibleSessions = [];
@@ -1001,7 +1001,10 @@
     });
 
     document.getElementById("downloadVisibleXlsxButton").addEventListener("click", () => {
-      if (!window.XLSX) return;
+      if (!window.XLSX) {
+        alert("Export failed: the XLSX library didn't load. Check your connection (or an ad-blocker/content blocker) and try again.");
+        return;
+      }
       const rows = buildSessionRows();
       const worksheet = XLSX.utils.aoa_to_sheet([SESSIONS_EXPORT_HEADER, ...rows]);
       const range = XLSX.utils.decode_range(worksheet["!ref"]);
