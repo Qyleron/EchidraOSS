@@ -2130,6 +2130,16 @@ select:hover,
   cursor: pointer;
 }
 
+.custom-select-option[aria-disabled="true"] {
+  color: var(--muted);
+  cursor: not-allowed;
+}
+
+.custom-select-option[aria-disabled="true"]:hover {
+  background-color: transparent;
+  color: var(--muted);
+}
+
 /* ── Custom date-picker widget (Sessions/Analytics range filter) ──
    Native <input type="date"> popups are OS-rendered like <select>'s and
    ignore CSS just the same, so the visible picker is replaced at runtime
