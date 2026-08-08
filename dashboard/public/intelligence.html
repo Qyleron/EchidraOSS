@@ -103,6 +103,32 @@
         .replace(/"/g, "&quot;");
     }
 
+    // Evidence strings are always built server-side as "<summary sentence>."
+    // optionally followed by " Matched: cmd1; cmd2; cmd3." (see
+    // _build_evidence in issue_sync.py). Splitting on that fixed marker lets
+    // the summary and the matched commands render as a labeled block instead
+    // of one run-on paragraph, without needing a schema change to store them
+    // as separate fields.
+    function renderEvidence(evidence) {
+      const marker = " Matched: ";
+      const markerIndex = evidence.indexOf(marker);
+      if (markerIndex === -1) {
+        return `<p class="evidence-summary">${escHtml(evidence)}</p>`;
+      }
+      const summary = evidence.slice(0, markerIndex);
+      const samples = evidence
+        .slice(markerIndex + marker.length)
+        .replace(/\.$/, "")
+        .split("; ")
+        .filter(Boolean);
+      return `
+        <p class="evidence-summary">${escHtml(summary)}</p>
+        <ul class="evidence-samples">
+          ${samples.map((sample) => `<li>${escHtml(sample)}</li>`).join("")}
+        </ul>
+      `;
+    }
+
     function statusLabel(status) {
       return status === "open" ? "Open" : "Closed";
     }
@@ -207,7 +233,7 @@
             <div class="issue-detail">
               <section class="detail-block" aria-label="Evidence">
                 <h3>Evidence</h3>
-                <p>${escHtml(issue.evidence)}</p>
+                ${renderEvidence(issue.evidence)}
               </section>
               <section class="detail-block" aria-label="Recommended fix">
                 <h3>Recommended Fix</h3>
