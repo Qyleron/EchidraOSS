@@ -108,7 +108,7 @@ def test_sessions_page_server_side_filters_by_date_range_not_client_side():
     rather than presenting a capped result as if it were complete."""
     html = (DASHBOARD_PUBLIC_PATH / "sessions.html").read_text(encoding="utf-8")
 
-    assert "async function loadSessions(from, to)" in html
+    assert "async function loadSessions(from, to, { background = false } = {})" in html
     assert 'id="rangeTruncatedNotice"' in html
     assert "runs.length >= SESSIONS_FETCH_LIMIT" in html
 
@@ -262,7 +262,7 @@ def test_high_volume_tables_show_a_loader_inside_their_own_container():
     separate timer. Small, fast lookups (a handful of personas, aggregated
     issues, the 8 most recent events) don't need one."""
     table_pages = {
-        "sessions.html": 'tableBody.innerHTML = \'<tr><td colspan="9" class="table-loader-cell"><div class="spinner" role="status" aria-label="Loading sessions"></div></td></tr>\';',
+        "sessions.html": 'tableBody.innerHTML = \'<tr><td colspan="8" class="table-loader-cell"><div class="spinner" role="status" aria-label="Loading sessions"></div></td></tr>\';',
         "alerts.html": 'tbody.innerHTML = \'<tr><td colspan="7" class="table-loader-cell"><div class="spinner" role="status" aria-label="Loading alert history"></div></td></tr>\';',
     }
     for page, loader_line in table_pages.items():
