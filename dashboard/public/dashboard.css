@@ -928,30 +928,6 @@ a {
   line-height: 1.4;
 }
 
-.issue-detail-row td {
-  padding: 0;
-  background: var(--surface-strong);
-}
-
-.issue-detail {
-  display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
-  align-items: start;
-  gap: 18px;
-  padding: 18px 20px 20px;
-}
-
-.issue-detail .detail-block h3 {
-  color: var(--muted);
-}
-
-
-.issue-detail .detail-block p {
-  color: var(--text);
-  font-size: 16px;
-}
-
-
 .status-toggle {
   display: inline-flex;
   align-items: center;
@@ -1177,7 +1153,7 @@ a {
 .form-textarea {
   width: 100%;
   min-height: 36px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--border-strong);
   border-radius: 6px;
   padding: 0 10px;
   background: var(--surface);
@@ -1196,7 +1172,7 @@ a {
 .form-select:focus,
 .form-textarea:focus {
   outline: none;
-  border-color: var(--border-strong);
+  border-color: var(--text);
 }
 
 .form-input:disabled,
@@ -1481,8 +1457,7 @@ a {
     min-height: 340px;
   }
 
-  .session-detail,
-  .issue-detail {
+  .session-detail {
     grid-template-columns: 1fr;
   }
 
@@ -1600,10 +1575,6 @@ a {
   .cell-primary span,
   .cell-muted {
     font-size: 12px;
-  }
-
-  .issue-detail .detail-block p {
-    font-size: 16px;
   }
 
   .session-detail .detail-block h3,
@@ -1861,6 +1832,12 @@ a {
   gap: 6px;
 }
 
+.inspector-note {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
 .session-inspector-linked-issues {
   display: flex;
   flex-wrap: wrap;
@@ -1871,20 +1848,22 @@ a {
 .badge-linked-issue {
   display: inline-flex;
   align-items: center;
-  border: 1px solid var(--border-strong);
-  border-radius: 5px;
-  padding: 4px 10px;
-  color: var(--text);
-  background: var(--surface-hover);
-  font-size: 12px;
-  font-weight: 650;
+  border: 0;
+  border-radius: 6px;
+  padding: 8px 16px;
+  color: #000000;
+  background: var(--text);
+  font-size: 13px;
+  font-weight: 680;
   text-decoration: none;
-  transition: border-color 0.15s ease, background 0.15s ease;
+  box-shadow: 0 6px 18px rgba(255, 255, 255, 0.12);
+  transition: background 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
 }
 
 .badge-linked-issue:hover {
-  border-color: var(--text);
-  background: var(--surface-strong);
+  background: #eeeeee;
+  transform: translateY(-1px);
+  box-shadow: 0 8px 22px rgba(255, 255, 255, 0.18);
 }
 
 /* ── Alert page styles ── */
@@ -2075,7 +2054,7 @@ select:hover,
 .custom-select-trigger {
   width: 100%;
   min-height: 36px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--border-strong);
   border-radius: 8px;
   padding: 0 34px 0 10px;
   background: var(--surface);
@@ -2104,7 +2083,7 @@ select:hover,
 .custom-select-trigger:hover,
 .custom-select-trigger:focus,
 .custom-select.open .custom-select-trigger {
-  border-color: var(--border-strong);
+  border-color: var(--text);
   cursor: pointer;
 }
 
