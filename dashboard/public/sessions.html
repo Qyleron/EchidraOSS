@@ -1088,10 +1088,10 @@
     // same rule: they're sent to /classifier/runs as query params (the API
     // already supports them) instead of filtering the capped client-side
     // list, for the same reason.
-    async function applyRange() {
+    async function applyRange({ background = false } = {}) {
       const { from, to } = readRange();
       document.getElementById("timeRangeButton").textContent = formatRangeLabel(from, to);
-      await loadSessions(from, to);
+      await loadSessions(from, to, { background });
     }
 
     const riskLevelFilter = document.getElementById("riskLevelFilter");
@@ -1268,12 +1268,14 @@
     // guaranteed to resolve in the order they were sent.
     let latestSessionsRequestId = 0;
 
-    async function loadSessions(from, to) {
+    async function loadSessions(from, to, { background = false } = {}) {
       const requestId = ++latestSessionsRequestId;
       const truncatedNotice = document.getElementById("rangeTruncatedNotice");
-      tableBody.innerHTML = '<tr><td colspan="8" class="table-loader-cell"><div class="spinner" role="status" aria-label="Loading sessions"></div></td></tr>';
-      renderPagination(0);
-      truncatedNotice.style.display = "none";
+      if (!background) {
+        tableBody.innerHTML = '<tr><td colspan="8" class="table-loader-cell"><div class="spinner" role="status" aria-label="Loading sessions"></div></td></tr>';
+        renderPagination(0);
+        truncatedNotice.style.display = "none";
+      }
       let runs = null;
       try {
         const fromTs = from.getTime() / 1000;
@@ -1289,6 +1291,16 @@
 
       if (requestId !== latestSessionsRequestId) {
         return; // superseded by a newer range request; discard this result
+      }
+
+      // A background refresh's guard (page 1, Inspector closed) was only
+      // checked before this fetch started -- re-check now, since the analyst
+      // may have opened the Inspector or paged forward while it was in
+      // flight. Applying a stale background result at this point would
+      // otherwise silently reset their page/close their Inspector selection
+      // out from under them.
+      if (background && (sessionInspector.classList.contains("open") || currentPage !== 1)) {
+        return;
       }
 
       if (runs) {
@@ -1382,7 +1394,7 @@
         !sessionInspector.classList.contains("open") &&
         currentPage === 1
       ) {
-        applyRange();
+        applyRange({ background: true });
       }
     }, 30000);
 
@@ -1397,7 +1409,7 @@
         !sessionInspector.classList.contains("open") &&
         currentPage === 1
       ) {
-        applyRange();
+        applyRange({ background: true });
       }
     });
   </script>
