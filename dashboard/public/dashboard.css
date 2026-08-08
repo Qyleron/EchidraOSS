@@ -893,26 +893,6 @@ a {
   background: var(--surface-strong);
 }
 
-.linked-session-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.linked-session-list li {
-  display: inline-block;
-  border: 1px solid var(--line);
-  border-radius: 5px;
-  padding: 5px 9px;
-  color: var(--muted);
-  background: var(--surface-strong);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
-  font-size: 13px;
-}
-
 .issue-detail {
   display: grid;
   grid-template-columns: 1fr 1fr 1fr;

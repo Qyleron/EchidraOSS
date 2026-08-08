@@ -847,12 +847,7 @@
         <section class="detail-block" aria-label="Session summary">
           <h3>${escHtml(shortId)}</h3>
           <div class="session-inspector-meta">
-            <div class="session-inspector-meta-item"><span>Source IP</span><strong>${escHtml(session.sourceIp)}</strong></div>
-            <div class="session-inspector-meta-item"><span>Target Persona</span><strong>${escHtml(session.persona)}</strong></div>
-            <div class="session-inspector-meta-item"><span>Start</span><strong>${escHtml(formatInspectorTimestamp(session.timestamp))}</strong></div>
             <div class="session-inspector-meta-item"><span>End</span><strong>${escHtml(formatInspectorTimestamp(endedDate))}</strong></div>
-            <div class="session-inspector-meta-item"><span>Duration</span><strong>${escHtml(session.duration)}</strong></div>
-            <div class="session-inspector-meta-item"><span>Risk</span><strong><span class="risk-badge ${badgeTier(session.risk)}">${escHtml(session.risk)}</span></strong></div>
           </div>
           <div class="session-inspector-linked-issues" id="${session.id}-linked-issues"></div>
         </section>
@@ -897,7 +892,7 @@
           const container = document.getElementById(`${session.id}-linked-issues`);
           if (!container) return;
           container.innerHTML = linkedIssues
-            .map((linkedIssue) => `<a class="badge-linked-issue" href="/dashboard/intelligence?issue=${encodeURIComponent(linkedIssue.id)}">Linked Issue: ${escHtml(linkedIssue.title)}</a>`)
+            .map((linkedIssue) => `<a class="badge-linked-issue" href="/dashboard/intelligence?issue=${encodeURIComponent(linkedIssue.id)}" title="${escHtml(linkedIssue.title)}">View in Intelligence</a>`)
             .join("");
         } catch (error) {
           console.error(error);
