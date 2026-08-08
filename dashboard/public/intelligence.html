@@ -123,6 +123,7 @@
         .filter(Boolean);
       return `
         <p class="evidence-summary">${escHtml(summary)}</p>
+        <span class="evidence-samples-label">Matched commands</span>
         <ul class="evidence-samples">
           ${samples.map((sample) => `<li>${escHtml(sample)}</li>`).join("")}
         </ul>
