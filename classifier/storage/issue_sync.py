@@ -221,10 +221,32 @@ def _technique_name(tag: str, playbook: IssuePlaybook, mitre_catalog: dict[str, 
 
 
 def _build_evidence(aggregate: dict[str, Any], technique_name: str) -> str:
-    return (
+    samples = [text for text in (aggregate.get("sample_evidence") or []) if text]
+    window = _seen_window(aggregate.get("first_seen"), aggregate.get("last_seen"))
+    source_ips = aggregate.get("source_ip_count")
+
+    parts = [
         f"{aggregate['session_count']} sessions across {aggregate['persona_count']} "
-        f"personas exhibited {technique_name} behavior in captured data."
-    )
+        f"personas exhibited {technique_name} behavior"
+        + (f" from {source_ips} source IP{'s' if source_ips != 1 else ''}" if source_ips else "")
+        + (f", {window}" if window else "")
+        + "."
+    ]
+    if samples:
+        parts.append("Matched: " + "; ".join(samples[:5]) + ".")
+    return " ".join(parts)
+
+
+def _seen_window(first_seen: float | None, last_seen: float | None) -> str | None:
+    if not first_seen or not last_seen:
+        return None
+    from datetime import datetime, timezone
+
+    first = datetime.fromtimestamp(first_seen, tz=timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    last = datetime.fromtimestamp(last_seen, tz=timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    if first == last:
+        return f"first and only seen {first}"
+    return f"first seen {first}, most recently {last}"
 
 
 def _build_repeat_connection_issue(
