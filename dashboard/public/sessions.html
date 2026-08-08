@@ -1233,7 +1233,9 @@
     // options into the overlay listbox -- it must run after personaFilter's
     // options are populated, or newly-added personas would never appear in
     // the custom dropdown despite being real <option>s on the native select.
-    initPersonaFilterOptions().then(() => initCustomSelects(document));
+    initPersonaFilterOptions().then(() => {
+      if (typeof initCustomSelects === "function") initCustomSelects(document);
+    });
     // Skip a tick while the Session Inspector is open or the analyst has
     // paged past page 1 -- loadSessions() always resets currentPage back to
     // 1, so an unconditional refresh here would silently bounce someone back

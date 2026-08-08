@@ -884,7 +884,11 @@
     });
 
     initTimeRangeControl();
-    initCustomSelects(document);
+    // Guarded so a failed /custom-select.js load only costs the dropdown
+    // styling, not a thrown ReferenceError that would abort every statement
+    // after it here -- including the refresh interval and all the logout
+    // button wiring below.
+    if (typeof initCustomSelects === "function") initCustomSelects(document);
     setInterval(applyRange, 30000);
     logoutButton.addEventListener("click", openLogoutConfirm);
     document.getElementById("logoutConfirmCloseBtn").addEventListener("click", closeLogoutConfirm);

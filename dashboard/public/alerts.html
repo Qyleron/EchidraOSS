@@ -640,7 +640,12 @@
     initPasswordToggle("smtpPassword", "smtpPasswordToggle");
 
     // ── Boot ───────────────────────────────────────────────────────────────────
-    initCustomSelects(document);
+    // Guarded so a failed /custom-select.js load (404, network blip) only
+    // costs the dropdown styling -- not a thrown ReferenceError that would
+    // otherwise abort every statement after it in this block, silently
+    // taking loadAlertConfig()/loadAlertEvents()/the refresh interval down
+    // with it.
+    if (typeof initCustomSelects === "function") initCustomSelects(document);
     loadAlertConfig();
     loadAlertEvents();
     // Only the read-only event history auto-refreshes -- re-fetching
