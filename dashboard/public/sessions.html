@@ -19,9 +19,9 @@
       <nav class="navbar" aria-label="Primary dashboard navigation">
         <div class="nav-links">
           <a class="nav-link" href="/dashboard">Overview</a>
+          <a class="nav-link" href="/dashboard/intelligence">Intelligence</a>
           <a class="nav-link active" href="/dashboard/sessions">Sessions</a>
           <a class="nav-link" href="/dashboard/analytics">Analytics</a>
-          <a class="nav-link" href="/dashboard/intelligence">Intelligence</a>
           <a class="nav-link" href="/dashboard/personas">Personas</a>
           <a class="nav-link" href="/dashboard/alerts">Alerts</a>
         </div>
@@ -843,14 +843,24 @@
       const shortId = session.sessionId ? `#SES-${session.sessionId.slice(0, 8)}` : `#SES-${session.id}`;
       const endedDate = session.endedAt ? new Date(session.endedAt * 1000) : null;
 
+      const classificationLabel = session.classificationStatus === "complete" ? "Complete" : "Partial";
+
       sessionInspectorBody.innerHTML = `
         <section class="detail-block" aria-label="Session summary">
           <h3>${escHtml(shortId)}</h3>
           <div class="session-inspector-meta">
             <div class="session-inspector-meta-item"><span>End</span><strong>${escHtml(formatInspectorTimestamp(endedDate))}</strong></div>
+            <div class="session-inspector-meta-item"><span>Classification</span><strong>${escHtml(classificationLabel)}</strong></div>
           </div>
+          ${session.insufficientDataReason ? `<p class="inspector-note">${escHtml(session.insufficientDataReason)}</p>` : ""}
           <div class="session-inspector-linked-issues" id="${session.id}-linked-issues"></div>
         </section>
+        ${session.evidence ? `
+        <section class="detail-block" aria-label="Evidence">
+          <h3>Evidence</h3>
+          <p class="evidence-summary">${escHtml(session.evidence)}</p>
+        </section>
+        ` : ""}
         <section class="detail-block" aria-label="Command timeline">
           <h3>Command Timeline</h3>
           <div class="command-block">

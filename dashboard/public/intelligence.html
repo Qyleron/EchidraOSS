@@ -19,9 +19,9 @@
       <nav class="navbar" aria-label="Primary dashboard navigation">
         <div class="nav-links">
           <a class="nav-link" href="/dashboard">Overview</a>
+          <a class="nav-link active" href="/dashboard/intelligence">Intelligence</a>
           <a class="nav-link" href="/dashboard/sessions">Sessions</a>
           <a class="nav-link" href="/dashboard/analytics">Analytics</a>
-          <a class="nav-link active" href="/dashboard/intelligence">Intelligence</a>
           <a class="nav-link" href="/dashboard/personas">Personas</a>
           <a class="nav-link" href="/dashboard/alerts">Alerts</a>
         </div>
@@ -44,6 +44,15 @@
         </div>
       </div>
     </div>
+
+    <div id="issueInspectorBackdrop" class="session-inspector-backdrop" hidden></div>
+    <aside id="issueInspector" class="session-inspector" hidden aria-modal="true" role="dialog" aria-labelledby="issueInspectorTitle">
+      <div class="session-inspector-header">
+        <h2 id="issueInspectorTitle">Issue Detail</h2>
+        <button class="modal-close modal-close-danger" id="issueInspectorCloseBtn" type="button" aria-label="Close">&times;</button>
+      </div>
+      <div class="session-inspector-body" id="issueInspectorBody"></div>
+    </aside>
 
     <main class="dashboard-main">
       <section class="page-panel" aria-labelledby="issuesTitle">
@@ -154,7 +163,7 @@
       const pageStart = (currentIssuePage - 1) * ISSUES_PAGE_SIZE;
       const pageItems = issues.slice(pageStart, pageStart + ISSUES_PAGE_SIZE);
       tableBody.innerHTML = pageItems.map((issue) => `
-        <tr data-issue-row="${escAttr(issue.id)}" tabindex="0" aria-expanded="false">
+        <tr data-issue-row="${escAttr(issue.id)}" tabindex="0" aria-haspopup="dialog">
           <td><div class="cell-primary"><strong>${escHtml(issue.title)}</strong></div></td>
           <td><span class="risk-badge ${escAttr(issue.severity)}">${escHtml(SEVERITY_LABELS[issue.severity] ?? issue.severity ?? "Unknown")}</span></td>
           <td>
@@ -212,42 +221,97 @@
       }
     }
 
-    function toggleIssue(issueId) {
-      const row = document.querySelector(`[data-issue-row="${issueId}"]`);
-      const existingDetail = document.getElementById(`${issueId}-detail`);
-      document.querySelectorAll(".issue-detail-row").forEach((detail) => detail.remove());
+    // Slide-over panel for issue detail -- shares the same drawer component
+    // (and CSS classes) as the Sessions page's Session Inspector, so the two
+    // pages behave consistently instead of one expanding inline and the
+    // other sliding over.
+    const issueInspector = document.getElementById("issueInspector");
+    const issueInspectorBackdrop = document.getElementById("issueInspectorBackdrop");
+    const issueInspectorBody = document.getElementById("issueInspectorBody");
+    let lastFocusedIssueTrigger = null;
+    let issueHideTimeoutId = null;
+
+    function getIssueInspectorFocusable() {
+      return Array.from(
+        issueInspector.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')
+      ).filter((el) => !el.disabled);
+    }
+
+    function trapIssueInspectorTab(event) {
+      if (event.key !== "Tab" || !issueInspector.classList.contains("open")) return;
+      const focusable = getIssueInspectorFocusable();
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+
+    function showIssueInspector() {
+      if (issueHideTimeoutId !== null) {
+        clearTimeout(issueHideTimeoutId);
+        issueHideTimeoutId = null;
+      }
+      issueInspectorBackdrop.hidden = false;
+      issueInspector.hidden = false;
+      document.body.classList.add("body-scroll-locked");
+      requestAnimationFrame(() => {
+        issueInspectorBackdrop.classList.add("open");
+        issueInspector.classList.add("open");
+        const [first] = getIssueInspectorFocusable();
+        if (first) first.focus();
+      });
+    }
+
+    function closeIssueInspector() {
+      document.body.classList.remove("body-scroll-locked");
+      issueInspectorBackdrop.classList.remove("open");
+      issueInspector.classList.remove("open");
       document.querySelectorAll("[data-issue-row]").forEach((issueRow) => {
         issueRow.classList.remove("selected");
-        issueRow.setAttribute("aria-expanded", "false");
+      });
+      if (lastFocusedIssueTrigger) {
+        lastFocusedIssueTrigger.focus();
+        lastFocusedIssueTrigger = null;
+      }
+      if (issueHideTimeoutId !== null) clearTimeout(issueHideTimeoutId);
+      issueHideTimeoutId = setTimeout(() => {
+        issueInspectorBackdrop.hidden = true;
+        issueInspector.hidden = true;
+        issueHideTimeoutId = null;
+      }, 250);
+    }
+
+    function openIssueInspector(issueId) {
+      const issue = currentIssues.find((item) => String(item.id) === issueId);
+      if (!issue) return;
+      lastFocusedIssueTrigger = document.querySelector(`[data-issue-row="${issueId}"]`) || document.activeElement;
+
+      document.querySelectorAll("[data-issue-row]").forEach((issueRow) => {
+        issueRow.classList.toggle("selected", issueRow.dataset.issueRow === String(issueId));
       });
 
-      if (existingDetail) {
-        return;
-      }
+      issueInspectorBody.innerHTML = `
+        <section class="detail-block" aria-label="Evidence">
+          <h3>Evidence</h3>
+          ${renderEvidence(issue.evidence)}
+        </section>
+        <section class="detail-block" aria-label="Recommended fix">
+          <h3>Recommended Fix</h3>
+          <p>${escHtml(issue.recommended_fix)}</p>
+        </section>
+        <section class="detail-block" aria-label="Impact">
+          <h3>Impact</h3>
+          <p>${escHtml(issue.impact)}</p>
+        </section>
+      `;
 
-      const issue = currentIssues.find((item) => String(item.id) === issueId);
-      row.classList.add("selected");
-      row.setAttribute("aria-expanded", "true");
-      row.insertAdjacentHTML("afterend", `
-        <tr id="${escAttr(issue.id)}-detail" class="issue-detail-row">
-          <td colspan="6">
-            <div class="issue-detail">
-              <section class="detail-block" aria-label="Evidence">
-                <h3>Evidence</h3>
-                ${renderEvidence(issue.evidence)}
-              </section>
-              <section class="detail-block" aria-label="Recommended fix">
-                <h3>Recommended Fix</h3>
-                <p>${escHtml(issue.recommended_fix)}</p>
-              </section>
-              <section class="detail-block" aria-label="Impact">
-                <h3>Impact</h3>
-                <p>${escHtml(issue.impact)}</p>
-              </section>
-            </div>
-          </td>
-        </tr>
-      `);
+      showIssueInspector();
     }
 
     let issuesRequestId = 0;
@@ -263,11 +327,11 @@
         // it clobber the data a later request already applied.
         if (requestId !== issuesRequestId) return;
         currentIssues = issues;
-        // Re-check for an open detail row *after* the fetch resolves, not
-        // just before it starts -- an analyst can expand a row while a
-        // background refresh is in flight, and rendering here would still
-        // blow that row away out from under them.
-        if (background && document.querySelector(".issue-detail-row")) return;
+        // Re-check for an open Issue Inspector *after* the fetch resolves,
+        // not just before it starts -- an analyst can open one while a
+        // background refresh is in flight, and rebuilding the table here
+        // would still reset their page/selection out from under them.
+        if (background && issueInspector.classList.contains("open")) return;
         renderIssueRows(currentIssues);
         openRequestedIssue();
       } catch (error) {
@@ -280,9 +344,9 @@
       }
     }
 
-    // Arriving from a Session Inspector's "Linked Issue" badge
+    // Arriving from a Session Inspector's "View in Intelligence" badge
     // (/dashboard/intelligence?issue=<uuid>) jumps straight to that issue's
-    // row -- paginating to it and expanding its detail -- instead of
+    // row -- paginating to it and opening its Inspector -- instead of
     // leaving an analyst to search for it by hand across however many pages
     // of issues exist.
     let requestedIssueOpened = false;
@@ -295,7 +359,7 @@
       requestedIssueOpened = true;
       currentIssuePage = Math.floor(index / ISSUES_PAGE_SIZE) + 1;
       renderIssueRows(currentIssues);
-      toggleIssue(requestedIssueId);
+      openIssueInspector(requestedIssueId);
       const row = document.querySelector(`[data-issue-row="${requestedIssueId}"]`);
       if (row) row.scrollIntoView({ block: "center" });
     }
@@ -341,7 +405,7 @@
       }
       const row = event.target.closest("[data-issue-row]");
       if (row) {
-        toggleIssue(row.dataset.issueRow);
+        openIssueInspector(row.dataset.issueRow);
       }
     });
 
@@ -355,8 +419,18 @@
       const row = event.target.closest("[data-issue-row]");
       if (row) {
         event.preventDefault();
-        toggleIssue(row.dataset.issueRow);
+        openIssueInspector(row.dataset.issueRow);
       }
+    });
+
+    issueInspectorBackdrop.addEventListener("click", closeIssueInspector);
+    document.getElementById("issueInspectorCloseBtn").addEventListener("click", closeIssueInspector);
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && issueInspector.classList.contains("open")) {
+        closeIssueInspector();
+        return;
+      }
+      trapIssueInspectorTab(event);
     });
 
     loadIssues();
