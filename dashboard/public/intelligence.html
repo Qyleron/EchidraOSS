@@ -249,13 +249,23 @@
       `);
     }
 
-    async function loadIssues() {
+    async function loadIssues({ background = false } = {}) {
       const tableBody = document.getElementById("issueTableBody");
       try {
-        currentIssues = await fetchIssues();
+        const issues = await fetchIssues();
+        currentIssues = issues;
+        // Re-check for an open detail row *after* the fetch resolves, not
+        // just before it starts -- an analyst can expand a row while a
+        // background refresh is in flight, and rendering here would still
+        // blow that row away out from under them.
+        if (background && document.querySelector(".issue-detail-row")) return;
         renderIssueRows(currentIssues);
         openRequestedIssue();
       } catch (error) {
+        if (background) {
+          console.error(error);
+          return;
+        }
         tableBody.innerHTML = `<tr><td colspan="6" class="empty-state" style="text-align: center;">Could not load issues. Is the database configured?</td></tr>`;
       }
     }
@@ -340,11 +350,8 @@
     });
 
     loadIssues();
-    // Skip a tick while an issue's detail row is expanded -- the table body
-    // gets rebuilt from scratch, which would otherwise collapse it out from
-    // under someone mid-read.
     setInterval(() => {
-      if (!document.querySelector(".issue-detail-row")) loadIssues();
+      loadIssues({ background: true });
     }, 30000);
 
     const logoutButton = document.getElementById("logoutButton");
