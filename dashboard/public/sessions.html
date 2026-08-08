@@ -61,6 +61,34 @@
             <h1 id="sessionsTitle" tabindex="-1">Captured Attacker Sessions</h1>
           </div>
           <div class="page-panel-actions">
+            <div class="time-range-control filter-control">
+              <button id="timeRangeButton" class="text-button" type="button">Loading range...</button>
+              <div id="timeRangePanel" class="time-range-panel">
+                <div class="time-range-row">
+                  <div class="time-range-group">
+                    <label for="rangeFromDate">From date</label>
+                    <input type="date" id="rangeFromDate" />
+                  </div>
+                  <div class="time-range-group">
+                    <label for="rangeFromHour">From hour</label>
+                    <select id="rangeFromHour"></select>
+                  </div>
+                </div>
+                <div class="time-range-row">
+                  <div class="time-range-group">
+                    <label for="rangeToDate">To date</label>
+                    <input type="date" id="rangeToDate" />
+                  </div>
+                  <div class="time-range-group">
+                    <label for="rangeToHour">To hour</label>
+                    <select id="rangeToHour"></select>
+                  </div>
+                </div>
+                <div class="time-range-actions">
+                  <button id="applyRangeButton" class="text-button" type="button">Apply</button>
+                </div>
+              </div>
+            </div>
             <button id="downloadVisibleButton" class="text-button" type="button">Export CSV</button>
             <button id="downloadVisibleXlsxButton" class="text-button" type="button">Export XLSX</button>
           </div>
@@ -85,35 +113,13 @@
           <select id="personaFilter" class="form-select filter-control" aria-label="Filter by persona">
             <option value="">All personas</option>
           </select>
-          <div class="time-range-control filter-control">
-            <button id="timeRangeButton" class="text-button" type="button">Loading range...</button>
-            <div id="timeRangePanel" class="time-range-panel">
-              <div class="time-range-row">
-                <div class="time-range-group">
-                  <label for="rangeFromDate">From date</label>
-                  <input type="date" id="rangeFromDate" />
-                </div>
-                <div class="time-range-group">
-                  <label for="rangeFromHour">From hour</label>
-                  <select id="rangeFromHour"></select>
-                </div>
-              </div>
-              <div class="time-range-row">
-                <div class="time-range-group">
-                  <label for="rangeToDate">To date</label>
-                  <input type="date" id="rangeToDate" />
-                </div>
-                <div class="time-range-group">
-                  <label for="rangeToHour">To hour</label>
-                  <select id="rangeToHour"></select>
-                </div>
-              </div>
-              <div class="time-range-actions">
-                <button id="applyRangeButton" class="text-button" type="button">Apply</button>
-              </div>
-            </div>
+          <div class="session-search-control filter-control">
+            <svg class="session-search-icon" viewBox="0 0 20 20" aria-hidden="true" focusable="false">
+              <circle cx="9" cy="9" r="6.25" fill="none" stroke="currentColor" stroke-width="1.6"/>
+              <line x1="13.6" y1="13.6" x2="18" y2="18" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+            </svg>
+            <input type="search" id="sessionSearchInput" class="form-input" placeholder="Search IP, actor, session ID…" aria-label="Search sessions" />
           </div>
-          <input type="search" id="sessionSearchInput" class="form-input filter-control" placeholder="Search IP, actor, session ID…" aria-label="Search sessions" />
         </div>
 
         <p id="rangeTruncatedNotice" style="display:none;padding:0 22px 12px;font-size:12px;color:var(--muted);">
@@ -122,7 +128,6 @@
         <p id="personaFilterWarning" style="display:none;padding:0 22px 12px;font-size:12px;color:var(--muted);" role="alert">
           Persona filter list may be incomplete — some personas failed to load. Reload the page to retry.
         </p>
-        <p id="groupFilterNotice" style="display:none;padding:0 22px 12px;font-size:12px;color:var(--muted);"></p>
 
         <div class="table-shell">
           <table class="data-table" aria-describedby="sessionsTitle">
@@ -130,7 +135,6 @@
               <tr>
                 <th>Time</th>
                 <th>Source IP</th>
-                <th>Sessions</th>
                 <th>Country</th>
                 <th>Persona</th>
                 <th>Protocol</th>
@@ -153,15 +157,10 @@
     let visibleSessions = [];
     let sessionsLoadFailed = false;
     let currentPage = 1;
-    // When set, the table shows every individual session in this
-    // (sourceIp, actor, intent) group instead of the collapsed one-row-per-
-    // group view -- entered by clicking a group's repeat count.
-    let groupFilter = null;
     const SESSIONS_PAGE_SIZE = 10;
     const eventsCache = new Map();
     const tableBody = document.getElementById("sessionsTableBody");
     const paginationContainer = document.getElementById("sessionsPagination");
-    const groupFilterNotice = document.getElementById("groupFilterNotice");
 
     const ACTOR_LABELS = {
       automated_scanner: "Automated Scanner",
@@ -638,69 +637,23 @@
           : filtersActive
             ? "No sessions match the current filters in this range."
             : "No sessions in this range.";
-        tableBody.innerHTML = `<tr><td colspan="9" class="empty-state" style="text-align: center;">${message}</td></tr>`;
+        tableBody.innerHTML = `<tr><td colspan="8" class="empty-state" style="text-align: center;">${message}</td></tr>`;
         renderPagination(0);
         return;
       }
 
-      // Extra vertical breathing room between rows while drilled into one
-      // IP's group, so repeat hits from the same IP/actor/intent read as
-      // distinct sessions instead of blurring into one solid block.
-      tableBody.closest("table").classList.toggle("grouped-view", Boolean(groupFilter));
+      // Flat, chronological log of every individual session -- no collapsing
+      // repeat hits from the same IP into a group row, so each session reads
+      // as its own line the way a log stream (eg. Grafana) does, rather than
+      // a table-inside-a-table an analyst has to drill into.
+      const rows = sessionsToRender.slice().sort((a, b) => b.timestamp - a.timestamp);
 
-      let groupedRows;
-      if (groupFilter) {
-        // Drilled into one collapsed group -- show every individual session
-        // in it (no re-collapsing), each still expandable for its own
-        // evidence/timeline, so a 20+ hit group doesn't have to be inlined
-        // under its row and clutter the page.
-        const matches = sessionsToRender.filter((session) =>
-          (session.sourceIp || "unknown") === groupFilter.sourceIp &&
-          (session.actor || "unclassified") === groupFilter.actor &&
-          (session.intent || "unknown") === groupFilter.intent
-        );
-        groupedRows = matches
-          .sort((a, b) => b.timestamp - a.timestamp)
-          .map((session) => ({ session, count: null }));
-        groupFilterNotice.style.display = "block";
-        groupFilterNotice.innerHTML = `Showing all ${matches.length} session${matches.length === 1 ? "" : "s"} from ${escHtml(groupFilter.sourceIp)} · ${escHtml(groupFilter.actor)} · ${escHtml(groupFilter.intent)} <button type="button" id="clearGroupFilterBtn" class="text-button" style="margin-left:8px;">Back to all sessions</button>`;
-        document.getElementById("clearGroupFilterBtn").addEventListener("click", () => {
-          groupFilter = null;
-          currentPage = 1;
-          renderSessions(visibleSessions);
-        });
-      } else {
-        groupFilterNotice.style.display = "none";
-        groupFilterNotice.innerHTML = "";
-        // Collapse repeat hits from the same IP showing the *same* attack
-        // pattern (actor label + intent) into one row, keeping the most
-        // recent session as the representative (still individually
-        // expandable for its command timeline) and an accurate count of how
-        // many times that exact pattern repeated. If the same IP's behavior
-        // changes -- eg. escalates from reconnaissance to credential theft --
-        // it surfaces as its own separate row instead of being silently
-        // folded away, so the classifier's signal isn't lost. Clicking the
-        // count drills into every individual session in the group.
-        const groups = new Map();
-        for (const session of sessionsToRender) {
-          const key = `${session.sourceIp || "unknown"}|${session.actor || "unclassified"}|${session.intent || "unknown"}`;
-          const existing = groups.get(key);
-          if (!existing) {
-            groups.set(key, { session, count: 1 });
-          } else {
-            existing.count += 1;
-            if (session.timestamp > existing.session.timestamp) existing.session = session;
-          }
-        }
-        groupedRows = Array.from(groups.values()).sort((a, b) => b.session.timestamp - a.session.timestamp);
-      }
-
-      const totalPages = Math.max(1, Math.ceil(groupedRows.length / SESSIONS_PAGE_SIZE));
+      const totalPages = Math.max(1, Math.ceil(rows.length / SESSIONS_PAGE_SIZE));
       currentPage = Math.min(currentPage, totalPages);
       const pageStart = (currentPage - 1) * SESSIONS_PAGE_SIZE;
-      const pageItems = groupedRows.slice(pageStart, pageStart + SESSIONS_PAGE_SIZE);
+      const pageItems = rows.slice(pageStart, pageStart + SESSIONS_PAGE_SIZE);
 
-      tableBody.innerHTML = pageItems.map(({ session, count }) => `
+      tableBody.innerHTML = pageItems.map((session) => `
         <tr data-session-row="${session.id}" tabindex="0" aria-haspopup="dialog">
           <td>
             <div class="cell-primary">
@@ -709,9 +662,6 @@
             </div>
           </td>
           <td class="mono-cell">${escHtml(session.sourceIp)}</td>
-          <td>${count == null ? "" : count > 1
-            ? `<button type="button" class="group-count-btn" data-group-ip="${escAttr(session.sourceIp || "unknown")}" data-group-actor="${escAttr(session.actor || "unclassified")}" data-group-intent="${escAttr(session.intent || "unknown")}">${count}</button>`
-            : count}</td>
           <td>${escHtml(session.country)}</td>
           <td>
             <div class="cell-primary">
@@ -1001,17 +951,6 @@
     }
 
     tableBody.addEventListener("click", (event) => {
-      const countBtn = event.target.closest(".group-count-btn");
-      if (countBtn) {
-        groupFilter = {
-          sourceIp: countBtn.dataset.groupIp,
-          actor: countBtn.dataset.groupActor,
-          intent: countBtn.dataset.groupIntent
-        };
-        currentPage = 1;
-        renderSessions(visibleSessions);
-        return;
-      }
       const row = event.target.closest("[data-session-row]");
       if (row) {
         openSessionInspector(row.dataset.sessionRow);
@@ -1031,10 +970,6 @@
 
     const SESSIONS_EXPORT_HEADER = ["Time", "Source IP", "Country", "Persona", "Protocol", "Actor", "Risk", "Intent", "Status"];
 
-    // Unlike the on-screen table, exports don't collapse repeat hits from
-    // the same (IP, actor, intent) into one row -- there's no drill-in UI in
-    // a flat file, so collapsing here would just discard rows a CSV/XLSX
-    // export is specifically for (offline pivoting over the raw data).
     // Shared by both CSV and XLSX so the two formats can never drift apart.
     function buildSessionRows() {
       return visibleSessions
@@ -1179,7 +1114,6 @@
     sessionSearchInput.addEventListener("input", () => {
       visibleSessions = applySearchToSessions(allSessions);
       currentPage = 1;
-      groupFilter = null;
       renderSessions(visibleSessions);
     });
 
@@ -1337,7 +1271,7 @@
     async function loadSessions(from, to) {
       const requestId = ++latestSessionsRequestId;
       const truncatedNotice = document.getElementById("rangeTruncatedNotice");
-      tableBody.innerHTML = '<tr><td colspan="9" class="table-loader-cell"><div class="spinner" role="status" aria-label="Loading sessions"></div></td></tr>';
+      tableBody.innerHTML = '<tr><td colspan="8" class="table-loader-cell"><div class="spinner" role="status" aria-label="Loading sessions"></div></td></tr>';
       renderPagination(0);
       truncatedNotice.style.display = "none";
       let runs = null;
@@ -1371,7 +1305,6 @@
       }
       visibleSessions = applySearchToSessions(allSessions);
       currentPage = 1;
-      groupFilter = null;
       renderSessions(visibleSessions);
     }
 
@@ -1437,19 +1370,17 @@
     // options are populated, or newly-added personas would never appear in
     // the custom dropdown despite being real <option>s on the native select.
     initPersonaFilterOptions().then(() => initCustomSelects(document));
-    // Skip a tick while the Session Inspector is open, the analyst has
-    // paged past page 1, or is drilled into a group's sessions --
-    // loadSessions() always resets currentPage/groupFilter back to their
-    // defaults, so an unconditional refresh here would silently bounce
-    // someone back to page 1 (or out of a group view) every 30s. Instead,
-    // background refreshes are simply skipped while away from page 1; the
-    // next fetch happens once the analyst navigates back there themselves
-    // (or leaves this page entirely, which stops the interval for free).
+    // Skip a tick while the Session Inspector is open or the analyst has
+    // paged past page 1 -- loadSessions() always resets currentPage back to
+    // 1, so an unconditional refresh here would silently bounce someone back
+    // to page 1 every 30s. Instead, background refreshes are simply skipped
+    // while away from page 1; the next fetch happens once the analyst
+    // navigates back there themselves (or leaves this page entirely, which
+    // stops the interval for free).
     setInterval(() => {
       if (
         !sessionInspector.classList.contains("open") &&
-        currentPage === 1 &&
-        !groupFilter
+        currentPage === 1
       ) {
         applyRange();
       }
@@ -1464,8 +1395,7 @@
       if (
         document.visibilityState === "visible" &&
         !sessionInspector.classList.contains("open") &&
-        currentPage === 1 &&
-        !groupFilter
+        currentPage === 1
       ) {
         applyRange();
       }

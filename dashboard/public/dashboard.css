@@ -92,27 +92,6 @@ a {
   transform: translateY(1px);
 }
 
-/* Repeat-hit count in the Sessions table -- a plain underlined number
-   instead of a full raised .text-button box, so it doesn't look heavier
-   than the plain (non-clickable) count shown when there's only one hit. */
-.group-count-btn {
-  border: none;
-  border-radius: 4px;
-  padding: 1px 5px;
-  color: var(--text);
-  background: transparent;
-  cursor: pointer;
-  font: inherit;
-  font-weight: 650;
-  text-decoration: none;
-}
-
-.group-count-btn:hover,
-.group-count-btn:focus-visible {
-  color: var(--text);
-  background: var(--surface-hover);
-}
-
 .app-shell {
   min-height: 100vh;
   padding-top: 108px;
@@ -437,8 +416,7 @@ a {
     min-width: 160px;
   }
 
-  .page-panel-filters > #sessionSearchInput,
-  .page-panel-filters > .time-range-control.filter-control {
+  .page-panel-filters > .session-search-control {
     flex: 1 1 200px;
     min-width: 200px;
   }
@@ -460,6 +438,26 @@ a {
 
 .time-range-control {
   position: relative;
+}
+
+.session-search-control {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.session-search-icon {
+  position: absolute;
+  left: 12px;
+  width: 15px;
+  height: 15px;
+  color: var(--muted);
+  pointer-events: none;
+}
+
+.session-search-control .form-input {
+  width: 100%;
+  padding-left: 34px;
 }
 
 .time-range-panel {
@@ -610,15 +608,6 @@ a {
 
 .data-table tbody tr:last-child td {
   border-bottom: 0;
-}
-
-/* Faux row-gap for the "drilled into one IP's group" view -- border-collapse
-   means adjacent <tr>s can't have real margin between them, so a thick
-   border-bottom colored to match the panel background reads as a gap
-   instead of a hairline divider, making each repeat session from the same
-   IP visually distinct instead of blurring into one solid block. */
-.data-table.grouped-view tbody tr:not(:last-child) td {
-  border-bottom: 10px solid var(--surface);
 }
 
 .cell-primary {
