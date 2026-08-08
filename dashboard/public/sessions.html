@@ -71,7 +71,7 @@
                   </div>
                   <div class="time-range-group">
                     <label for="rangeFromHour">From hour</label>
-                    <select id="rangeFromHour"></select>
+                    <select id="rangeFromHour" class="form-select" aria-label="From hour"></select>
                   </div>
                 </div>
                 <div class="time-range-row">
@@ -81,7 +81,7 @@
                   </div>
                   <div class="time-range-group">
                     <label for="rangeToHour">To hour</label>
-                    <select id="rangeToHour"></select>
+                    <select id="rangeToHour" class="form-select" aria-label="To hour"></select>
                   </div>
                 </div>
                 <div class="time-range-actions">
@@ -849,7 +849,7 @@
         <section class="detail-block" aria-label="Session summary">
           <h3>${escHtml(shortId)}</h3>
           <div class="session-inspector-meta">
-            <div class="session-inspector-meta-item"><span>End</span><strong>${escHtml(formatInspectorTimestamp(endedDate))}</strong></div>
+            <div class="session-inspector-meta-item"><span>End Time</span><strong>${escHtml(formatInspectorTimestamp(endedDate))}</strong></div>
             <div class="session-inspector-meta-item"><span>Classification</span><strong>${escHtml(classificationLabel)}</strong></div>
           </div>
           ${session.insufficientDataReason ? `<p class="inspector-note">${escHtml(session.insufficientDataReason)}</p>` : ""}
@@ -902,7 +902,7 @@
           const container = document.getElementById(`${session.id}-linked-issues`);
           if (!container) return;
           container.innerHTML = linkedIssues
-            .map((linkedIssue) => `<a class="badge-linked-issue" href="/dashboard/intelligence?issue=${encodeURIComponent(linkedIssue.id)}" title="${escHtml(linkedIssue.title)}" aria-label="View in Intelligence: ${escHtml(linkedIssue.title)}">View in Intelligence</a>`)
+            .map((linkedIssue) => `<a class="badge-linked-issue" href="/dashboard/intelligence?issue=${encodeURIComponent(linkedIssue.id)}" title="${escHtml(linkedIssue.title)}" aria-label="View in Intelligence: ${escHtml(linkedIssue.title)}">View in Intelligence <span aria-hidden="true">&rarr;</span></a>`)
             .join("");
         } catch (error) {
           console.error(error);
@@ -1033,6 +1033,11 @@
     function populateHourSelect(select, hours, selectedHour) {
       select.innerHTML = hours.map(({ hour, label }) => `<option value="${hour}">${label}</option>`).join("");
       select.value = String(selectedHour);
+      // The custom-select wrapper snapshots options/value at wrap time --
+      // resync it whenever the underlying native select's options change
+      // (eg. the same-day hour-range narrowing below), or it'd keep
+      // showing a stale list.
+      if (select._refreshCustomSelect) select._refreshCustomSelect();
     }
 
     // Keeps the range picker from ever producing an inverted range: the
