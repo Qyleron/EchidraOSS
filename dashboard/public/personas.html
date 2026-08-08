@@ -375,7 +375,7 @@
 
       modalContainer.innerHTML = html;
       modalBackdrop.hidden = false;
-      initCustomSelects(modalContainer);
+      if (typeof initCustomSelects === "function") initCustomSelects(modalContainer);
       syncAlertDestinationFields(modalContainer);
     }
 
@@ -458,7 +458,7 @@
 
       modalContainer.innerHTML = html;
       modalBackdrop.hidden = false;
-      initCustomSelects(modalContainer);
+      if (typeof initCustomSelects === "function") initCustomSelects(modalContainer);
       syncAlertDestinationFields(modalContainer);
     }
 
