@@ -1182,25 +1182,36 @@
         input.addEventListener("change", syncRangeConstraints);
       });
 
+      timeRangeButton.setAttribute("aria-haspopup", "dialog");
+      timeRangeButton.setAttribute("aria-expanded", "false");
+
+      // Single choke point for opening/closing the panel so aria-expanded
+      // never drifts out of sync with the "open" class the way it would if
+      // each of the four call sites below toggled the class directly.
+      function setTimeRangePanelOpen(open) {
+        timeRangePanel.classList.toggle("open", open);
+        timeRangeButton.setAttribute("aria-expanded", open ? "true" : "false");
+      }
+
       timeRangeButton.addEventListener("click", (event) => {
         event.stopPropagation();
-        timeRangePanel.classList.toggle("open");
+        setTimeRangePanelOpen(!timeRangePanel.classList.contains("open"));
       });
 
       document.getElementById("applyRangeButton").addEventListener("click", () => {
         applyRange();
-        timeRangePanel.classList.remove("open");
+        setTimeRangePanelOpen(false);
       });
 
       document.addEventListener("click", (event) => {
         if (!event.target.closest(".time-range-control")) {
-          timeRangePanel.classList.remove("open");
+          setTimeRangePanelOpen(false);
         }
       });
 
       document.addEventListener("keydown", (event) => {
         if (event.key === "Escape") {
-          timeRangePanel.classList.remove("open");
+          setTimeRangePanelOpen(false);
         }
       });
 
