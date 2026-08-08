@@ -867,6 +867,14 @@ a {
   background: #f6691d;
 }
 
+.cell-truncate {
+  max-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+}
+
 .mitre-technique-list {
   display: grid;
   gap: 6px;

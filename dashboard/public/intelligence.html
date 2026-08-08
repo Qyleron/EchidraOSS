@@ -56,11 +56,11 @@
         <div class="table-shell">
           <table class="data-table" aria-describedby="issuesTitle">
             <colgroup>
-              <col style="width: 28%;" />
-              <col style="width: 10%;" />
-              <col style="width: 29%;" />
-              <col style="width: 11%;" />
-              <col style="width: 11%;" />
+              <col style="width: 22%;" />
+              <col style="width: 9%;" />
+              <col style="width: 20%;" />
+              <col style="width: 8%;" />
+              <col style="width: 30%;" />
               <col style="width: 11%;" />
             </colgroup>
             <thead>
@@ -68,8 +68,8 @@
                 <th>Event</th>
                 <th>Severity</th>
                 <th>MITRE Techniques</th>
-                <th>Session Count</th>
-                <th>Persona Count</th>
+                <th>Sessions</th>
+                <th>Recommended Fix</th>
                 <th>Status</th>
               </tr>
             </thead>
@@ -140,7 +140,7 @@
               ? `<a href="/dashboard/sessions?actor=${encodeURIComponent(issue.actor_label)}" class="session-count-link" title="View this actor's sessions">${escHtml(issue.session_count)}</a>`
               : escHtml(issue.session_count)
           }</td>
-          <td>${escHtml(issue.persona_count)}</td>
+          <td class="cell-truncate" title="${escAttr(issue.recommended_fix)}">${escHtml(issue.recommended_fix)}</td>
           <td>
             <button
               type="button"
