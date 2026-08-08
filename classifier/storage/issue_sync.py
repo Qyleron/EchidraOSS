@@ -238,7 +238,7 @@ def _build_evidence(aggregate: dict[str, Any], technique_name: str) -> str:
 
 
 def _seen_window(first_seen: float | None, last_seen: float | None) -> str | None:
-    if not first_seen or not last_seen:
+    if first_seen is None or last_seen is None:
         return None
     from datetime import datetime, timezone
 
