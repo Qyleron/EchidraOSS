@@ -892,7 +892,7 @@
           const container = document.getElementById(`${session.id}-linked-issues`);
           if (!container) return;
           container.innerHTML = linkedIssues
-            .map((linkedIssue) => `<a class="badge-linked-issue" href="/dashboard/intelligence?issue=${encodeURIComponent(linkedIssue.id)}" title="${escHtml(linkedIssue.title)}">View in Intelligence</a>`)
+            .map((linkedIssue) => `<a class="badge-linked-issue" href="/dashboard/intelligence?issue=${encodeURIComponent(linkedIssue.id)}" title="${escHtml(linkedIssue.title)}" aria-label="View in Intelligence: ${escHtml(linkedIssue.title)}">View in Intelligence</a>`)
             .join("");
         } catch (error) {
           console.error(error);
@@ -1083,8 +1083,16 @@
     // same rule: they're sent to /classifier/runs as query params (the API
     // already supports them) instead of filtering the capped client-side
     // list, for the same reason.
+    // The applied range is cached separately from the live date/hour inputs.
+    // Background refreshes (30s interval, tab-visibility) must re-fetch the
+    // last *applied* range, not whatever is currently sitting in the picker
+    // -- otherwise opening the panel and editing a date without clicking
+    // Apply gets silently committed by the next background tick.
+    let appliedRange = null;
+
     async function applyRange({ background = false } = {}) {
-      const { from, to } = readRange();
+      const { from, to } = background && appliedRange ? appliedRange : readRange();
+      appliedRange = { from, to };
       document.getElementById("timeRangeButton").textContent = formatRangeLabel(from, to);
       await loadSessions(from, to, { background });
     }
