@@ -104,6 +104,13 @@ function initCustomSelects(root) {
         item.className = "custom-select-option" + (selected ? " is-selected" : "");
         item.setAttribute("role", "option");
         item.setAttribute("aria-selected", selected ? "true" : "false");
+        // A disabled <option> (eg. a separator, or a choice that's not
+        // currently valid) must stay inert here too, the same way
+        // syncDisabled() keeps a disabled *select* from being openable --
+        // otherwise it renders as a normal clickable choice and silently
+        // lets an analyst select something the source markup explicitly
+        // ruled out.
+        if (opt.disabled) item.setAttribute("aria-disabled", "true");
         item.textContent = opt.textContent;
         // Options aren't focusable, so a plain click's mousedown would
         // otherwise blur the trigger and fire the wrapper's focusout
@@ -116,7 +123,7 @@ function initCustomSelects(root) {
           evt.preventDefault();
         });
         item.addEventListener("click", function() {
-          if (select.disabled) return;
+          if (select.disabled || opt.disabled) return;
           if (select.selectedIndex !== index) {
             select.selectedIndex = index;
             select.dispatchEvent(new Event("change", { bubbles: true }));
@@ -210,7 +217,18 @@ function initCustomSelects(root) {
         if (!wasOpen) return;
         var items = Array.prototype.slice.call(listbox.children);
         var idx = items.findIndex(function(i) { return i.classList.contains("is-selected"); });
-        var nextIdx = evt.key === "ArrowDown" ? Math.min(idx + 1, items.length - 1) : Math.max(idx - 1, 0);
+        // Step past disabled options instead of landing on them -- a plain
+        // idx +/- 1 would let arrow-key navigation select a disabled
+        // <option> that a click on it is already refused for, and native
+        // <select> keyboard navigation skips disabled options the same way.
+        var step = evt.key === "ArrowDown" ? 1 : -1;
+        var nextIdx = idx;
+        for (var candidate = idx + step; candidate >= 0 && candidate < items.length; candidate += step) {
+          if (!select.options[candidate].disabled) {
+            nextIdx = candidate;
+            break;
+          }
+        }
         if (nextIdx !== idx) {
           select.selectedIndex = nextIdx;
           select.dispatchEvent(new Event("change", { bubbles: true }));
