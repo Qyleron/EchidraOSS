@@ -76,6 +76,7 @@ DASHBOARD_PUBLIC_PATH = _resolve_data_dir(
 DASHBOARD_INDEX_PATH = DASHBOARD_PUBLIC_PATH / "index.html"
 AUTH_INDEX_PATH = DASHBOARD_PUBLIC_PATH / "auth.html"
 DASHBOARD_CSS_PATH = DASHBOARD_PUBLIC_PATH / "dashboard.css"
+CUSTOM_SELECT_JS_PATH = DASHBOARD_PUBLIC_PATH / "custom-select.js"
 ASSETS_PATH = _resolve_data_dir(
     "assets", "", Path(__file__).resolve().parents[2] / "assets"
 )
@@ -423,6 +424,21 @@ def create_app() -> FastAPI:
         return FileResponse(
             DASHBOARD_CSS_PATH,
             media_type="text/css",
+            headers=_DASHBOARD_NO_STORE_HEADERS,
+        )
+
+    @api.get("/custom-select.js", response_class=FileResponse, tags=["dashboard"])
+    def custom_select_js() -> FileResponse:
+        """Serve the shared custom-<select> dropdown script.
+
+        no-store for the same reason as /dashboard.css: a stale cached copy
+        from before a deploy shouldn't silently keep serving old behavior.
+        """
+        if not CUSTOM_SELECT_JS_PATH.exists():
+            raise HTTPException(status_code=404, detail="Dashboard script not found")
+        return FileResponse(
+            CUSTOM_SELECT_JS_PATH,
+            media_type="application/javascript",
             headers=_DASHBOARD_NO_STORE_HEADERS,
         )
 
