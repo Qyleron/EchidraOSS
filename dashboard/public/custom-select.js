@@ -94,7 +94,13 @@ function initCustomSelects(root) {
       Array.prototype.forEach.call(select.options, function(opt, index) {
         var item = document.createElement("div");
         item.id = listbox.id + "-option-" + index;
-        var selected = opt.value === select.value;
+        // Matched by index, not opt.value -- two <option>s can share the
+        // same value (eg. a disabled "──" separator alongside a real
+        // empty-string option), and select.value/select.value= both
+        // resolve to whichever matching option comes *first*, silently
+        // picking the wrong one when the option actually clicked is a
+        // later duplicate.
+        var selected = index === select.selectedIndex;
         item.className = "custom-select-option" + (selected ? " is-selected" : "");
         item.setAttribute("role", "option");
         item.setAttribute("aria-selected", selected ? "true" : "false");
@@ -111,8 +117,8 @@ function initCustomSelects(root) {
         });
         item.addEventListener("click", function() {
           if (select.disabled) return;
-          if (select.value !== opt.value) {
-            select.value = opt.value;
+          if (select.selectedIndex !== index) {
+            select.selectedIndex = index;
             select.dispatchEvent(new Event("change", { bubbles: true }));
           }
           syncTrigger();
