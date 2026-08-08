@@ -25,7 +25,16 @@ function initCustomSelects(root) {
     trigger.setAttribute("role", "combobox");
     trigger.setAttribute("aria-haspopup", "listbox");
     trigger.setAttribute("aria-expanded", "false");
-    trigger.setAttribute("aria-label", select.getAttribute("aria-label") || "");
+    // An explicit aria-label -- even an empty one -- always wins over a
+    // combobox's own text content when a browser computes its accessible
+    // name. Selects that rely on their visible option text as their only
+    // name (no aria-label of their own, no <label for> pointing at them)
+    // would otherwise go nameless: only set the attribute when the source
+    // select actually has one to carry over.
+    var sourceAriaLabel = select.getAttribute("aria-label");
+    if (sourceAriaLabel) {
+      trigger.setAttribute("aria-label", sourceAriaLabel);
+    }
     wrapper.appendChild(trigger);
 
     var listbox = document.createElement("div");
