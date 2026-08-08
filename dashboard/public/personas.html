@@ -336,8 +336,8 @@
         + '<textarea class="form-textarea" name="running_processes" rows="3">'
         + escHtml((config.running_processes || preset.running_processes || []).join("\n"))
         + '</textarea></div>'
-        + '<div class="form-row"><label class="form-label">HTTP Server Type</label>'
-        + '<select class="form-select" name="http_server_type">'
+        + '<div class="form-row"><label class="form-label" for="http_server_type_' + escAttr(personaId) + '">HTTP Server Type</label>'
+        + '<select class="form-select" id="http_server_type_' + escAttr(personaId) + '" name="http_server_type">'
         + buildHttpServerTypeOptions(config.http_server_type || preset.http_server_type || "nginx")
         + '</select></div>'
         + '<div class="form-row"><label class="form-label">Decoy Files</label>'
@@ -350,12 +350,12 @@
         + '<div class="config-section">'
         + '<h3 class="config-section-title">Alerting</h3>'
         + '<div class="config-fields-grid">'
-        + '<div class="form-row"><label class="form-label">Alert Routing</label>'
-        + '<select class="form-select" name="alert_routing_level">'
+        + '<div class="form-row"><label class="form-label" for="alert_routing_level_' + escAttr(personaId) + '">Alert Routing</label>'
+        + '<select class="form-select" id="alert_routing_level_' + escAttr(personaId) + '" name="alert_routing_level">'
         + buildOptions(["none","email","slack","both"], config.alert_routing_level || "none")
         + '</select></div>'
-        + '<div class="form-row"><label class="form-label">Min Risk Level</label>'
-        + '<select class="form-select" name="alert_min_risk_level">'
+        + '<div class="form-row"><label class="form-label" for="alert_min_risk_level_' + escAttr(personaId) + '">Min Risk Level</label>'
+        + '<select class="form-select" id="alert_min_risk_level_' + escAttr(personaId) + '" name="alert_min_risk_level">'
         + '<option value="">Use global default</option>'
         + buildOptions(["critical","high","medium","low"], config.alert_min_risk_level || "")
         + '</select></div>'
@@ -423,8 +423,8 @@
         + '<div class="form-row"><label class="form-label">Running Processes (one per line)</label>'
         + '<textarea class="form-textarea" name="running_processes" rows="3">nginx</textarea>'
         + '</div>'
-        + '<div class="form-row"><label class="form-label">HTTP Server Type</label>'
-        + '<select class="form-select" name="http_server_type">'
+        + '<div class="form-row"><label class="form-label" for="http_server_type_' + _CREATE_SENTINEL + '">HTTP Server Type</label>'
+        + '<select class="form-select" id="http_server_type_' + _CREATE_SENTINEL + '" name="http_server_type">'
         + buildHttpServerTypeOptions("nginx")
         + '</select></div>'
         + '<div class="form-row"><label class="form-label">Decoy Files</label>'
@@ -435,12 +435,12 @@
         + '<div class="config-section">'
         + '<h3 class="config-section-title">Alerting</h3>'
         + '<div class="config-fields-grid">'
-        + '<div class="form-row"><label class="form-label">Alert Routing</label>'
-        + '<select class="form-select" name="alert_routing_level">'
+        + '<div class="form-row"><label class="form-label" for="alert_routing_level_' + _CREATE_SENTINEL + '">Alert Routing</label>'
+        + '<select class="form-select" id="alert_routing_level_' + _CREATE_SENTINEL + '" name="alert_routing_level">'
         + buildOptions(["none","email","slack","both"], "none")
         + '</select></div>'
-        + '<div class="form-row"><label class="form-label">Min Risk Level</label>'
-        + '<select class="form-select" name="alert_min_risk_level">'
+        + '<div class="form-row"><label class="form-label" for="alert_min_risk_level_' + _CREATE_SENTINEL + '">Min Risk Level</label>'
+        + '<select class="form-select" id="alert_min_risk_level_' + _CREATE_SENTINEL + '" name="alert_min_risk_level">'
         + '<option value="">Use global default</option>'
         + buildOptions(["critical","high","medium","low"], "")
         + '</select></div>'
