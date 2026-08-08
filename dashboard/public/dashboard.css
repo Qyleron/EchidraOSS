@@ -2087,6 +2087,16 @@ select:hover,
   cursor: pointer;
 }
 
+.custom-select-trigger[aria-disabled="true"] {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.custom-select-trigger[aria-disabled="true"]:hover,
+.custom-select-trigger[aria-disabled="true"]:focus {
+  border-color: var(--border-strong);
+}
+
 .custom-select-listbox {
   display: none;
   position: fixed;

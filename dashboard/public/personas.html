@@ -555,6 +555,16 @@
           });
         }
 
+        // The native select's own disabled state has no visual/interactive
+        // equivalent on the trigger <div> that replaces it -- without this,
+        // a disabled select would render as a fully clickable, focusable
+        // dropdown, silently losing the "you can't touch this" semantics.
+        function syncDisabled() {
+          var disabled = select.disabled;
+          trigger.setAttribute("aria-disabled", disabled ? "true" : "false");
+          trigger.setAttribute("tabindex", disabled ? "-1" : "0");
+        }
+
         // populateSelector adds/removes <option>s on an already-initialized
         // select after save/delete; this lets it refresh the custom listbox
         // overlay too, since initCustomSelects itself skips selects it has
@@ -562,6 +572,7 @@
         select._refreshCustomSelect = function() {
           renderOptions();
           syncTrigger();
+          syncDisabled();
         };
 
         // Shared by the click and ArrowUp/ArrowDown paths so keyboard-only
@@ -578,6 +589,7 @@
         }
 
         trigger.addEventListener("click", function() {
+          if (select.disabled) return;
           if (wrapper.classList.contains("open")) {
             wrapper.classList.remove("open");
             return;
@@ -586,6 +598,7 @@
         });
 
         trigger.addEventListener("keydown", function(evt) {
+          if (select.disabled) return;
           if (evt.key === "Enter" || evt.key === " ") {
             evt.preventDefault();
             trigger.click();
@@ -605,6 +618,7 @@
 
         renderOptions();
         syncTrigger();
+        syncDisabled();
       });
     }
 

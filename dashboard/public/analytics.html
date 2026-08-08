@@ -460,9 +460,21 @@
           });
         }
 
+        // The native select's own disabled state has no visual/interactive
+        // equivalent on the trigger <div> that replaces it -- without this,
+        // a disabled select would render as a fully clickable, focusable
+        // dropdown, silently losing the "you can't touch this" semantics an
+        // analyst relies on from a real disabled control.
+        function syncDisabled() {
+          var disabled = select.disabled;
+          trigger.setAttribute("aria-disabled", disabled ? "true" : "false");
+          trigger.setAttribute("tabindex", disabled ? "-1" : "0");
+        }
+
         select._refreshCustomSelect = function() {
           renderOptions();
           syncTrigger();
+          syncDisabled();
         };
 
         function positionAndOpen() {
@@ -474,6 +486,7 @@
         }
 
         trigger.addEventListener("click", function() {
+          if (select.disabled) return;
           if (wrapper.classList.contains("open")) {
             setOpen(false);
             return;
@@ -482,6 +495,7 @@
         });
 
         trigger.addEventListener("keydown", function(evt) {
+          if (select.disabled) return;
           if (evt.key === "Enter" || evt.key === " ") {
             evt.preventDefault();
             trigger.click();
@@ -509,6 +523,7 @@
 
         renderOptions();
         syncTrigger();
+        syncDisabled();
       });
     }
 
