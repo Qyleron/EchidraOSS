@@ -242,10 +242,11 @@ def _seen_window(first_seen: float | None, last_seen: float | None) -> str | Non
         return None
     from datetime import datetime, timezone
 
+    same_instant = first_seen == last_seen
     first = datetime.fromtimestamp(first_seen, tz=timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-    last = datetime.fromtimestamp(last_seen, tz=timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-    if first == last:
+    if same_instant:
         return f"first and only seen {first}"
+    last = datetime.fromtimestamp(last_seen, tz=timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     return f"first seen {first}, most recently {last}"
 
 

@@ -572,6 +572,7 @@ evidence_samples AS (
                 AND evidence_signals.signal_type = 'evidence'
             WHERE run_groups.actor_label = pairs.actor_label
                 AND run_groups.mitre_tag = pairs.mitre_tag
+            ORDER BY evidence_signals.signal_value
             LIMIT 5
         ) AS sample_evidence
     FROM actor_mitre_pairs AS pairs
