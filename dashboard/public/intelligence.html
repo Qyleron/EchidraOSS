@@ -249,10 +249,18 @@
       `);
     }
 
+    let issuesRequestId = 0;
+
     async function loadIssues({ background = false } = {}) {
       const tableBody = document.getElementById("issueTableBody");
+      const requestId = ++issuesRequestId;
       try {
         const issues = await fetchIssues();
+        // A slower, older request can resolve after a newer one (eg. a
+        // background tick overlapping the initial load, or two ticks
+        // overlapping on a slow connection) -- drop it instead of letting
+        // it clobber the data a later request already applied.
+        if (requestId !== issuesRequestId) return;
         currentIssues = issues;
         // Re-check for an open detail row *after* the fetch resolves, not
         // just before it starts -- an analyst can expand a row while a
@@ -262,6 +270,7 @@
         renderIssueRows(currentIssues);
         openRequestedIssue();
       } catch (error) {
+        if (requestId !== issuesRequestId) return;
         if (background) {
           console.error(error);
           return;
