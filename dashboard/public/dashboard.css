@@ -732,6 +732,29 @@ a {
   font-size: 14px;
 }
 
+.evidence-summary {
+  margin: 0 0 8px;
+}
+
+.evidence-samples {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.evidence-samples li {
+  overflow-wrap: anywhere;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 7px 9px;
+  color: #d7d7d7;
+  background: var(--surface);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 13px;
+}
+
 .empty-state {
   padding: 38px 22px;
   color: var(--muted);
