@@ -130,6 +130,11 @@ function initCustomSelects(root) {
           if (select.disabled || opt.disabled) return;
           if (select.selectedIndex !== index) {
             select.selectedIndex = index;
+            // A real <select> fires input before change on a user-driven
+            // selection -- dispatch both so code listening for either
+            // (eg. a live-search box, form-dirty tracking) sees the same
+            // sequence it would from a native control.
+            select.dispatchEvent(new Event("input", { bubbles: true }));
             select.dispatchEvent(new Event("change", { bubbles: true }));
           }
           syncTrigger();
@@ -147,11 +152,18 @@ function initCustomSelects(root) {
       // now-nonexistent option, instead of the last one ever set lingering
       // forever.
       trigger.removeAttribute("aria-activedescendant");
+      // syncTrigger() runs while closed too -- at init, and whenever a
+      // caller resyncs via _refreshCustomSelect() (eg. repopulating the
+      // hour dropdowns) -- so only re-point aria-activedescendant at an
+      // option when the listbox is actually open and visible; otherwise it
+      // would name an option inside a hidden listbox, which setOpen(false)
+      // alone can't catch since it's never called during these paths.
+      var isOpen = wrapper.classList.contains("open");
       Array.prototype.forEach.call(listbox.children, function(item, i) {
         var selected = i === select.selectedIndex;
         item.classList.toggle("is-selected", selected);
         item.setAttribute("aria-selected", selected ? "true" : "false");
-        if (selected) trigger.setAttribute("aria-activedescendant", item.id);
+        if (selected && isOpen) trigger.setAttribute("aria-activedescendant", item.id);
       });
     }
 
@@ -235,6 +247,7 @@ function initCustomSelects(root) {
         }
         if (nextIdx !== idx) {
           select.selectedIndex = nextIdx;
+          select.dispatchEvent(new Event("input", { bubbles: true }));
           select.dispatchEvent(new Event("change", { bubbles: true }));
         }
         syncTrigger();

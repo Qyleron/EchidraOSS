@@ -2140,6 +2140,15 @@ select:hover,
   color: var(--muted);
 }
 
+/* A disabled option can still be the select's current value (eg. set via
+   markup, not by an interaction this component already refuses) -- without
+   this, .is-selected's highlighted fill would make it look like a normal,
+   pickable active choice instead of the inert one it actually is. */
+.custom-select-option.is-selected[aria-disabled="true"] {
+  background-color: transparent;
+  color: var(--muted);
+}
+
 /* ── Custom date-picker widget (Sessions/Analytics range filter) ──
    Native <input type="date"> popups are OS-rendered like <select>'s and
    ignore CSS just the same, so the visible picker is replaced at runtime
