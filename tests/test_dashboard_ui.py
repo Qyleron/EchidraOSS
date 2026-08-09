@@ -256,11 +256,11 @@ def test_no_dashboard_page_shows_a_full_page_loader():
 
 
 def test_high_volume_tables_show_a_loader_inside_their_own_container():
-    """Only pages whose table can hold a lot of rows -- sessions (up to 500)
-    and the alert history (up to 200) -- show a loading row; a colspan-wide
-    spinner row so it disappears the instant real rows replace it, not on a
-    separate timer. Small, fast lookups (a handful of personas, aggregated
-    issues, the 8 most recent events) don't need one."""
+    """Pages whose table can hold a lot of rows -- sessions (up to 500) and
+    the alert history (up to 200) -- show a loading row unconditionally and
+    immediately; a colspan-wide spinner row so it disappears the instant
+    real rows replace it, not on a separate timer. personas.html and
+    index.html don't fetch into a table at all, so they never show one."""
     table_pages = {
         "sessions.html": 'tableBody.innerHTML = \'<tr><td colspan="8" class="table-loader-cell"><div class="spinner" role="status" aria-label="Loading sessions"></div></td></tr>\';',
         "alerts.html": 'tbody.innerHTML = \'<tr><td colspan="7" class="table-loader-cell"><div class="spinner" role="status" aria-label="Loading alert history"></div></td></tr>\';',
@@ -269,12 +269,39 @@ def test_high_volume_tables_show_a_loader_inside_their_own_container():
         html = (DASHBOARD_PUBLIC_PATH / page).read_text(encoding="utf-8")
         assert loader_line in html, page
 
-    for page in ["personas.html", "intelligence.html", "index.html"]:
+    for page in ["personas.html", "index.html"]:
         html = (DASHBOARD_PUBLIC_PATH / page).read_text(encoding="utf-8")
         assert "table-loader-cell" not in html, page
 
     css = (DASHBOARD_PUBLIC_PATH / "dashboard.css").read_text(encoding="utf-8")
     assert ".table-loader-cell {" in css
+
+
+def test_slow_loads_get_a_delayed_loader_not_an_immediate_one():
+    """Issue lookups (Intelligence), persona analytics, and the Analytics
+    charts are all normally fast -- unlike Sessions/Alerts' immediate
+    loader, these only show a spinner if that particular fetch is actually
+    still running after 300ms, so a fast response never flashes one."""
+    intelligence_html = (DASHBOARD_PUBLIC_PATH / "intelligence.html").read_text(encoding="utf-8")
+    assert "setTimeout(() => {" in intelligence_html
+    assert '<tr><td colspan="6" class="table-loader-cell"><div class="spinner" role="status" aria-label="Loading issues"></div></td></tr>' in intelligence_html
+    # Background refresh ticks must never trigger the delayed loader --
+    # rebuilding the table under an analyst mid-read is exactly what the
+    # background guard right after this exists to prevent.
+    assert "const loadingTimer = background ? null : setTimeout(" in intelligence_html
+
+    personas_html = (DASHBOARD_PUBLIC_PATH / "personas.html").read_text(encoding="utf-8")
+    assert 'id="analyticsLoading" class="panel-loader" hidden' in personas_html
+    assert 'var loadingTimer = setTimeout(function() { loading.hidden = false; }, 300);' in personas_html
+
+    analytics_html = (DASHBOARD_PUBLIC_PATH / "analytics.html").read_text(encoding="utf-8")
+    assert 'id="analyticsLoading" class="panel-loader" hidden' in analytics_html
+    assert "const loadingTimer = background ? null : setTimeout(" in analytics_html
+    assert "setInterval(() => applyRange({ background: true }), 30000);" in analytics_html
+
+    css = (DASHBOARD_PUBLIC_PATH / "dashboard.css").read_text(encoding="utf-8")
+    assert ".panel-loader {" in css
+    assert ".panel-loader[hidden] {" in css
 
 
 def test_modal_backdrop_blurs_content_behind_it():

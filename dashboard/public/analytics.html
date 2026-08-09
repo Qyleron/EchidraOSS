@@ -84,6 +84,9 @@
             <button id="exportXlsxButton" class="text-button" type="button">Export Full Report (XLSX)</button>
           </div>
         </div>
+        <div id="analyticsLoading" class="panel-loader" hidden>
+          <div class="spinner" role="status" aria-label="Loading analytics"></div>
+        </div>
         <div class="chart-body">
           <section class="metric-grid" aria-label="Intent breakdown">
             <article class="metric-card">
@@ -619,9 +622,16 @@
       return { from, to };
     }
 
-    async function applyRange() {
+    async function applyRange({ background = false } = {}) {
       const { from, to } = readRange();
       document.getElementById("timeRangeButton").textContent = formatRangeLabel(from, to);
+      const loadingEl = document.getElementById("analyticsLoading");
+      // Skipped for the 30s background auto-refresh tick -- an analyst
+      // mid-read shouldn't have a spinner flash over the charts every 30
+      // seconds just because that particular fetch happened to be slow.
+      // For a foreground call (Apply button, initial load), only show it if
+      // the fetch is actually taking a while, not unconditionally.
+      const loadingTimer = background ? null : setTimeout(() => { loadingEl.hidden = false; }, 300);
       try {
         const summary = await fetchJSON(
           `/analytics/summary?from_ts=${from.getTime() / 1000}&to_ts=${to.getTime() / 1000}`
@@ -639,6 +649,9 @@
           top_personas: [],
           top_countries: []
         });
+      } finally {
+        clearTimeout(loadingTimer);
+        loadingEl.hidden = true;
       }
     }
 
@@ -889,7 +902,7 @@
     // after it here -- including the refresh interval and all the logout
     // button wiring below.
     if (typeof initCustomSelects === "function") initCustomSelects(document);
-    setInterval(applyRange, 30000);
+    setInterval(() => applyRange({ background: true }), 30000);
     logoutButton.addEventListener("click", openLogoutConfirm);
     document.getElementById("logoutConfirmCloseBtn").addEventListener("click", closeLogoutConfirm);
     document.getElementById("logoutCancelBtn").addEventListener("click", closeLogoutConfirm);
