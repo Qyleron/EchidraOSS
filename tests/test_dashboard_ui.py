@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 
 
@@ -277,22 +278,36 @@ def test_high_volume_tables_show_a_loader_inside_their_own_container():
     assert ".table-loader-cell {" in css
 
 
+def _setTimeout_delays(html: str, marker: str) -> list[int]:
+    """Return the millisecond delay argument of every setTimeout(...) call
+    whose preceding text contains marker -- so a test can assert the actual
+    configured delay instead of just that a setTimeout(...) call exists
+    somewhere (which would still pass if the delay were changed to 0, 30000,
+    or anything else)."""
+    delays = []
+    for match in re.finditer(r"setTimeout\([^,]*,\s*(\d+)\s*\)", html):
+        window_start = max(0, match.start() - 400)
+        if marker in html[window_start:match.start()]:
+            delays.append(int(match.group(1)))
+    return delays
+
+
 def test_slow_loads_get_a_delayed_loader_not_an_immediate_one():
     """Issue lookups (Intelligence), persona analytics, and the Analytics
     charts are all normally fast -- unlike Sessions/Alerts' immediate
     loader, these only show a spinner if that particular fetch is actually
     still running after 300ms, so a fast response never flashes one."""
     intelligence_html = (DASHBOARD_PUBLIC_PATH / "intelligence.html").read_text(encoding="utf-8")
-    assert "setTimeout(() => {" in intelligence_html
     assert '<tr><td colspan="6" class="table-loader-cell"><div class="spinner" role="status" aria-label="Loading issues"></div></td></tr>' in intelligence_html
     # Background refresh ticks must never trigger the delayed loader --
     # rebuilding the table under an analyst mid-read is exactly what the
     # background guard right after this exists to prevent.
     assert "const loadingTimer = background ? null : setTimeout(" in intelligence_html
+    assert _setTimeout_delays(intelligence_html, "loadingTimer") == [300]
 
     personas_html = (DASHBOARD_PUBLIC_PATH / "personas.html").read_text(encoding="utf-8")
     assert 'id="analyticsLoading" class="panel-loader" hidden' in personas_html
-    assert "var loadingTimer = setTimeout(function() {" in personas_html
+    assert _setTimeout_delays(personas_html, "loadingTimer") == [300]
     # Request-scoped, not just "does the dropdown still say this persona" --
     # re-selecting the same persona (or a quick back-and-forth landing on it
     # again) would otherwise let an older, slower fetch for that identical
@@ -304,6 +319,7 @@ def test_slow_loads_get_a_delayed_loader_not_an_immediate_one():
     analytics_html = (DASHBOARD_PUBLIC_PATH / "analytics.html").read_text(encoding="utf-8")
     assert 'id="analyticsLoading" class="panel-loader" hidden' in analytics_html
     assert "const loadingTimer = background ? null : setTimeout(" in analytics_html
+    assert _setTimeout_delays(analytics_html, "loadingTimer") == [300]
     assert "setInterval(() => applyRange({ background: true }), 30000);" in analytics_html
     # Same request-scoping as personas.html, so a superseded request (eg.
     # the background tick racing a user's Apply click) can't hide the
