@@ -319,8 +319,16 @@
     async function loadIssues({ background = false } = {}) {
       const tableBody = document.getElementById("issueTableBody");
       const requestId = ++issuesRequestId;
+      // Issue lookups are normally fast enough that a loader would just
+      // flash and disappear -- only show one if this particular request is
+      // actually taking a while, instead of unconditionally on every load.
+      const loadingTimer = background ? null : setTimeout(() => {
+        if (requestId !== issuesRequestId) return;
+        tableBody.innerHTML = `<tr><td colspan="6" class="table-loader-cell"><div class="spinner" role="status" aria-label="Loading issues"></div></td></tr>`;
+      }, 300);
       try {
         const issues = await fetchIssues();
+        clearTimeout(loadingTimer);
         // A slower, older request can resolve after a newer one (eg. a
         // background tick overlapping the initial load, or two ticks
         // overlapping on a slow connection) -- drop it instead of letting
@@ -335,6 +343,7 @@
         renderIssueRows(currentIssues);
         openRequestedIssue();
       } catch (error) {
+        clearTimeout(loadingTimer);
         if (requestId !== issuesRequestId) return;
         if (background) {
           console.error(error);

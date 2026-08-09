@@ -93,13 +93,7 @@ a {
   padding-top: 108px;
 }
 
-/* Smaller inline variant for use inside a table body (a <td> cell). */
-.table-loader-cell {
-  padding: 40px 0 !important;
-  text-align: center !important;
-}
-
-.table-loader-cell .spinner {
+.spinner {
   width: 24px;
   height: 24px;
   border: 3px solid var(--line);
@@ -109,6 +103,29 @@ a {
   margin: 0 auto;
 }
 
+/* Smaller inline variant for use inside a table body (a <td> cell). */
+.table-loader-cell {
+  padding: 40px 0 !important;
+  text-align: center !important;
+}
+
+/* Standalone variant for a non-table panel/card while its content loads
+   (eg. persona analytics after picking a persona) -- same spinner, its own
+   centered padding instead of a table cell's. */
+.panel-loader {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 0;
+}
+
+/* .panel-loader's own unconditional display:flex above otherwise beats the
+   UA [hidden] rule at equal specificity, so hiding it would silently do
+   nothing without this explicit re-assertion. */
+.panel-loader[hidden] {
+  display: none;
+}
+
 @keyframes page-loader-spin {
   to {
     transform: rotate(360deg);
@@ -116,7 +133,7 @@ a {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .table-loader-cell .spinner {
+  .spinner {
     animation: none;
   }
 }
@@ -753,6 +770,13 @@ a {
   gap: 10px;
   min-height: 250px;
   padding-top: 14px;
+}
+
+/* Peak Attack Hours runs 0-23 with no visual break, so the last bar (23)
+   otherwise sits flush against the card's edge -- a little breathing room
+   after it matches the padding the chart already has on every other side. */
+#hoursChart {
+  padding-right: 10px;
 }
 
 .bar-column {

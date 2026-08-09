@@ -179,6 +179,9 @@
               </div>
             </div>
           </div>
+          <div id="analyticsLoading" class="panel-loader" hidden>
+            <div class="spinner" role="status" aria-label="Loading analytics"></div>
+          </div>
           <p id="analyticsEmpty" class="empty-state" hidden>No session data for this persona yet.</p>
           <div id="analyticsPlaceholder" class="analytics-placeholder">
             <div class="analytics-placeholder-value">N/A</div>
@@ -827,14 +830,37 @@
       var content = document.getElementById("analyticsContent");
       var empty = document.getElementById("analyticsEmpty");
       var placeholder = document.getElementById("analyticsPlaceholder");
-      if (!personaId) { content.hidden = true; empty.hidden = true; placeholder.hidden = false; return; }
+      var loading = document.getElementById("analyticsLoading");
+      if (!personaId) {
+        content.hidden = true;
+        empty.hidden = true;
+        loading.hidden = true;
+        placeholder.hidden = false;
+        return;
+      }
+      // Hidden immediately, not just the spinner -- otherwise the previous
+      // persona's numbers would stay on screen under the newly-selected
+      // persona's name until the fetch resolves.
       placeholder.hidden = true;
+      content.hidden = true;
+      empty.hidden = true;
+      // Only show the spinner once the fetch has been running long enough
+      // that its absence would read as "stuck" -- most responses land well
+      // under this, and flashing a spinner for a fetch that's about to
+      // finish anyway is worse than showing nothing.
+      var loadingTimer = setTimeout(function() { loading.hidden = false; }, 300);
       try {
         var data = await fetchAnalytics(personaId);
+        clearTimeout(loadingTimer);
+        if (document.getElementById("personaSelector").value !== personaId) return;
         renderAnalytics(data);
+        loading.hidden = true;
         content.hidden = false;
         empty.hidden = true;
       } catch (err) {
+        clearTimeout(loadingTimer);
+        if (document.getElementById("personaSelector").value !== personaId) return;
+        loading.hidden = true;
         content.hidden = true;
         empty.hidden = false;
         empty.textContent = "Could not load analytics: " + err.message;
