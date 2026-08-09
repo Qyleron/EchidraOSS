@@ -60,7 +60,6 @@ a {
   -webkit-tap-highlight-color: transparent;
 }
 
-.iconless-button,
 .text-button {
   min-height: 32px;
   border: 1px solid var(--line);
@@ -78,15 +77,12 @@ a {
   transition: border-color 0.2s ease, background 0.2s ease, box-shadow 0.1s ease, transform 0.1s ease;
 }
 
-.iconless-button:hover,
-.iconless-button:focus-visible,
 .text-button:hover,
 .text-button:focus-visible {
   border-color: var(--border-strong);
   background: var(--surface-strong);
 }
 
-.iconless-button:active,
 .text-button:active {
   box-shadow: 0 1px 1px rgba(0, 0, 0, 0.4);
   transform: translateY(1px);
@@ -95,28 +91,6 @@ a {
 .app-shell {
   min-height: 100vh;
   padding-top: 108px;
-}
-
-/* In-flow within the page's own content area (never a full-page overlay --
-   the header/nav must stay visible and usable while data is still loading). */
-.page-loader {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 60px 0;
-}
-
-.page-loader[hidden] {
-  display: none;
-}
-
-.page-loader .spinner {
-  width: 32px;
-  height: 32px;
-  border: 3px solid var(--line);
-  border-top-color: var(--text);
-  border-radius: 50%;
-  animation: page-loader-spin 0.8s linear infinite;
 }
 
 /* Smaller inline variant for use inside a table body (a <td> cell). */
@@ -142,7 +116,6 @@ a {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .page-loader .spinner,
   .table-loader-cell .spinner {
     animation: none;
   }
@@ -176,14 +149,6 @@ a {
   align-items: center;
   justify-content: space-between;
   padding: 0 28px;
-}
-
-.brand-wordmark {
-  color: var(--text);
-  font-size: 22px;
-  font-weight: 760;
-  line-height: 1;
-  white-space: nowrap;
 }
 
 .product-name {
@@ -616,15 +581,13 @@ a {
   min-width: 0;
 }
 
-.cell-primary strong,
-.cell-strong {
+.cell-primary strong {
   overflow-wrap: anywhere;
   color: var(--text);
   font-weight: 650;
 }
 
-.cell-primary span,
-.cell-muted {
+.cell-primary span {
   overflow-wrap: anywhere;
   color: var(--subtle);
   font-size: 14px;
@@ -671,18 +634,6 @@ a {
   background: var(--low);
 }
 
-.session-detail-row td {
-  padding: 0;
-  background: var(--surface-strong);
-}
-
-.session-detail {
-  display: grid;
-  grid-template-columns: minmax(280px, 1fr) minmax(280px, 1fr);
-  gap: 18px;
-  padding: 18px 20px 20px;
-}
-
 .detail-block {
   display: grid;
   align-content: start;
@@ -703,14 +654,6 @@ a {
   color: var(--muted);
   font-size: 13px;
   line-height: 1.5;
-}
-
-.session-detail .detail-block h3 {
-  font-size: 16px;
-}
-
-.session-detail .detail-block p {
-  font-size: 16px;
 }
 
 .command-list {
@@ -1003,17 +946,6 @@ a {
   color: #888888 !important;
 }
 
-.city-label {
-  border: 0;
-  border-radius: 4px;
-  padding: 2px 6px;
-  background: rgba(10, 10, 10, 0.78);
-  color: var(--text);
-  box-shadow: none;
-  font-size: 11px;
-  font-weight: 650;
-}
-
 .map-fallback {
   display: grid;
   place-items: center;
@@ -1261,36 +1193,6 @@ a {
   font-size: 13px;
 }
 
-/* ── Service toggle rows ── */
-.service-row {
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  align-items: center;
-  gap: 14px;
-  padding: 10px 14px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: var(--surface);
-  margin-bottom: 8px;
-}
-
-.service-name {
-  font-size: 14px;
-  font-weight: 650;
-}
-
-.service-port-input {
-  width: 80px;
-  min-height: 32px;
-  border: 1px solid var(--line);
-  border-radius: 5px;
-  padding: 0 8px;
-  background: var(--surface-strong);
-  color: var(--text);
-  font: inherit;
-  font-size: 13px;
-}
-
 /* ── Toggle switch ── */
 .toggle-switch {
   position: relative;
@@ -1457,10 +1359,6 @@ a {
     min-height: 340px;
   }
 
-  .session-detail {
-    grid-template-columns: 1fr;
-  }
-
   .chart-row {
     grid-template-columns: 1fr;
   }
@@ -1572,14 +1470,8 @@ a {
     font-size: 14px;
   }
 
-  .cell-primary span,
-  .cell-muted {
+  .cell-primary span {
     font-size: 12px;
-  }
-
-  .session-detail .detail-block h3,
-  .session-detail .detail-block p {
-    font-size: 14px;
   }
 
   .command-list li {
@@ -1594,10 +1486,6 @@ a {
 }
 
 @media (max-width: 520px) {
-  .brand-wordmark {
-    font-size: 20px;
-  }
-
   .product-name {
     font-size: 13px;
   }
@@ -1874,18 +1762,6 @@ a {
   padding: 22px;
 }
 
-.alert-config-form .form-row-full {
-  grid-column: 1 / -1;
-}
-
-.alert-threshold-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 0;
-  border-bottom: 1px solid var(--line);
-}
-
 .alert-events-table th,
 .alert-events-table td {
   font-size: 13px;
@@ -1925,10 +1801,6 @@ a {
 #form___new__ .form-input,
 #form___new__ .form-select,
 #form___new__ .form-textarea {
-  font-size: 15px;
-}
-
-#form___new__ .service-name {
   font-size: 15px;
 }
 
@@ -2021,20 +1893,16 @@ a {
 }
 
 /* ── High-Specificity Dropdown Customizations ── */
-select, 
-.form-select, 
-.dropdown select,
-.persona-filter-container select {
-  border-radius: 6px !important; 
-  cursor: pointer !important;    
+select,
+.form-select {
+  border-radius: 6px !important;
+  cursor: pointer !important;
   transition: background-color 0.2s ease, color 0.2s ease !important;
 }
 
 /* Force the hover state on both the element and any potential wrapper */
 select:hover,
-.form-select:hover,
-.dropdown select:hover,
-.persona-filter-container select:hover {
+.form-select:hover {
   background-color: #3f3f3f !important;
   color: #ffffff !important;
 }

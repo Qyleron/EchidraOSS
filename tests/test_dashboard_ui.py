@@ -329,9 +329,9 @@ def test_cross_buttons_have_no_fill_behind_the_x():
 
 
 def test_standard_buttons_use_the_dark_scheme_with_a_raised_shadow():
-    """text-button/iconless-button/logout-button use the original dark
-    surface color scheme (not the white-bg/black-text variant), lifted off
-    the page with a shadow so they read as raised/tactile."""
+    """text-button/logout-button use the original dark surface color scheme
+    (not the white-bg/black-text variant), lifted off the page with a
+    shadow so they read as raised/tactile."""
     css = (DASHBOARD_PUBLIC_PATH / "dashboard.css").read_text(encoding="utf-8")
 
     assert "color: var(--text);\n  background: var(--surface-hover);\n  cursor: pointer;" in css
