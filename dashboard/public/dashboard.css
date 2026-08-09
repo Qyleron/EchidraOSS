@@ -178,7 +178,7 @@ a {
 .logo {
   display: flex;
   align-items: center;
-  height: 36px;
+  height: 46px;
   margin-left: -25px;
   background: var(--surface);
   text-decoration: none;
@@ -188,7 +188,8 @@ a {
   display: block;
   width: auto;
   height: 100%;
-  max-width: 180px;
+  max-width: 200px;
+  aspect-ratio: 849 / 301;
   object-fit: contain;
 }
 
@@ -597,17 +598,28 @@ a {
    it inherits plain body text color with only the browser's default link
    underline, which reads as decorative rather than an affordance. */
 .session-count-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 30px;
+  padding: 4px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
   color: var(--text);
+  background: var(--surface-hover);
   font-weight: 650;
-  text-decoration: underline;
-  text-decoration-color: var(--border-strong);
-  text-underline-offset: 3px;
-  transition: text-decoration-color 0.15s ease;
+  text-decoration: none;
+  transition: border-color 0.15s ease, background 0.15s ease, transform 0.1s ease;
 }
 
 .session-count-link:hover,
 .session-count-link:focus-visible {
-  text-decoration-color: var(--text);
+  border-color: var(--text);
+  background: var(--surface-strong);
+}
+
+.session-count-link:active {
+  transform: translateY(1px);
 }
 
 .cell-primary {
@@ -1453,7 +1465,7 @@ a {
   }
 
   .logo {
-    height: 30px;
+    height: 38px;
     margin-left: -22px;
   }
 
