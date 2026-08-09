@@ -428,12 +428,23 @@ def create_app() -> FastAPI:
         )
 
     @api.get("/custom-select.js", response_class=FileResponse, tags=["dashboard"])
-    def custom_select_js() -> FileResponse:
+    def custom_select_js(request: Request) -> FileResponse:
         """Serve the shared custom-<select> dropdown script.
+
+        Unlike /dashboard.css (deliberately public -- pure styling, no
+        logic), this is gated behind the same auth every dashboard page
+        already requires: every page that loads it via <script src> is
+        itself auth-gated, so a legitimate same-origin request always
+        already carries the cookie -- this only blocks fetching it without
+        ever having authenticated. A 401 here fails safely too: every
+        caller checks `typeof initCustomSelects === "function"` before
+        invoking it, so a blocked fetch degrades to unstyled native
+        dropdowns instead of breaking the page.
 
         no-store for the same reason as /dashboard.css: a stale cached copy
         from before a deploy shouldn't silently keep serving old behavior.
         """
+        _require_dashboard_auth(request)
         if not CUSTOM_SELECT_JS_PATH.exists():
             raise HTTPException(status_code=404, detail="Dashboard script not found")
         return FileResponse(

@@ -62,7 +62,11 @@ function initCustomSelects(root) {
     var listbox = document.createElement("div");
     listbox.className = "custom-select-listbox";
     listbox.setAttribute("role", "listbox");
-    listbox.id = select.id + "-listbox";
+    // Based on trigger.id, not select.id directly -- trigger.id already
+    // falls back to an auto-incrementing counter when select.id is empty
+    // (see above), so this stays unique for free instead of every such
+    // select's listbox colliding on the literal id "-listbox".
+    listbox.id = trigger.id + "-listbox";
     trigger.setAttribute("aria-controls", listbox.id);
     wrapper.appendChild(listbox);
 
