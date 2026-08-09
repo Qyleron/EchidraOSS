@@ -292,12 +292,25 @@ def test_slow_loads_get_a_delayed_loader_not_an_immediate_one():
 
     personas_html = (DASHBOARD_PUBLIC_PATH / "personas.html").read_text(encoding="utf-8")
     assert 'id="analyticsLoading" class="panel-loader" hidden' in personas_html
-    assert 'var loadingTimer = setTimeout(function() { loading.hidden = false; }, 300);' in personas_html
+    assert "var loadingTimer = setTimeout(function() {" in personas_html
+    # Request-scoped, not just "does the dropdown still say this persona" --
+    # re-selecting the same persona (or a quick back-and-forth landing on it
+    # again) would otherwise let an older, slower fetch for that identical
+    # persona overwrite a newer one's result.
+    assert "var personaAnalyticsRequestId = 0;" in personas_html
+    assert "if (requestId === personaAnalyticsRequestId) loading.hidden = false;" in personas_html
+    assert "if (requestId !== personaAnalyticsRequestId) return;" in personas_html
 
     analytics_html = (DASHBOARD_PUBLIC_PATH / "analytics.html").read_text(encoding="utf-8")
     assert 'id="analyticsLoading" class="panel-loader" hidden' in analytics_html
     assert "const loadingTimer = background ? null : setTimeout(" in analytics_html
     assert "setInterval(() => applyRange({ background: true }), 30000);" in analytics_html
+    # Same request-scoping as personas.html, so a superseded request (eg.
+    # the background tick racing a user's Apply click) can't hide the
+    # loader or render stale data over a newer, still-in-flight request.
+    assert "let analyticsRequestId = 0;" in analytics_html
+    assert "if (requestId === analyticsRequestId) loadingEl.hidden = false;" in analytics_html
+    assert "if (requestId !== analyticsRequestId) return;" in analytics_html
 
     css = (DASHBOARD_PUBLIC_PATH / "dashboard.css").read_text(encoding="utf-8")
     assert ".panel-loader {" in css
