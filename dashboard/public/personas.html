@@ -825,8 +825,19 @@
       if (sel._refreshCustomSelect) sel._refreshCustomSelect();
     }
 
+    // A per-request token, not just "does the dropdown still say this
+    // persona" -- re-selecting the *same* persona (or a quick back-and-
+    // forth that lands on it again) starts a second fetch that also passes
+    // a value-equality check, so an old, slower fetch for that same
+    // persona could still overwrite a newer one's result. Incrementing
+    // this on every change (including back to the empty placeholder option)
+    // means only the single most recent request is ever allowed to touch
+    // the DOM, regardless of which persona ids happen to match.
+    var personaAnalyticsRequestId = 0;
+
     document.getElementById("personaSelector").addEventListener("change", async function(evt) {
       var personaId = evt.target.value;
+      var requestId = ++personaAnalyticsRequestId;
       var content = document.getElementById("analyticsContent");
       var empty = document.getElementById("analyticsEmpty");
       var placeholder = document.getElementById("analyticsPlaceholder");
@@ -848,18 +859,20 @@
       // that its absence would read as "stuck" -- most responses land well
       // under this, and flashing a spinner for a fetch that's about to
       // finish anyway is worse than showing nothing.
-      var loadingTimer = setTimeout(function() { loading.hidden = false; }, 300);
+      var loadingTimer = setTimeout(function() {
+        if (requestId === personaAnalyticsRequestId) loading.hidden = false;
+      }, 300);
       try {
         var data = await fetchAnalytics(personaId);
         clearTimeout(loadingTimer);
-        if (document.getElementById("personaSelector").value !== personaId) return;
+        if (requestId !== personaAnalyticsRequestId) return;
         renderAnalytics(data);
         loading.hidden = true;
         content.hidden = false;
         empty.hidden = true;
       } catch (err) {
         clearTimeout(loadingTimer);
-        if (document.getElementById("personaSelector").value !== personaId) return;
+        if (requestId !== personaAnalyticsRequestId) return;
         loading.hidden = true;
         content.hidden = true;
         empty.hidden = false;

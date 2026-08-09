@@ -622,7 +622,10 @@
       return { from, to };
     }
 
+    let analyticsRequestId = 0;
+
     async function applyRange({ background = false } = {}) {
+      const requestId = ++analyticsRequestId;
       const { from, to } = readRange();
       document.getElementById("timeRangeButton").textContent = formatRangeLabel(from, to);
       const loadingEl = document.getElementById("analyticsLoading");
@@ -631,14 +634,18 @@
       // seconds just because that particular fetch happened to be slow.
       // For a foreground call (Apply button, initial load), only show it if
       // the fetch is actually taking a while, not unconditionally.
-      const loadingTimer = background ? null : setTimeout(() => { loadingEl.hidden = false; }, 300);
+      const loadingTimer = background ? null : setTimeout(() => {
+        if (requestId === analyticsRequestId) loadingEl.hidden = false;
+      }, 300);
       try {
         const summary = await fetchJSON(
           `/analytics/summary?from_ts=${from.getTime() / 1000}&to_ts=${to.getTime() / 1000}`
         );
+        if (requestId !== analyticsRequestId) return; // superseded by a newer range/tick -- discard
         currentSummary = summary;
         renderAnalytics(summary);
       } catch (error) {
+        if (requestId !== analyticsRequestId) return;
         console.error(error);
         currentSummary = null;
         renderAnalytics({
@@ -651,7 +658,10 @@
         });
       } finally {
         clearTimeout(loadingTimer);
-        loadingEl.hidden = true;
+        // A superseded request's own completion must never hide the loader
+        // out from under a newer, still-in-flight request -- only the
+        // request that's still current is allowed to touch visibility.
+        if (requestId === analyticsRequestId) loadingEl.hidden = true;
       }
     }
 
