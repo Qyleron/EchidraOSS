@@ -1,6 +1,6 @@
 # Echidra — Multi-Protocol Honeypot & Attacker Behavior Classifier
 
-![image](assets/Qyleron_Banner_Nav.png)
+![image](assets/Qyleron_Banner_README.png)
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](LICENSE.md)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](pyproject.toml)
