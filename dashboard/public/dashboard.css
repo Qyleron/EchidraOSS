@@ -178,7 +178,7 @@ a {
 .logo {
   display: flex;
   align-items: center;
-  height: 46px;
+  height: 40px;
   margin-left: -25px;
   background: var(--surface);
   text-decoration: none;
@@ -1465,7 +1465,7 @@ a {
   }
 
   .logo {
-    height: 38px;
+    height: 33px;
     margin-left: -22px;
   }
 
