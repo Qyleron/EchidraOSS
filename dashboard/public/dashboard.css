@@ -601,24 +601,27 @@ a {
   align-items: center;
   justify-content: center;
   min-width: 30px;
-  padding: 4px 10px;
-  border: 1px solid var(--border-strong);
+  border: 0;
   border-radius: 999px;
-  color: var(--text);
-  background: var(--surface-hover);
-  font-weight: 650;
+  padding: 4px 12px;
+  color: #000000;
+  background: var(--text);
+  font-weight: 680;
   text-decoration: none;
-  transition: border-color 0.15s ease, background 0.15s ease, transform 0.1s ease;
+  box-shadow: 0 4px 12px rgba(255, 255, 255, 0.1);
+  transition: background 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
 }
 
 .session-count-link:hover,
 .session-count-link:focus-visible {
-  border-color: var(--text);
-  background: var(--surface-strong);
+  background: #eeeeee;
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(255, 255, 255, 0.16);
 }
 
 .session-count-link:active {
   transform: translateY(1px);
+  box-shadow: 0 2px 6px rgba(255, 255, 255, 0.1);
 }
 
 .cell-primary {
