@@ -121,25 +121,17 @@
             </select>
             <div class="time-range-control">
               <button id="timeRangeButton" class="text-button" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="timeRangePanel">Loading range...</button>
-              <div id="timeRangePanel" class="time-range-panel" role="dialog" aria-label="Select date range">
-                <div class="time-range-row">
+              <div id="timeRangePanel" class="time-range-panel time-range-panel-dates-only" role="dialog" aria-label="Select date range">
+                <div class="time-range-row time-range-row-single">
                   <div class="time-range-group">
                     <label for="rangeFromDate">From date</label>
                     <input type="date" id="rangeFromDate" />
                   </div>
-                  <div class="time-range-group">
-                    <label for="rangeFromHour">From hour</label>
-                    <select id="rangeFromHour" class="form-select" aria-label="From hour"></select>
-                  </div>
                 </div>
-                <div class="time-range-row">
+                <div class="time-range-row time-range-row-single">
                   <div class="time-range-group">
                     <label for="rangeToDate">To date</label>
                     <input type="date" id="rangeToDate" />
-                  </div>
-                  <div class="time-range-group">
-                    <label for="rangeToHour">To hour</label>
-                    <select id="rangeToHour" class="form-select" aria-label="To hour"></select>
                   </div>
                 </div>
                 <div class="time-range-actions">
@@ -444,23 +436,15 @@
       });
     });
 
-    var HOUR_OPTIONS = Array.from({ length: 24 }, function(_, hour) {
-      var period = hour < 12 ? "AM" : "PM";
-      var displayHour = hour % 12 === 0 ? 12 : hour % 12;
-      return { hour: hour, label: displayHour + " " + period };
-    });
-
-    function populateHourSelect(select, hours, selectedHour) {
-      select.innerHTML = hours.map(function(h) { return '<option value="' + h.hour + '">' + h.label + "</option>"; }).join("");
-      select.value = String(selectedHour);
-      if (select._refreshCustomSelect) select._refreshCustomSelect();
-    }
-
+    // Date-only range sync -- no hour dropdowns on this page (unlike the
+    // main Analytics page's picker), since hour-of-day sub-ranges don't
+    // make sense here: the Peak Attack Hours chart's entire purpose is
+    // showing the full 0-23 hour-of-day distribution, and restricting the
+    // fetch to a narrow hour window would just suppress part of the very
+    // pattern that chart exists to show.
     function syncRangeConstraints() {
       var fromDateInput = document.getElementById("rangeFromDate");
       var toDateInput = document.getElementById("rangeToDate");
-      var fromHourSelect = document.getElementById("rangeFromHour");
-      var toHourSelect = document.getElementById("rangeToHour");
 
       if (fromDateInput.value) toDateInput.min = fromDateInput.value;
       if (toDateInput.value) fromDateInput.max = toDateInput.value;
@@ -469,20 +453,6 @@
       }
       if (fromDateInput._refreshCustomDate) fromDateInput._refreshCustomDate();
       if (toDateInput._refreshCustomDate) toDateInput._refreshCustomDate();
-
-      var sameDay = Boolean(fromDateInput.value) && fromDateInput.value === toDateInput.value;
-      var currentFromHour = Number(fromHourSelect.value || 0);
-      var currentToHour = Number(toHourSelect.value || 23);
-
-      if (sameDay) {
-        var upperBound = Math.max(currentFromHour, currentToHour);
-        var lowerBound = Math.min(currentFromHour, currentToHour);
-        populateHourSelect(fromHourSelect, HOUR_OPTIONS.filter(function(h) { return h.hour <= upperBound; }), lowerBound);
-        populateHourSelect(toHourSelect, HOUR_OPTIONS.filter(function(h) { return h.hour >= lowerBound; }), upperBound);
-      } else {
-        populateHourSelect(fromHourSelect, HOUR_OPTIONS, currentFromHour);
-        populateHourSelect(toHourSelect, HOUR_OPTIONS, currentToHour);
-      }
     }
 
     function formatRangeLabel(from, to) {
@@ -490,36 +460,23 @@
       return fmt(from) + " – " + fmt(to);
     }
 
-    // Number("") is 0, not NaN -- a blank <select> (e.g. read before
-    // populateHourSelect has run) would silently pass through as a
-    // "valid" hour 0 rather than being caught as missing. Clamp anything
-    // outside 0-23 too, since setHours() doesn't reject out-of-range
-    // input, it just rolls over into an adjacent day.
-    function clampHour(value, fallback) {
-      var n = Math.round(Number(value));
-      if (!Number.isFinite(n) || String(value).trim() === "") return fallback;
-      return Math.min(23, Math.max(0, n));
-    }
-
     function readRange() {
       var now = new Date();
       var fromDate = document.getElementById("rangeFromDate").value;
-      var fromHour = clampHour(document.getElementById("rangeFromHour").value, 0);
       var toDate = document.getElementById("rangeToDate").value;
-      var toHour = clampHour(document.getElementById("rangeToHour").value, 23);
 
       // The native date inputs can end up blank (cleared by keyboard input,
       // or read before initTimeRangeControl's defaults have been set) --
       // "" + "T00:00:00" parses as an Invalid Date, which would silently
       // poison every downstream getTime()/1000 call with NaN. Fall back to
       // today rather than let that propagate into the API request.
-      var from = new Date((fromDate || localDateKey(now)) + "T00:00:00");
+      var from = new Date((fromDate || localDateKey(now)) + "T00:00:00.000");
       if (isNaN(from.getTime())) from = new Date(now);
-      from.setHours(fromHour, 0, 0, 0);
+      from.setHours(0, 0, 0, 0);
 
-      var to = new Date((toDate || localDateKey(now)) + "T00:00:00");
+      var to = new Date((toDate || localDateKey(now)) + "T00:00:00.000");
       if (isNaN(to.getTime())) to = new Date(now);
-      to.setHours(toHour, 59, 59, 999);
+      to.setHours(23, 59, 59, 999);
 
       return { from: from, to: to };
     }
@@ -529,14 +486,10 @@
 
       var fromDateInput = document.getElementById("rangeFromDate");
       var toDateInput = document.getElementById("rangeToDate");
-      var fromHourSelect = document.getElementById("rangeFromHour");
-      var toHourSelect = document.getElementById("rangeToHour");
       var timeRangeButton = document.getElementById("timeRangeButton");
       var timeRangePanel = document.getElementById("timeRangePanel");
 
       var now = new Date();
-      populateHourSelect(fromHourSelect, HOUR_OPTIONS, 0);
-      populateHourSelect(toHourSelect, HOUR_OPTIONS, 23);
       toDateInput.value = localDateKey(now);
       var defaultFrom = new Date(now);
       defaultFrom.setDate(defaultFrom.getDate() - 29);
@@ -544,7 +497,7 @@
       syncRangeConstraints();
       document.getElementById("timeRangeButton").textContent = formatRangeLabel(fromDateInput.value ? new Date(fromDateInput.value + "T00:00:00") : now, now);
 
-      [fromDateInput, toDateInput, fromHourSelect, toHourSelect].forEach(function(input) {
+      [fromDateInput, toDateInput].forEach(function(input) {
         input.addEventListener("change", syncRangeConstraints);
       });
 
@@ -1257,6 +1210,14 @@
     // native hover tooltip (<title>) instead of a permanently-stacked
     // label, which is also what removes the old bar chart's label-overflow
     // problem: there's no label competing for space above each point.
+    // Minimum horizontal spacing (px) between points so every axis label
+    // stays legible without thinning. For a fixed 24-hour series this
+    // means the chart is often wider than its card, in which case
+    // .line-chart's overflow-x:auto lets it scroll instead of squishing
+    // labels together or dropping most of them.
+    var LINE_CHART_MIN_PX_PER_POINT = 34;
+    var LINE_CHART_MIN_WIDTH = 600;
+
     function renderLineChart(id, items, labelFn, countFn) {
       var el = document.getElementById(id);
       if (!items.length) {
@@ -1265,9 +1226,10 @@
       }
       var values = items.map(countFn);
       var max = Math.max.apply(null, values.concat([1]));
-      var w = 600, h = 160, padX = 6, padY = 8;
-      var innerW = w - padX * 2, innerH = h - padY * 2;
       var n = items.length;
+      var h = 160, padX = 6, padY = 8;
+      var w = Math.max(LINE_CHART_MIN_WIDTH, n * LINE_CHART_MIN_PX_PER_POINT);
+      var innerW = w - padX * 2, innerH = h - padY * 2;
       var stepX = n > 1 ? innerW / (n - 1) : 0;
       var points = values.map(function(v, i) {
         var x = padX + stepX * i;
@@ -1281,26 +1243,64 @@
       var areaPath = linePath
         + " L" + points[n - 1][0].toFixed(1) + "," + floorY
         + " L" + points[0][0].toFixed(1) + "," + floorY + " Z";
+      var labels = items.map(function(item) { return String(labelFn(item)); });
       var dots = points.map(function(p, i) {
-        return '<circle class="line-chart-dot" cx="' + p[0].toFixed(1) + '" cy="' + p[1].toFixed(1) + '" r="3">'
-          + '<title>' + escHtml(String(labelFn(items[i]))) + ': ' + values[i] + '</title>'
+        return '<circle class="line-chart-dot" data-index="' + i + '" cx="' + p[0].toFixed(1) + '" cy="' + p[1].toFixed(1) + '" r="3">'
+          + '<title>' + escHtml(labels[i]) + ': ' + values[i] + '</title>'
           + '</circle>';
       }).join("");
-      // At most ~8 axis labels regardless of point count, evenly spaced,
-      // always including the last point -- crowded text under every one of
-      // 24-30 points would be unreadable.
-      var labelEvery = Math.max(1, Math.ceil(n / 8));
+      // Every point gets its own axis label now (no ~8-label thinning) --
+      // that's the whole point of scrolling instead of squishing.
       var axisTicks = items.map(function(item, i) {
-        if (i % labelEvery !== 0 && i !== n - 1) return "";
         var pct = ((points[i][0] / w) * 100).toFixed(2);
-        return '<span class="line-chart-tick" style="left:' + pct + '%">' + escHtml(String(labelFn(item))) + '</span>';
+        return '<span class="line-chart-tick" style="left:' + pct + '%">' + escHtml(labels[i]) + '</span>';
       }).join("");
-      el.innerHTML = '<svg viewBox="0 0 ' + w + ' ' + h + '" preserveAspectRatio="none" class="line-chart-svg">'
+      el.innerHTML = '<div class="line-chart-scroll" style="width:' + w + 'px">'
+        + '<svg viewBox="0 0 ' + w + ' ' + h + '" preserveAspectRatio="none" class="line-chart-svg" style="width:' + w + 'px">'
         + '<path class="line-chart-area" d="' + areaPath + '"></path>'
         + '<path class="line-chart-line" d="' + linePath + '"></path>'
         + dots
         + '</svg>'
-        + '<div class="line-chart-axis">' + axisTicks + '</div>';
+        + '<div class="line-chart-axis">' + axisTicks + '</div>'
+        + '</div>';
+      attachLineChartTooltip(el, points, labels, values, w, h);
+    }
+
+    // Custom hover tooltip -- the <title> element on each dot already gives
+    // a native, keyboard/screen-reader-reachable tooltip, but browsers
+    // delay showing it by ~1s and style it inconsistently. This mirrors
+    // that same label/value text in an immediately-visible themed tooltip
+    // on top, without removing the native fallback.
+    function attachLineChartTooltip(container, points, labels, values, viewBoxW, viewBoxH) {
+      var scroll = container.querySelector(".line-chart-scroll");
+      var tooltip = null;
+      function show(i, evt) {
+        if (!tooltip) {
+          tooltip = document.createElement("div");
+          tooltip.className = "line-chart-tooltip";
+          scroll.appendChild(tooltip);
+        }
+        tooltip.textContent = labels[i] + ": " + values[i];
+        // Positioned as a % of the SVG's own coordinate space rather than
+        // raw viewBox px -- the SVG's rendered height doesn't necessarily
+        // equal viewBoxH 1:1 (preserveAspectRatio="none" can stretch it),
+        // so a px offset would drift vertically from the dot it's for.
+        tooltip.style.left = ((points[i][0] / viewBoxW) * 100) + "%";
+        tooltip.style.top = ((points[i][1] / viewBoxH) * 100) + "%";
+        evt.target.classList.add("is-active");
+      }
+      function hide(evt) {
+        if (tooltip) tooltip.remove();
+        tooltip = null;
+        evt.target.classList.remove("is-active");
+      }
+      Array.prototype.forEach.call(container.querySelectorAll(".line-chart-dot"), function(dot) {
+        var i = Number(dot.getAttribute("data-index"));
+        dot.addEventListener("mouseenter", function(evt) { show(i, evt); });
+        dot.addEventListener("mouseleave", hide);
+        dot.addEventListener("focus", function(evt) { show(i, evt); });
+        dot.addEventListener("blur", hide);
+      });
     }
 
     function renderRankList(id, counts) {

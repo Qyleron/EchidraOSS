@@ -516,6 +516,14 @@ a {
   gap: 8px;
 }
 
+/* Date-only variant of the time-range picker (Personas Analytics tab) --
+   the shared .time-range-row grid assumes a date+hour pair per row, so a
+   single date field needs its own one-column layout instead of leaving an
+   empty second column. */
+.time-range-row-single {
+  grid-template-columns: 1fr;
+}
+
 .table-shell {
   width: 100%;
   overflow-x: auto;
@@ -856,18 +864,26 @@ a {
 }
 
 /* Line/dot chart -- replaces .bar-chart for series with too many points
-   (24 hours, 30 days) to render as fixed-min-width bar columns without
-   forcing horizontal scroll. An SVG line has no per-point minimum width,
-   so it always fits the card and never needs to scroll. */
+   (24 hours, 30 days) to render as fixed-min-width bar columns. Every
+   point keeps its own axis label (no thinning), so the chart is drawn at
+   whatever pixel width keeps labels legible and scrolls horizontally
+   inside the card on narrow viewports instead of squishing them. */
 .line-chart {
   position: relative;
   height: 190px;
   padding: 10px 4px 22px;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.line-chart-scroll {
+  position: relative;
+  height: 100%;
+  min-width: 100%;
 }
 
 .line-chart-svg {
   display: block;
-  width: 100%;
   height: 100%;
   overflow: visible;
 }
@@ -889,9 +905,11 @@ a {
   stroke: #f6691d;
   stroke-width: 2;
   vector-effect: non-scaling-stroke;
+  cursor: pointer;
 }
 
-.line-chart-dot:hover {
+.line-chart-dot:hover,
+.line-chart-dot.is-active {
   fill: #f6691d;
 }
 
@@ -917,6 +935,27 @@ a {
 
 .line-chart-tick:last-child {
   transform: translateX(-100%);
+}
+
+/* Custom hover tooltip for chart dots -- layered over the native <title>
+   (which still exists as a keyboard/screen-reader-reachable fallback) so
+   the value is visible immediately on hover instead of after the
+   browser's ~1s native tooltip delay. */
+.line-chart-tooltip {
+  position: absolute;
+  z-index: 5;
+  transform: translate(-50%, -100%);
+  margin-top: -10px;
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-strong);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 650;
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5);
 }
 
 .rank-list {
@@ -1443,6 +1482,31 @@ a {
 
 .persona-analytics-header .time-range-control {
   margin-left: auto;
+}
+
+@media (max-width: 520px) {
+  .persona-analytics-header {
+    align-items: stretch;
+  }
+
+  .persona-analytics-header .custom-select {
+    flex-basis: 100%;
+  }
+
+  .persona-analytics-header .time-range-control {
+    margin-left: 0;
+    flex-basis: 100%;
+  }
+
+  .persona-analytics-header #timeRangeButton {
+    width: 100%;
+  }
+
+  .time-range-panel {
+    right: auto;
+    left: 0;
+    width: min(300px, 100vw);
+  }
 }
 
 .analytics-placeholder {
