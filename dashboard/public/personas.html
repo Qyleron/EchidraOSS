@@ -1200,6 +1200,7 @@
       });
       renderLineChart("hoursChart", data.peak_hours || [], function(d) { return String(d.hour).padStart(2, "0"); }, function(d) { return d.count; }, {
         tickStep: 3,
+        scrollable: true,
         tooltipLabelFn: function(d) { return formatHourRange(d.hour); }
       });
       renderRankList("riskList", data.risk_counts || {});
@@ -1247,6 +1248,12 @@
     //   rotateLabels -- render ticks at -45deg so short date strings like
     //     "08-10"/"08-11" have room to sit closer together without
     //     touching.
+    //   scrollable -- draw the chart wider than its card (pxPerPoint per
+    //     point, default 44) inside a horizontally-scrolling wrapper,
+    //     instead of squeezing to a fixed 600px. The card always shows a
+    //     scrollbar (overflow-x: scroll, not auto) so its presence is a
+    //     constant, discoverable affordance rather than something that
+    //     only appears once you've already noticed content is cut off.
     function renderLineChart(id, items, labelFn, countFn, opts) {
       opts = opts || {};
       var el = document.getElementById(id);
@@ -1258,7 +1265,7 @@
       var max = Math.max.apply(null, values.concat([1]));
       var n = items.length;
       var h = 160, padX = 6, padY = 8;
-      var w = LINE_CHART_WIDTH;
+      var w = opts.scrollable ? Math.max(LINE_CHART_WIDTH, n * (opts.pxPerPoint || 44)) : LINE_CHART_WIDTH;
       var innerW = w - padX * 2, innerH = h - padY * 2;
       var stepX = n > 1 ? innerW / (n - 1) : 0;
       var points = values.map(function(v, i) {
@@ -1294,13 +1301,26 @@
       }).join("");
       var axisClass = "line-chart-axis" + (opts.rotateLabels ? " line-chart-axis-rotated" : "");
       el.classList.toggle("line-chart-rotated", Boolean(opts.rotateLabels));
-      el.innerHTML = '<svg viewBox="0 0 ' + w + ' ' + h + '" preserveAspectRatio="none" class="line-chart-svg">'
+      el.classList.toggle("line-chart-scrollable", Boolean(opts.scrollable));
+      var chartMarkup = '<svg viewBox="0 0 ' + w + ' ' + h + '" preserveAspectRatio="none" class="line-chart-svg"' + (opts.scrollable ? ' style="width:' + w + 'px"' : '') + '>'
         + '<path class="line-chart-area" d="' + areaPath + '"></path>'
         + '<path class="line-chart-line" d="' + linePath + '"></path>'
         + dots
         + '</svg>'
         + '<div class="' + axisClass + '">' + axisTicks + '</div>';
-      attachLineChartTooltip(el, points, tooltipLabels, values, w, h);
+      // The scrollable variant needs a fixed-width wrapper so the SVG and
+      // the percentage-positioned axis/tooltip share one unambiguous
+      // coordinate space -- no min-width:100% stretch on it, since that's
+      // exactly what previously dragged axis labels out of alignment with
+      // their dots (see git history) once the wrapper's rendered width
+      // stopped matching the SVG's own fixed w.
+      if (opts.scrollable) {
+        el.innerHTML = '<div class="line-chart-scroll" style="width:' + w + 'px">' + chartMarkup + '</div>';
+        attachLineChartTooltip(el.querySelector(".line-chart-scroll"), points, tooltipLabels, values, w, h);
+      } else {
+        el.innerHTML = chartMarkup;
+        attachLineChartTooltip(el, points, tooltipLabels, values, w, h);
+      }
     }
 
     // Custom hover tooltip -- the <title> element on each dot already gives
@@ -1325,6 +1345,11 @@
         // so a px offset would drift vertically from the dot it's for.
         tooltip.style.left = ((points[i][0] / viewBoxW) * 100) + "%";
         tooltip.style.top = ((points[i][1] / viewBoxH) * 100) + "%";
+        // A point in the top 20% of the Y range has no room above it for
+        // the tooltip's default above-point placement -- it would clip
+        // against (or spill out of) the card's top edge. Flip it below
+        // the point instead for just those high-value dots.
+        tooltip.classList.toggle("line-chart-tooltip-below", points[i][1] <= viewBoxH * 0.2);
         evt.target.classList.add("is-active");
       }
       function hide(evt) {
