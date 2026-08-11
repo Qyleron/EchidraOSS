@@ -120,7 +120,7 @@
               <option value="">Select a persona to view analytics&hellip;</option>
             </select>
             <div class="time-range-control">
-              <button id="timeRangeButton" class="text-button" type="button">Loading range...</button>
+              <button id="timeRangeButton" class="text-button" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="timeRangePanel">Loading range...</button>
               <div id="timeRangePanel" class="time-range-panel">
                 <div class="time-range-row">
                   <div class="time-range-group">
@@ -491,16 +491,24 @@
     }
 
     function readRange() {
+      var now = new Date();
       var fromDate = document.getElementById("rangeFromDate").value;
       var fromHour = Number(document.getElementById("rangeFromHour").value);
       var toDate = document.getElementById("rangeToDate").value;
       var toHour = Number(document.getElementById("rangeToHour").value);
 
-      var from = new Date(fromDate + "T00:00:00");
-      from.setHours(fromHour, 0, 0, 0);
+      // The native date inputs can end up blank (cleared by keyboard input,
+      // or read before initTimeRangeControl's defaults have been set) --
+      // "" + "T00:00:00" parses as an Invalid Date, which would silently
+      // poison every downstream getTime()/1000 call with NaN. Fall back to
+      // today rather than let that propagate into the API request.
+      var from = new Date((fromDate || localDateKey(now)) + "T00:00:00");
+      if (isNaN(from.getTime())) from = new Date(now);
+      from.setHours(isNaN(fromHour) ? 0 : fromHour, 0, 0, 0);
 
-      var to = new Date(toDate + "T00:00:00");
-      to.setHours(toHour, 59, 59, 999);
+      var to = new Date((toDate || localDateKey(now)) + "T00:00:00");
+      if (isNaN(to.getTime())) to = new Date(now);
+      to.setHours(isNaN(toHour) ? 23 : toHour, 59, 59, 999);
 
       return { from: from, to: to };
     }
@@ -529,26 +537,35 @@
         input.addEventListener("change", syncRangeConstraints);
       });
 
+      // aria-expanded on the trigger button is the only signal a screen
+      // reader gets that this panel opened/closed -- classList alone is
+      // invisible to assistive tech, so every toggle path below has to go
+      // through this instead of touching "open" directly.
+      function setPanelOpen(open) {
+        timeRangePanel.classList.toggle("open", open);
+        timeRangeButton.setAttribute("aria-expanded", open ? "true" : "false");
+      }
+
       timeRangeButton.addEventListener("click", function(event) {
         event.stopPropagation();
-        timeRangePanel.classList.toggle("open");
+        setPanelOpen(!timeRangePanel.classList.contains("open"));
       });
 
       document.getElementById("applyRangeButton").addEventListener("click", function() {
-        timeRangePanel.classList.remove("open");
+        setPanelOpen(false);
         var personaId = document.getElementById("personaSelector").value;
         if (personaId) loadPersonaAnalytics(personaId);
       });
 
       document.addEventListener("click", function(event) {
         if (!event.target.closest(".time-range-control")) {
-          timeRangePanel.classList.remove("open");
+          setPanelOpen(false);
         }
       });
 
       document.addEventListener("keydown", function(event) {
         if (event.key === "Escape") {
-          timeRangePanel.classList.remove("open");
+          setPanelOpen(false);
         }
       });
     }
@@ -1182,7 +1199,7 @@
         var range = readRange();
         document.getElementById("timeRangeButton").textContent = formatRangeLabel(range.from, range.to);
         document.getElementById("trendChartTitle").textContent = "Sessions (" + formatRangeLabel(range.from, range.to) + ")";
-        var data = await fetchAnalytics(personaId, range.from.getTime() / 1000, range.to.getTime() / 1000);
+        var data = await fetchAnalytics(personaId, Math.floor(range.from.getTime() / 1000), Math.floor(range.to.getTime() / 1000));
         clearTimeout(loadingTimer);
         if (requestId !== personaAnalyticsRequestId) return;
         renderAnalytics(data);
