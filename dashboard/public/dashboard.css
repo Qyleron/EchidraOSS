@@ -881,6 +881,21 @@ a {
   padding-bottom: 34px;
 }
 
+/* Peak Attack Hours -- drawn wider than its card (opts.scrollable) so the
+   scrollbar is a permanent, discoverable affordance rather than an
+   occasional one: overflow-x: scroll always reserves/shows the scrollbar
+   track, unlike overflow-x: auto which only shows it once content
+   happens to overflow. */
+.line-chart-scrollable {
+  overflow-x: scroll;
+  overflow-y: hidden;
+}
+
+.line-chart-scroll {
+  position: relative;
+  height: 100%;
+}
+
 .line-chart-svg {
   display: block;
   width: 100%;
@@ -967,6 +982,13 @@ a {
   white-space: nowrap;
   pointer-events: none;
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5);
+}
+
+/* Points in the top 20% of the chart have no headroom for the default
+   above-point placement -- flip below the dot instead. */
+.line-chart-tooltip-below {
+  transform: translate(-50%, 0%);
+  margin-top: 10px;
 }
 
 .rank-list {
