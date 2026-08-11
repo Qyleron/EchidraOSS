@@ -686,6 +686,8 @@ SELECT_PERSONA_SESSION_COUNT_SQL = """
 SELECT COUNT(*) AS total
 FROM sessions
 WHERE persona_id = %(persona_id)s
+  AND (%(from_ts)s IS NULL OR started_at >= %(from_ts)s)
+  AND (%(to_ts)s IS NULL OR started_at <= %(to_ts)s)
 """
 
 SELECT_PERSONA_SESSIONS_TREND_SQL = """
@@ -694,7 +696,8 @@ SELECT
     COUNT(*) AS count
 FROM sessions
 WHERE persona_id = %(persona_id)s
-  AND started_at >= EXTRACT(EPOCH FROM now()) - 30 * 86400
+  AND started_at >= COALESCE(%(from_ts)s, EXTRACT(EPOCH FROM now()) - 30 * 86400)
+  AND (%(to_ts)s IS NULL OR started_at <= %(to_ts)s)
 GROUP BY date
 ORDER BY date
 """
@@ -704,6 +707,8 @@ SELECT cr.intent AS key, COUNT(*) AS count
 FROM classifier_runs cr
 JOIN sessions s ON s.id = cr.session_id
 WHERE s.persona_id = %(persona_id)s
+  AND (%(from_ts)s IS NULL OR s.started_at >= %(from_ts)s)
+  AND (%(to_ts)s IS NULL OR s.started_at <= %(to_ts)s)
 GROUP BY cr.intent
 ORDER BY count DESC, key
 """
@@ -713,6 +718,8 @@ SELECT cr.risk_level AS key, COUNT(*) AS count
 FROM classifier_runs cr
 JOIN sessions s ON s.id = cr.session_id
 WHERE s.persona_id = %(persona_id)s
+  AND (%(from_ts)s IS NULL OR s.started_at >= %(from_ts)s)
+  AND (%(to_ts)s IS NULL OR s.started_at <= %(to_ts)s)
 GROUP BY cr.risk_level
 ORDER BY count DESC
 """
@@ -724,6 +731,8 @@ JOIN classifier_runs cr ON cr.id = cs.classifier_run_id
 JOIN sessions s ON s.id = cr.session_id
 WHERE s.persona_id = %(persona_id)s
   AND cs.signal_type = 'mitre_tag'
+  AND (%(from_ts)s IS NULL OR s.started_at >= %(from_ts)s)
+  AND (%(to_ts)s IS NULL OR s.started_at <= %(to_ts)s)
 GROUP BY cs.signal_value
 ORDER BY count DESC
 LIMIT 10
@@ -735,6 +744,8 @@ SELECT
     COUNT(*) AS count
 FROM sessions
 WHERE persona_id = %(persona_id)s
+  AND (%(from_ts)s IS NULL OR started_at >= %(from_ts)s)
+  AND (%(to_ts)s IS NULL OR started_at <= %(to_ts)s)
 GROUP BY hour
 ORDER BY hour
 """
@@ -744,6 +755,8 @@ SELECT country AS key, COUNT(*) AS count
 FROM sessions
 WHERE persona_id = %(persona_id)s
   AND country IS NOT NULL
+  AND (%(from_ts)s IS NULL OR started_at >= %(from_ts)s)
+  AND (%(to_ts)s IS NULL OR started_at <= %(to_ts)s)
 GROUP BY country
 ORDER BY count DESC
 LIMIT 10
@@ -1461,9 +1474,16 @@ class PostgresClassifierRepository:
         row = _fetch_one(self.database_url, DELETE_PERSONA_CONFIG_SQL, {"id": persona_id})
         return row is not None
 
-    def get_persona_analytics(self, persona_id: str) -> PersonaAnalytics:
-        """Aggregate session + classifier data for one persona ID."""
-        params = {"persona_id": persona_id}
+    def get_persona_analytics(
+        self,
+        persona_id: str,
+        from_ts: float | None = None,
+        to_ts: float | None = None,
+    ) -> PersonaAnalytics:
+        """Aggregate session + classifier data for one persona ID, optionally
+        scoped to a [from_ts, to_ts] Unix-seconds window. When omitted, mirrors
+        the original all-time (30-day for the trend series) behavior."""
+        params = {"persona_id": persona_id, "from_ts": from_ts, "to_ts": to_ts}
         (
             total_row,
             trend_rows,

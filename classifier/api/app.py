@@ -954,12 +954,16 @@ def create_app() -> FastAPI:
     def get_persona_analytics_endpoint(
         request: Request,
         persona_id: str = PathParam(..., pattern=_PERSONA_ID_PATTERN),
+        from_ts: float | None = Query(None, description="Range start, Unix seconds"),
+        to_ts: float | None = Query(None, description="Range end, Unix seconds"),
     ) -> PersonaAnalytics:
-        """Return aggregated session analytics for one persona ID."""
+        """Return aggregated session analytics for one persona ID, optionally
+        scoped to a date range. Omitting from_ts/to_ts preserves the original
+        all-time (30-day trend) behavior."""
         _require_dashboard_auth(request)
         try:
             repository = PostgresClassifierRepository()
-            return repository.get_persona_analytics(persona_id)
+            return repository.get_persona_analytics(persona_id, from_ts, to_ts)
         except (DatabaseDriverMissingError, DatabaseNotConfiguredError) as exc:
             raise HTTPException(status_code=503, detail=_user_facing_error_detail(exc))
         except Exception as exc:
