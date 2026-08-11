@@ -1193,8 +1193,15 @@
       var highRisk = (riskCounts.critical || 0) + (riskCounts.high || 0);
       document.getElementById("metricHighRisk").textContent = highRisk;
       document.getElementById("metricTechniques").textContent = (data.top_techniques || []).length;
-      renderLineChart("trendChart", data.sessions_trend || [], function(d) { return d.date.slice(5); }, function(d) { return d.count; }, { maxTicks: 8, rotateLabels: true });
-      renderLineChart("hoursChart", data.peak_hours || [], function(d) { return String(d.hour).padStart(2, "0"); }, function(d) { return d.count; }, { tickStep: 3 });
+      renderLineChart("trendChart", data.sessions_trend || [], function(d) { return d.date.slice(5); }, function(d) { return d.count; }, {
+        maxTicks: 8,
+        rotateLabels: true,
+        tooltipLabelFn: function(d) { return formatFullDate(d.date); }
+      });
+      renderLineChart("hoursChart", data.peak_hours || [], function(d) { return String(d.hour).padStart(2, "0"); }, function(d) { return d.count; }, {
+        tickStep: 3,
+        tooltipLabelFn: function(d) { return formatHourRange(d.hour); }
+      });
       renderRankList("riskList", data.risk_counts || {});
       renderRankList("intentList", data.intent_counts || {});
       var countryCounts = {};
@@ -1211,6 +1218,23 @@
     // label, which is also what removes the old bar chart's label-overflow
     // problem: there's no label competing for space above each point.
     var LINE_CHART_WIDTH = 600;
+
+    var LINE_CHART_MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+    // "2026-08-04" -> "Aug 04, 2026" -- built manually (not
+    // toLocaleDateString) so the day always keeps its leading zero
+    // regardless of locale/browser formatting quirks.
+    function formatFullDate(dateStr) {
+      var parts = dateStr.split("-");
+      var month = LINE_CHART_MONTH_NAMES[Number(parts[1]) - 1] || parts[1];
+      return month + " " + parts[2] + ", " + parts[0];
+    }
+
+    // 8 -> "08:00 – 09:00"
+    function formatHourRange(hour) {
+      var pad = function(n) { return String(n).padStart(2, "0"); };
+      return pad(hour) + ":00 – " + pad((hour + 1) % 24) + ":00";
+    }
 
     // opts:
     //   maxTicks (default 8) -- auto-skip to roughly this many evenly
@@ -1247,9 +1271,15 @@
         + " L" + points[n - 1][0].toFixed(1) + "," + floorY
         + " L" + points[0][0].toFixed(1) + "," + floorY + " Z";
       var labels = items.map(function(item) { return String(labelFn(item)); });
+      // The tooltip's own label can be a fuller, friendlier string than
+      // the compact axis tick (e.g. "Aug 04, 2026" instead of "08-04", or
+      // an hour range instead of a bare "08") -- falls back to the axis
+      // label when the caller doesn't supply one.
+      var tooltipLabelFn = opts.tooltipLabelFn || labelFn;
+      var tooltipLabels = items.map(function(item) { return String(tooltipLabelFn(item)); });
       var dots = points.map(function(p, i) {
         return '<circle class="line-chart-dot" data-index="' + i + '" cx="' + p[0].toFixed(1) + '" cy="' + p[1].toFixed(1) + '" r="3">'
-          + '<title>' + escHtml(labels[i]) + ': ' + values[i] + '</title>'
+          + '<title>' + escHtml(tooltipLabels[i]) + '\nSessions: ' + values[i] + '</title>'
           + '</circle>';
       }).join("");
       var tickStep = opts.tickStep || Math.max(1, Math.ceil(n / (opts.maxTicks || 8)));
@@ -1267,7 +1297,7 @@
         + dots
         + '</svg>'
         + '<div class="' + axisClass + '">' + axisTicks + '</div>';
-      attachLineChartTooltip(el, points, labels, values, w, h);
+      attachLineChartTooltip(el, points, tooltipLabels, values, w, h);
     }
 
     // Custom hover tooltip -- the <title> element on each dot already gives
@@ -1283,7 +1313,9 @@
           tooltip.className = "line-chart-tooltip";
           container.appendChild(tooltip);
         }
-        tooltip.textContent = labels[i] + ": " + values[i];
+        // Two stacked lines -- the label (date or hour range) above,
+        // "Sessions: N" below -- rather than one run-on string.
+        tooltip.innerHTML = '<div>' + escHtml(labels[i]) + '</div><div>Sessions: ' + values[i] + '</div>';
         // Positioned as a % of the SVG's own coordinate space rather than
         // raw viewBox px -- the SVG's rendered height doesn't necessarily
         // equal viewBoxH 1:1 (preserveAspectRatio="none" can stretch it),
