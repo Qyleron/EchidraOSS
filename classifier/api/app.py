@@ -961,6 +961,8 @@ def create_app() -> FastAPI:
         scoped to a date range. Omitting from_ts/to_ts preserves the original
         all-time (30-day trend) behavior."""
         _require_dashboard_auth(request)
+        if from_ts is not None and to_ts is not None and from_ts > to_ts:
+            raise HTTPException(status_code=400, detail="from_ts must not be after to_ts")
         try:
             repository = PostgresClassifierRepository()
             return repository.get_persona_analytics(persona_id, from_ts, to_ts)
