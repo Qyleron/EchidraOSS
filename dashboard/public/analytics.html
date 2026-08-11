@@ -118,7 +118,7 @@
             </div>
           </div>
           <div class="chart-body">
-            <div id="attacksByHourChart" class="bar-chart" aria-label="Bar chart of attacks by hour"></div>
+            <div id="attacksByHourChart" class="line-chart" aria-label="Line chart of attacks by hour"></div>
           </div>
         </section>
 
@@ -441,15 +441,51 @@
       URL.revokeObjectURL(url);
     }
 
-    function renderBars(containerId, points) {
-      const max = Math.max(...points.map(([, value]) => value)) || 1;
-      document.getElementById(containerId).innerHTML = points.map(([label, value]) => `
-        <div class="bar-column">
-          <span class="bar-value">${value}</span>
-          <span class="bar-fill" style="height: ${Math.max(8, (value / max) * 170)}px;"></span>
-          <span class="bar-label">${escHtml(label)}</span>
-        </div>
+    // Line/dot chart -- used instead of a bar chart for the 24-hour series,
+    // which doesn't fit as fixed-min-width bar columns without horizontal
+    // scrolling. An SVG line has no per-point minimum width, so it always
+    // fits the card, and per-point values move into a hover tooltip
+    // instead of a permanently-stacked label above each point.
+    function renderLineChart(containerId, points) {
+      const container = document.getElementById(containerId);
+      if (points.length === 0) {
+        container.innerHTML = `<div class="empty-state">No sessions in this range.</div>`;
+        return;
+      }
+      const values = points.map(([, value]) => value);
+      const max = Math.max(...values) || 1;
+      const w = 600, h = 160, padX = 6, padY = 8;
+      const innerW = w - padX * 2, innerH = h - padY * 2;
+      const n = points.length;
+      const stepX = n > 1 ? innerW / (n - 1) : 0;
+      const coords = values.map((v, i) => [
+        padX + stepX * i,
+        padY + innerH - (max > 0 ? (v / max) * innerH : 0)
+      ]);
+      const linePath = coords.map(([x, y], i) => `${i === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
+      const floorY = (padY + innerH).toFixed(1);
+      const areaPath = `${linePath} L${coords[n - 1][0].toFixed(1)},${floorY} L${coords[0][0].toFixed(1)},${floorY} Z`;
+      const dots = coords.map(([x, y], i) => `
+        <circle class="line-chart-dot" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="3">
+          <title>${escHtml(points[i][0])}: ${values[i]}</title>
+        </circle>
       `).join("");
+      // At most ~8 axis labels regardless of point count, evenly spaced,
+      // always including the last point.
+      const labelEvery = Math.max(1, Math.ceil(n / 8));
+      const axisTicks = points.map(([label], i) => {
+        if (i % labelEvery !== 0 && i !== n - 1) return "";
+        const pct = ((coords[i][0] / w) * 100).toFixed(2);
+        return `<span class="line-chart-tick" style="left:${pct}%">${escHtml(label)}</span>`;
+      }).join("");
+      container.innerHTML = `
+        <svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" class="line-chart-svg">
+          <path class="line-chart-area" d="${areaPath}"></path>
+          <path class="line-chart-line" d="${linePath}"></path>
+          ${dots}
+        </svg>
+        <div class="line-chart-axis">${axisTicks}</div>
+      `;
     }
 
     function renderStackedRiskBars(containerId, points) {
@@ -548,7 +584,7 @@
       document.getElementById("riskTrendTitle").textContent =
         bucket === "day" ? "Risk Trend" : `Risk Trend (by ${bucket})`;
 
-      renderBars("attacksByHourChart", attacksByHour);
+      renderLineChart("attacksByHourChart", attacksByHour);
       renderStackedRiskBars("riskTrendChart", riskTrend);
       renderRankedList("protocolBreakdownList", (summary.protocol_breakdown || []).map((row) => [protocolDisplay(row.protocol), row.count]));
       renderRankedList("topCommandsList", summary.top_commands.map((row) => [row.command, row.count]));
