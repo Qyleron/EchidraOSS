@@ -864,33 +864,26 @@ a {
 }
 
 /* Line/dot chart -- replaces .bar-chart for series with too many points
-   (24 hours, 30 days) to render as fixed-min-width bar columns. Every
-   point keeps its own axis label (no thinning), so the chart is drawn at
-   whatever pixel width keeps labels legible and scrolls horizontally
-   inside the card on narrow viewports instead of squishing them. */
+   (24 hours, 30 days) to render as fixed-min-width bar columns. Axis
+   labels are thinned to ~6-8 evenly spaced ticks (see LINE_CHART_MAX_TICKS
+   / opts.tickStep in renderLineChart) rather than shown for every point,
+   since dense date/hour strings touch each other well before that. */
 .line-chart {
   position: relative;
   height: 190px;
   padding: 10px 4px 22px;
-  overflow-x: auto;
-  overflow-y: hidden;
 }
 
-.line-chart-scroll {
-  /* No min-width: 100% here -- stretching this wrapper to fill a card
-     wider than its own computed pixel width would leave the SVG (a fixed
-     w-px box) and the percentage-positioned axis labels (now measured
-     against the stretched wrapper) disagreeing about where "w" actually
-     is, dragging labels out of alignment with their dots the further
-     from index 0 they are. Exactly matching the SVG's width keeps both
-     in the same coordinate space; a chart with few points just leaves
-     unused space in its card instead of stretching. */
-  position: relative;
-  height: 100%;
+/* Extra bottom room for the -45deg-rotated tick labels (Sessions trend
+   chart) so angled text has space to descend without clipping against
+   the card edge. */
+.line-chart-rotated {
+  padding-bottom: 34px;
 }
 
 .line-chart-svg {
   display: block;
+  width: 100%;
   height: 100%;
   overflow: visible;
 }
@@ -942,6 +935,17 @@ a {
 
 .line-chart-tick:last-child {
   transform: translateX(-100%);
+}
+
+.line-chart-axis-rotated {
+  height: 32px;
+}
+
+.line-chart-tick-rotated,
+.line-chart-tick-rotated:first-child,
+.line-chart-tick-rotated:last-child {
+  transform: rotate(-45deg);
+  transform-origin: top right;
 }
 
 /* Custom hover tooltip for chart dots -- layered over the native <title>

@@ -1193,8 +1193,8 @@
       var highRisk = (riskCounts.critical || 0) + (riskCounts.high || 0);
       document.getElementById("metricHighRisk").textContent = highRisk;
       document.getElementById("metricTechniques").textContent = (data.top_techniques || []).length;
-      renderLineChart("trendChart", data.sessions_trend || [], function(d) { return d.date.slice(5); }, function(d) { return d.count; });
-      renderLineChart("hoursChart", data.peak_hours || [], function(d) { return String(d.hour).padStart(2, "0"); }, function(d) { return d.count; });
+      renderLineChart("trendChart", data.sessions_trend || [], function(d) { return d.date.slice(5); }, function(d) { return d.count; }, { maxTicks: 8, rotateLabels: true });
+      renderLineChart("hoursChart", data.peak_hours || [], function(d) { return String(d.hour).padStart(2, "0"); }, function(d) { return d.count; }, { tickStep: 3 });
       renderRankList("riskList", data.risk_counts || {});
       renderRankList("intentList", data.intent_counts || {});
       var countryCounts = {};
@@ -1210,15 +1210,18 @@
     // native hover tooltip (<title>) instead of a permanently-stacked
     // label, which is also what removes the old bar chart's label-overflow
     // problem: there's no label competing for space above each point.
-    // Minimum horizontal spacing (px) between points so every axis label
-    // stays legible without thinning. For a fixed 24-hour series this
-    // means the chart is often wider than its card, in which case
-    // .line-chart's overflow-x:auto lets it scroll instead of squishing
-    // labels together or dropping most of them.
-    var LINE_CHART_MIN_PX_PER_POINT = 34;
-    var LINE_CHART_MIN_WIDTH = 600;
+    var LINE_CHART_WIDTH = 600;
 
-    function renderLineChart(id, items, labelFn, countFn) {
+    // opts:
+    //   maxTicks (default 8) -- auto-skip to roughly this many evenly
+    //     spaced labels, e.g. every 4th-5th day across a 30-day trend.
+    //   tickStep -- fixed step instead of auto-dividing by maxTicks, e.g.
+    //     every 3rd hour (00, 03, 06 ... 21) for the 24-hour chart.
+    //   rotateLabels -- render ticks at -45deg so short date strings like
+    //     "08-10"/"08-11" have room to sit closer together without
+    //     touching.
+    function renderLineChart(id, items, labelFn, countFn, opts) {
+      opts = opts || {};
       var el = document.getElementById(id);
       if (!items.length) {
         el.innerHTML = '<span style="color:var(--muted);font-size:13px;align-self:center;">No data yet.</span>';
@@ -1228,7 +1231,7 @@
       var max = Math.max.apply(null, values.concat([1]));
       var n = items.length;
       var h = 160, padX = 6, padY = 8;
-      var w = Math.max(LINE_CHART_MIN_WIDTH, n * LINE_CHART_MIN_PX_PER_POINT);
+      var w = LINE_CHART_WIDTH;
       var innerW = w - padX * 2, innerH = h - padY * 2;
       var stepX = n > 1 ? innerW / (n - 1) : 0;
       var points = values.map(function(v, i) {
@@ -1249,20 +1252,21 @@
           + '<title>' + escHtml(labels[i]) + ': ' + values[i] + '</title>'
           + '</circle>';
       }).join("");
-      // Every point gets its own axis label now (no ~8-label thinning) --
-      // that's the whole point of scrolling instead of squishing.
+      var tickStep = opts.tickStep || Math.max(1, Math.ceil(n / (opts.maxTicks || 8)));
+      var tickClass = "line-chart-tick" + (opts.rotateLabels ? " line-chart-tick-rotated" : "");
       var axisTicks = items.map(function(item, i) {
+        if (i % tickStep !== 0) return "";
         var pct = ((points[i][0] / w) * 100).toFixed(2);
-        return '<span class="line-chart-tick" style="left:' + pct + '%">' + escHtml(labels[i]) + '</span>';
+        return '<span class="' + tickClass + '" style="left:' + pct + '%">' + escHtml(labels[i]) + '</span>';
       }).join("");
-      el.innerHTML = '<div class="line-chart-scroll" style="width:' + w + 'px">'
-        + '<svg viewBox="0 0 ' + w + ' ' + h + '" preserveAspectRatio="none" class="line-chart-svg" style="width:' + w + 'px">'
+      var axisClass = "line-chart-axis" + (opts.rotateLabels ? " line-chart-axis-rotated" : "");
+      el.classList.toggle("line-chart-rotated", Boolean(opts.rotateLabels));
+      el.innerHTML = '<svg viewBox="0 0 ' + w + ' ' + h + '" preserveAspectRatio="none" class="line-chart-svg">'
         + '<path class="line-chart-area" d="' + areaPath + '"></path>'
         + '<path class="line-chart-line" d="' + linePath + '"></path>'
         + dots
         + '</svg>'
-        + '<div class="line-chart-axis">' + axisTicks + '</div>'
-        + '</div>';
+        + '<div class="' + axisClass + '">' + axisTicks + '</div>';
       attachLineChartTooltip(el, points, labels, values, w, h);
     }
 
@@ -1272,13 +1276,12 @@
     // that same label/value text in an immediately-visible themed tooltip
     // on top, without removing the native fallback.
     function attachLineChartTooltip(container, points, labels, values, viewBoxW, viewBoxH) {
-      var scroll = container.querySelector(".line-chart-scroll");
       var tooltip = null;
       function show(i, evt) {
         if (!tooltip) {
           tooltip = document.createElement("div");
           tooltip.className = "line-chart-tooltip";
-          scroll.appendChild(tooltip);
+          container.appendChild(tooltip);
         }
         tooltip.textContent = labels[i] + ": " + values[i];
         // Positioned as a % of the SVG's own coordinate space rather than
