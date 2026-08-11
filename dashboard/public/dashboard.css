@@ -877,9 +877,16 @@ a {
 }
 
 .line-chart-scroll {
+  /* No min-width: 100% here -- stretching this wrapper to fill a card
+     wider than its own computed pixel width would leave the SVG (a fixed
+     w-px box) and the percentage-positioned axis labels (now measured
+     against the stretched wrapper) disagreeing about where "w" actually
+     is, dragging labels out of alignment with their dots the further
+     from index 0 they are. Exactly matching the SVG's width keeps both
+     in the same coordinate space; a chart with few points just leaves
+     unused space in its card instead of stretching. */
   position: relative;
   height: 100%;
-  min-width: 100%;
 }
 
 .line-chart-svg {
