@@ -139,13 +139,13 @@
               <div class="chart-card">
                 <div class="chart-card-header"><strong>Sessions (30 days)</strong></div>
                 <div class="chart-body">
-                  <div class="bar-chart" id="trendChart"></div>
+                  <div class="line-chart" id="trendChart"></div>
                 </div>
               </div>
               <div class="chart-card">
                 <div class="chart-card-header"><strong>Peak Attack Hours</strong></div>
                 <div class="chart-body">
-                  <div class="bar-chart" id="hoursChart"></div>
+                  <div class="line-chart" id="hoursChart"></div>
                 </div>
               </div>
               <div class="chart-card">
@@ -887,8 +887,8 @@
       var highRisk = (riskCounts.critical || 0) + (riskCounts.high || 0);
       document.getElementById("metricHighRisk").textContent = highRisk;
       document.getElementById("metricTechniques").textContent = (data.top_techniques || []).length;
-      renderBarChart("trendChart", data.sessions_trend || [], function(d) { return d.date.slice(5); }, function(d) { return d.count; });
-      renderBarChart("hoursChart", data.peak_hours || [], function(d) { return String(d.hour).padStart(2, "0"); }, function(d) { return d.count; });
+      renderLineChart("trendChart", data.sessions_trend || [], function(d) { return d.date.slice(5); }, function(d) { return d.count; });
+      renderLineChart("hoursChart", data.peak_hours || [], function(d) { return String(d.hour).padStart(2, "0"); }, function(d) { return d.count; });
       renderRankList("riskList", data.risk_counts || {});
       renderRankList("intentList", data.intent_counts || {});
       var countryCounts = {};
@@ -897,28 +897,57 @@
       renderMitreList("techniqueList", data.top_techniques || []);
     }
 
-    function renderBarChart(id, items, labelFn, countFn) {
+    // Line/dot chart -- used instead of a bar chart for series with more
+    // points (24 hours, 30 days) than fit as fixed-min-width bar columns
+    // without horizontal scrolling. An SVG line has no per-point minimum
+    // width, so it always fits the card. Per-point values move into a
+    // native hover tooltip (<title>) instead of a permanently-stacked
+    // label, which is also what removes the old bar chart's label-overflow
+    // problem: there's no label competing for space above each point.
+    function renderLineChart(id, items, labelFn, countFn) {
       var el = document.getElementById(id);
       if (!items.length) {
         el.innerHTML = '<span style="color:var(--muted);font-size:13px;align-self:center;">No data yet.</span>';
         return;
       }
-      var max = Math.max.apply(null, items.map(countFn).concat([1]));
-      // Reserve space for the value label above the bar and the axis label
-      // below it (18px value + 8px gap + 8px gap + 14px axis label), so the
-      // scaled bar height never exceeds what .bar-column actually has left --
-      // using el.clientHeight instead of a hardcoded max keeps this correct
-      // even if the CSS height/padding changes later.
-      var reserved = 48;
-      var maxBarHeight = Math.max(20, el.clientHeight - reserved);
-      el.innerHTML = items.map(function(item) {
-        var h = Math.round((countFn(item) / max) * maxBarHeight);
-        return '<div class="bar-column">'
-          + '<span class="bar-value">' + countFn(item) + '</span>'
-          + '<div class="bar-fill" style="height:' + h + 'px;"></div>'
-          + '<span class="bar-label">' + escHtml(String(labelFn(item))) + '</span>'
-          + '</div>';
+      var values = items.map(countFn);
+      var max = Math.max.apply(null, values.concat([1]));
+      var w = 600, h = 160, padX = 6, padY = 8;
+      var innerW = w - padX * 2, innerH = h - padY * 2;
+      var n = items.length;
+      var stepX = n > 1 ? innerW / (n - 1) : 0;
+      var points = values.map(function(v, i) {
+        var x = padX + stepX * i;
+        var y = padY + innerH - (max > 0 ? (v / max) * innerH : 0);
+        return [x, y];
+      });
+      var linePath = points.map(function(p, i) {
+        return (i === 0 ? "M" : "L") + p[0].toFixed(1) + "," + p[1].toFixed(1);
+      }).join(" ");
+      var floorY = (padY + innerH).toFixed(1);
+      var areaPath = linePath
+        + " L" + points[n - 1][0].toFixed(1) + "," + floorY
+        + " L" + points[0][0].toFixed(1) + "," + floorY + " Z";
+      var dots = points.map(function(p, i) {
+        return '<circle class="line-chart-dot" cx="' + p[0].toFixed(1) + '" cy="' + p[1].toFixed(1) + '" r="3">'
+          + '<title>' + escHtml(String(labelFn(items[i]))) + ': ' + values[i] + '</title>'
+          + '</circle>';
       }).join("");
+      // At most ~8 axis labels regardless of point count, evenly spaced,
+      // always including the last point -- crowded text under every one of
+      // 24-30 points would be unreadable.
+      var labelEvery = Math.max(1, Math.ceil(n / 8));
+      var axisTicks = items.map(function(item, i) {
+        if (i % labelEvery !== 0 && i !== n - 1) return "";
+        var pct = ((points[i][0] / w) * 100).toFixed(2);
+        return '<span class="line-chart-tick" style="left:' + pct + '%">' + escHtml(String(labelFn(item))) + '</span>';
+      }).join("");
+      el.innerHTML = '<svg viewBox="0 0 ' + w + ' ' + h + '" preserveAspectRatio="none" class="line-chart-svg">'
+        + '<path class="line-chart-area" d="' + areaPath + '"></path>'
+        + '<path class="line-chart-line" d="' + linePath + '"></path>'
+        + dots
+        + '</svg>'
+        + '<div class="line-chart-axis">' + axisTicks + '</div>';
     }
 
     function renderRankList(id, counts) {

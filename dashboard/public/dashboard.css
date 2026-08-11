@@ -855,6 +855,70 @@ a {
   font-size: 11px;
 }
 
+/* Line/dot chart -- replaces .bar-chart for series with too many points
+   (24 hours, 30 days) to render as fixed-min-width bar columns without
+   forcing horizontal scroll. An SVG line has no per-point minimum width,
+   so it always fits the card and never needs to scroll. */
+.line-chart {
+  position: relative;
+  height: 190px;
+  padding: 10px 4px 22px;
+}
+
+.line-chart-svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.line-chart-area {
+  fill: rgba(246, 105, 29, 0.12);
+  stroke: none;
+}
+
+.line-chart-line {
+  fill: none;
+  stroke: #f6691d;
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.line-chart-dot {
+  fill: var(--surface);
+  stroke: #f6691d;
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.line-chart-dot:hover {
+  fill: #f6691d;
+}
+
+.line-chart-axis {
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  bottom: 2px;
+  height: 16px;
+}
+
+.line-chart-tick {
+  position: absolute;
+  transform: translateX(-50%);
+  color: var(--subtle);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.line-chart-tick:first-child {
+  transform: translateX(0);
+}
+
+.line-chart-tick:last-child {
+  transform: translateX(-100%);
+}
+
 .rank-list {
   display: grid;
   gap: 14px;
