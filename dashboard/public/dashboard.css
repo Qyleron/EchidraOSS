@@ -911,6 +911,11 @@ a {
 .line-chart-scrollable {
   overflow-x: scroll;
   overflow-y: hidden;
+  /* The native scrollbar track sits flush against the box's bottom edge
+     regardless of internal padding on the scrolled content -- pad the
+     whole card instead, pushing the axis labels above it up and away so
+     they don't read as touching the scrollbar. */
+  padding-bottom: 16px;
 }
 
 .line-chart-scroll {
@@ -968,10 +973,18 @@ a {
   transform: translateX(-100%);
 }
 
+/* translateX(-100%) first, THEN rotate -- without the translate, the
+   label's un-rotated box extends rightward from its left:X% anchor by
+   its own text width before ever rotating, so labels near the right edge
+   (e.g. the last tick) overflowed past the chart's own right boundary
+   and forced the outer .chart-body wrapper's scrollbar to kick in even
+   on this (non-scrollable) chart. translateX(-100%) shifts the box so
+   its right edge -- not its left edge -- sits at the anchor first, which
+   is also where transform-origin: top right then pivots from. */
 .line-chart-tick-rotated,
 .line-chart-tick-rotated:first-child,
 .line-chart-tick-rotated:last-child {
-  transform: rotate(-45deg);
+  transform: translateX(-100%) rotate(-45deg);
   transform-origin: top right;
 }
 
@@ -980,8 +993,14 @@ a {
    the value is visible immediately on hover instead of after the
    browser's ~1s native tooltip delay. */
 .line-chart-tooltip {
-  position: absolute;
-  z-index: 5;
+  /* Fixed + appended to document.body (see attachLineChartTooltip), not
+     absolute inside the chart card -- a chart with a horizontal scroll
+     container would otherwise clip the tooltip the moment it tried to
+     render past the scrolled-out-of-view edge. getBoundingClientRect
+     gives viewport coordinates, so this has to be position:fixed to
+     match, not position:absolute against some scrolled ancestor. */
+  position: fixed;
+  z-index: 1000;
   transform: translate(-50%, -100%);
   margin-top: -10px;
   padding: 4px 8px;

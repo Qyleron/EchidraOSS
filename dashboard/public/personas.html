@@ -1322,11 +1322,10 @@
       // stopped matching the SVG's own fixed w.
       if (opts.scrollable) {
         el.innerHTML = '<div class="line-chart-scroll" style="width:' + w + 'px">' + chartMarkup + '</div>';
-        attachLineChartTooltip(el.querySelector(".line-chart-plot"), points, tooltipLabels, values, w, h);
       } else {
         el.innerHTML = chartMarkup;
-        attachLineChartTooltip(el.querySelector(".line-chart-plot"), points, tooltipLabels, values, w, h);
       }
+      attachLineChartTooltip(el.querySelector(".line-chart-plot"), points, tooltipLabels, values, h);
     }
 
     // Custom hover tooltip -- the <title> element on each dot already gives
@@ -1334,29 +1333,37 @@
     // delay showing it by ~1s and style it inconsistently. This mirrors
     // that same label/value text in an immediately-visible themed tooltip
     // on top, without removing the native fallback.
-    function attachLineChartTooltip(container, points, labels, values, viewBoxW, viewBoxH) {
+    //
+    // Appended to document.body with position:fixed, positioned from the
+    // hovered dot's getBoundingClientRect() -- NOT appended inside the
+    // chart's own (possibly horizontally-scrolled) container. A tooltip
+    // living inside an overflow-x:scroll box gets clipped by that same
+    // box the moment it would render past the scrolled-out-of-view edge,
+    // and mutating that box's DOM on every hover was also nudging its
+    // scroll position. getBoundingClientRect is viewport-relative and
+    // already accounts for however far the chart is scrolled, so this
+    // sidesteps both problems at once.
+    function attachLineChartTooltip(container, points, labels, values, viewBoxH) {
       var tooltip = null;
       function show(i, evt) {
+        var dot = evt.target;
+        var rect = dot.getBoundingClientRect();
         if (!tooltip) {
           tooltip = document.createElement("div");
           tooltip.className = "line-chart-tooltip";
-          container.appendChild(tooltip);
+          document.body.appendChild(tooltip);
         }
         // Two stacked lines -- the label (date or hour range) above,
         // "Sessions: N" below -- rather than one run-on string.
         tooltip.innerHTML = '<div>' + escHtml(labels[i]) + '</div><div>Sessions: ' + values[i] + '</div>';
-        // Positioned as a % of the SVG's own coordinate space rather than
-        // raw viewBox px -- the SVG's rendered height doesn't necessarily
-        // equal viewBoxH 1:1 (preserveAspectRatio="none" can stretch it),
-        // so a px offset would drift vertically from the dot it's for.
-        tooltip.style.left = ((points[i][0] / viewBoxW) * 100) + "%";
-        tooltip.style.top = ((points[i][1] / viewBoxH) * 100) + "%";
+        tooltip.style.left = (rect.left + rect.width / 2) + "px";
+        tooltip.style.top = (rect.top + rect.height / 2) + "px";
         // A point in the top 20% of the Y range has no room above it for
         // the tooltip's default above-point placement -- it would clip
         // against (or spill out of) the card's top edge. Flip it below
         // the point instead for just those high-value dots.
         tooltip.classList.toggle("line-chart-tooltip-below", points[i][1] <= viewBoxH * 0.2);
-        evt.target.classList.add("is-active");
+        dot.classList.add("is-active");
       }
       function hide(evt) {
         if (tooltip) tooltip.remove();
@@ -1370,6 +1377,16 @@
         dot.addEventListener("focus", function(evt) { show(i, evt); });
         dot.addEventListener("blur", hide);
       });
+      // A fixed-position tooltip doesn't move with the chart if the user
+      // scrolls it (e.g. the horizontally-scrollable hours chart) while
+      // hovering -- drop it rather than let it visually detach from its
+      // dot. Listening on window with capture:true catches the scroll
+      // event on its way down to the actual scrolling element (.line-
+      // chart, an ancestor of `container` here) regardless of whether
+      // that element's own "scroll" event bubbles back up.
+      window.addEventListener("scroll", function() {
+        if (tooltip) { tooltip.remove(); tooltip = null; }
+      }, true);
     }
 
     function renderRankList(id, counts) {
