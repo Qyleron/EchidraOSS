@@ -232,6 +232,16 @@ def create_app() -> FastAPI:
         description="Post-session behavioral classification for Echidra logs.",
     )
 
+    if not _dashboard_cookie_secure():
+        logger.warning(
+            "%s is not set -- the dashboard session cookie will be sent over "
+            "plain HTTP. Set %s=1 once the dashboard sits behind TLS "
+            "(directly or via a reverse proxy), or the session cookie can be "
+            "sniffed on the network.",
+            DASHBOARD_COOKIE_SECURE_ENV,
+            DASHBOARD_COOKIE_SECURE_ENV,
+        )
+
     @api.middleware("http")
     async def _apply_dashboard_no_store_headers(request: Request, call_next):
         """Default every response to no-store except the explicit public allowlist.
