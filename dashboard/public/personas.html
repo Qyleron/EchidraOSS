@@ -119,11 +119,34 @@
             <select id="personaSelector" class="form-select">
               <option value="">Select a persona to view analytics&hellip;</option>
             </select>
-            <label for="personaRangeFromDate" class="form-label">From</label>
-            <input type="date" id="personaRangeFromDate" class="form-input" style="width: auto;" />
-            <label for="personaRangeToDate" class="form-label">To</label>
-            <input type="date" id="personaRangeToDate" class="form-input" style="width: auto;" />
-            <button id="personaRangeApplyButton" class="text-button" type="button">Apply</button>
+            <div class="time-range-control">
+              <button id="timeRangeButton" class="text-button" type="button">Loading range...</button>
+              <div id="timeRangePanel" class="time-range-panel">
+                <div class="time-range-row">
+                  <div class="time-range-group">
+                    <label for="rangeFromDate">From date</label>
+                    <input type="date" id="rangeFromDate" />
+                  </div>
+                  <div class="time-range-group">
+                    <label for="rangeFromHour">From hour</label>
+                    <select id="rangeFromHour" class="form-select" aria-label="From hour"></select>
+                  </div>
+                </div>
+                <div class="time-range-row">
+                  <div class="time-range-group">
+                    <label for="rangeToDate">To date</label>
+                    <input type="date" id="rangeToDate" />
+                  </div>
+                  <div class="time-range-group">
+                    <label for="rangeToHour">To hour</label>
+                    <select id="rangeToHour" class="form-select" aria-label="To hour"></select>
+                  </div>
+                </div>
+                <div class="time-range-actions">
+                  <button id="applyRangeButton" class="text-button" type="button">Apply</button>
+                </div>
+              </div>
+            </div>
           </div>
           <div id="analyticsContent" hidden>
             <div class="metric-grid" id="analyticsMetrics" style="padding: 22px 22px 0;">
@@ -246,38 +269,288 @@
       return r.json();
     }
 
-    // Reads the From/To date inputs and returns [fromTs, toTs] as Unix
-    // seconds (or null when a field is empty), matching the Analytics
-    // page's from_ts/to_ts convention. "To" is treated as end-of-day so a
-    // same-day range still includes that day's sessions.
-    function readPersonaAnalyticsRange() {
-      var fromVal = document.getElementById("personaRangeFromDate").value;
-      var toVal = document.getElementById("personaRangeToDate").value;
-      // started_at is stored as a fractional-second epoch, so a plain
-      // "23:59:59" cutoff can exclude a session that started in the last
-      // second of the day (e.g. 23:59:59.42) -- push to the millisecond
-      // boundary so the whole selected day is actually included.
-      var fromTs = fromVal ? new Date(fromVal + "T00:00:00.000").getTime() / 1000 : null;
-      var toTs = toVal ? new Date(toVal + "T23:59:59.999").getTime() / 1000 : null;
-      return [fromTs, toTs];
+    // ── Time range control -- ported verbatim from analytics.html so the
+    // Personas Analytics tab's date picker looks and behaves identically to
+    // the main Analytics page's, down to the calendar popup and hour
+    // dropdowns. Kept as a local copy rather than a shared import because
+    // analytics.html's own copy isn't factored out yet either; a future
+    // cleanup could move both into custom-select.js.
+    function localDateKey(date) {
+      var year = date.getFullYear();
+      var month = String(date.getMonth() + 1).padStart(2, "0");
+      var day = String(date.getDate()).padStart(2, "0");
+      return year + "-" + month + "-" + day;
     }
 
-    // The trend chart title defaults to "Sessions (30 days)" to describe
-    // the backend's default window, but that becomes inaccurate once a
-    // custom range is applied -- swap in the actual dates so the label
-    // never lies about what's plotted.
-    function updateTrendChartTitle(fromVal, toVal) {
-      var title = document.getElementById("trendChartTitle");
-      if (!fromVal && !toVal) {
-        title.textContent = "Sessions (30 days)";
-      } else {
-        // When "From" is left blank, the backend still defaults that side
-        // to a 30-day lookback (see SELECT_PERSONA_SESSIONS_TREND_SQL's
-        // COALESCE) rather than all-time -- label it as such instead of
-        // claiming "start", which would overstate the actual range.
-        var fromLabel = fromVal || "last 30 days";
-        title.textContent = "Sessions (" + fromLabel + " to " + (toVal || "now") + ")";
+    function initCustomDateInputs(root) {
+      var inputs = root.querySelectorAll('input[type="date"]:not([data-custom-date-init])');
+      Array.prototype.forEach.call(inputs, function(input) {
+        input.setAttribute("data-custom-date-init", "true");
+
+        var wrapper = document.createElement("div");
+        wrapper.className = "custom-date";
+        input.parentNode.insertBefore(wrapper, input);
+        wrapper.appendChild(input);
+        input.classList.add("custom-date-native");
+
+        var trigger = document.createElement("button");
+        trigger.type = "button";
+        trigger.className = "custom-date-trigger";
+        trigger.setAttribute("aria-haspopup", "dialog");
+        trigger.setAttribute("aria-expanded", "false");
+        wrapper.appendChild(trigger);
+
+        var popup = document.createElement("div");
+        popup.className = "custom-date-popup";
+        popup.setAttribute("role", "dialog");
+        wrapper.appendChild(popup);
+
+        var viewMonth = input.value ? new Date(input.value + "T00:00:00") : new Date();
+        viewMonth = new Date(viewMonth.getFullYear(), viewMonth.getMonth(), 1);
+
+        function setOpen(open) {
+          wrapper.classList.toggle("open", open);
+          trigger.setAttribute("aria-expanded", open ? "true" : "false");
+          if (open) renderCalendar();
+        }
+        wrapper._setOpen = setOpen;
+
+        function syncTrigger() {
+          trigger.textContent = input.value
+            ? new Date(input.value + "T00:00:00").toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })
+            : "Select date";
+        }
+        input._refreshCustomDate = syncTrigger;
+
+        function renderCalendar() {
+          var year = viewMonth.getFullYear();
+          var month = viewMonth.getMonth();
+          var monthLabel = viewMonth.toLocaleDateString("en-GB", { month: "long", year: "numeric" });
+          var firstWeekday = new Date(year, month, 1).getDay();
+          var daysInMonth = new Date(year, month + 1, 0).getDate();
+          var daysInPrevMonth = new Date(year, month, 0).getDate();
+          var todayKey = localDateKey(new Date());
+          var min = input.min || null;
+          var max = input.max || null;
+
+          var cells = [];
+          for (var i = 0; i < firstWeekday; i++) {
+            cells.push({ day: daysInPrevMonth - firstWeekday + 1 + i, outside: true });
+          }
+          for (var d = 1; d <= daysInMonth; d++) {
+            cells.push({ day: d, outside: false, key: year + "-" + String(month + 1).padStart(2, "0") + "-" + String(d).padStart(2, "0") });
+          }
+          var trailing = 1;
+          while (cells.length % 7 !== 0) {
+            cells.push({ day: trailing++, outside: true });
+          }
+
+          var weekdayLabels = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
+
+          popup.innerHTML =
+            '<div class="custom-date-header">' +
+              '<button type="button" class="custom-date-nav" data-nav="prev" aria-label="Previous month">&lsaquo;</button>' +
+              '<span class="custom-date-label">' + escHtml(monthLabel) + "</span>" +
+              '<button type="button" class="custom-date-nav" data-nav="next" aria-label="Next month">&rsaquo;</button>' +
+            "</div>" +
+            '<div class="custom-date-weekdays">' +
+              weekdayLabels.map(function(w) { return '<span class="custom-date-weekday">' + w + "</span>"; }).join("") +
+            "</div>" +
+            '<div class="custom-date-grid">' +
+              cells.map(function(c) {
+                if (c.outside) return '<span class="custom-date-cell is-outside">' + c.day + "</span>";
+                var disabled = (min && c.key < min) || (max && c.key > max);
+                var classes = "custom-date-cell" + (c.key === input.value ? " is-selected" : "") + (c.key === todayKey ? " is-today" : "");
+                return '<button type="button" class="' + classes + '" data-date="' + c.key + '"' + (disabled ? " disabled" : "") + ">" + c.day + "</button>";
+              }).join("") +
+            "</div>";
+
+          var prevBtn = popup.querySelector('[data-nav="prev"]');
+          var nextBtn = popup.querySelector('[data-nav="next"]');
+          prevBtn.addEventListener("mousedown", function(evt) { evt.preventDefault(); });
+          nextBtn.addEventListener("mousedown", function(evt) { evt.preventDefault(); });
+          prevBtn.addEventListener("click", function(evt) {
+            evt.stopPropagation();
+            viewMonth = new Date(year, month - 1, 1);
+            renderCalendar();
+          });
+          nextBtn.addEventListener("click", function(evt) {
+            evt.stopPropagation();
+            viewMonth = new Date(year, month + 1, 1);
+            renderCalendar();
+          });
+          Array.prototype.forEach.call(popup.querySelectorAll(".custom-date-cell[data-date]"), function(cell) {
+            cell.addEventListener("mousedown", function(evt) { evt.preventDefault(); });
+            cell.addEventListener("click", function(evt) {
+              evt.stopPropagation();
+              input.value = cell.getAttribute("data-date");
+              input.dispatchEvent(new Event("change", { bubbles: true }));
+              syncTrigger();
+              setOpen(false);
+            });
+          });
+        }
+
+        trigger.addEventListener("click", function(evt) {
+          evt.stopPropagation();
+          if (wrapper.classList.contains("open")) {
+            setOpen(false);
+            return;
+          }
+          viewMonth = input.value ? new Date(input.value + "T00:00:00") : new Date();
+          viewMonth = new Date(viewMonth.getFullYear(), viewMonth.getMonth(), 1);
+          var rect = trigger.getBoundingClientRect();
+          popup.style.left = rect.left + "px";
+          popup.style.top = (rect.bottom + 4) + "px";
+          setOpen(true);
+        });
+
+        trigger.addEventListener("keydown", function(evt) {
+          if (evt.key === "Escape") setOpen(false);
+        });
+
+        wrapper.addEventListener("focusout", function(evt) {
+          if (!wrapper.contains(evt.relatedTarget)) setOpen(false);
+        });
+
+        syncTrigger();
+      });
+    }
+
+    document.addEventListener("click", function(evt) {
+      Array.prototype.forEach.call(document.querySelectorAll(".custom-date.open"), function(w) {
+        if (!w.contains(evt.target) && w._setOpen) w._setOpen(false);
+      });
+    });
+
+    document.addEventListener("keydown", function(evt) {
+      if (evt.key === "Escape") {
+        Array.prototype.forEach.call(document.querySelectorAll(".custom-date.open"), function(w) {
+          if (w._setOpen) w._setOpen(false);
+        });
       }
+    });
+
+    window.addEventListener("scroll", function(evt) {
+      if (evt.target instanceof Element && evt.target.closest(".custom-date-popup")) return;
+      Array.prototype.forEach.call(document.querySelectorAll(".custom-date.open"), function(w) {
+        if (w._setOpen) w._setOpen(false);
+      });
+    }, true);
+
+    window.addEventListener("resize", function() {
+      Array.prototype.forEach.call(document.querySelectorAll(".custom-date.open"), function(w) {
+        if (w._setOpen) w._setOpen(false);
+      });
+    });
+
+    var HOUR_OPTIONS = Array.from({ length: 24 }, function(_, hour) {
+      var period = hour < 12 ? "AM" : "PM";
+      var displayHour = hour % 12 === 0 ? 12 : hour % 12;
+      return { hour: hour, label: displayHour + " " + period };
+    });
+
+    function populateHourSelect(select, hours, selectedHour) {
+      select.innerHTML = hours.map(function(h) { return '<option value="' + h.hour + '">' + h.label + "</option>"; }).join("");
+      select.value = String(selectedHour);
+      if (select._refreshCustomSelect) select._refreshCustomSelect();
+    }
+
+    function syncRangeConstraints() {
+      var fromDateInput = document.getElementById("rangeFromDate");
+      var toDateInput = document.getElementById("rangeToDate");
+      var fromHourSelect = document.getElementById("rangeFromHour");
+      var toHourSelect = document.getElementById("rangeToHour");
+
+      if (fromDateInput.value) toDateInput.min = fromDateInput.value;
+      if (toDateInput.value) fromDateInput.max = toDateInput.value;
+      if (fromDateInput.value && toDateInput.value && toDateInput.value < fromDateInput.value) {
+        toDateInput.value = fromDateInput.value;
+      }
+      if (fromDateInput._refreshCustomDate) fromDateInput._refreshCustomDate();
+      if (toDateInput._refreshCustomDate) toDateInput._refreshCustomDate();
+
+      var sameDay = Boolean(fromDateInput.value) && fromDateInput.value === toDateInput.value;
+      var currentFromHour = Number(fromHourSelect.value || 0);
+      var currentToHour = Number(toHourSelect.value || 23);
+
+      if (sameDay) {
+        var upperBound = Math.max(currentFromHour, currentToHour);
+        var lowerBound = Math.min(currentFromHour, currentToHour);
+        populateHourSelect(fromHourSelect, HOUR_OPTIONS.filter(function(h) { return h.hour <= upperBound; }), lowerBound);
+        populateHourSelect(toHourSelect, HOUR_OPTIONS.filter(function(h) { return h.hour >= lowerBound; }), upperBound);
+      } else {
+        populateHourSelect(fromHourSelect, HOUR_OPTIONS, currentFromHour);
+        populateHourSelect(toHourSelect, HOUR_OPTIONS, currentToHour);
+      }
+    }
+
+    function formatRangeLabel(from, to) {
+      var fmt = function(date) { return date.toLocaleDateString("en-GB", { day: "2-digit", month: "short" }); };
+      return fmt(from) + " – " + fmt(to);
+    }
+
+    function readRange() {
+      var fromDate = document.getElementById("rangeFromDate").value;
+      var fromHour = Number(document.getElementById("rangeFromHour").value);
+      var toDate = document.getElementById("rangeToDate").value;
+      var toHour = Number(document.getElementById("rangeToHour").value);
+
+      var from = new Date(fromDate + "T00:00:00");
+      from.setHours(fromHour, 0, 0, 0);
+
+      var to = new Date(toDate + "T00:00:00");
+      to.setHours(toHour, 59, 59, 999);
+
+      return { from: from, to: to };
+    }
+
+    function initTimeRangeControl() {
+      initCustomDateInputs(document);
+
+      var fromDateInput = document.getElementById("rangeFromDate");
+      var toDateInput = document.getElementById("rangeToDate");
+      var fromHourSelect = document.getElementById("rangeFromHour");
+      var toHourSelect = document.getElementById("rangeToHour");
+      var timeRangeButton = document.getElementById("timeRangeButton");
+      var timeRangePanel = document.getElementById("timeRangePanel");
+
+      var now = new Date();
+      populateHourSelect(fromHourSelect, HOUR_OPTIONS, 0);
+      populateHourSelect(toHourSelect, HOUR_OPTIONS, 23);
+      toDateInput.value = localDateKey(now);
+      var defaultFrom = new Date(now);
+      defaultFrom.setDate(defaultFrom.getDate() - 29);
+      fromDateInput.value = localDateKey(defaultFrom);
+      syncRangeConstraints();
+      document.getElementById("timeRangeButton").textContent = formatRangeLabel(fromDateInput.value ? new Date(fromDateInput.value + "T00:00:00") : now, now);
+
+      [fromDateInput, toDateInput, fromHourSelect, toHourSelect].forEach(function(input) {
+        input.addEventListener("change", syncRangeConstraints);
+      });
+
+      timeRangeButton.addEventListener("click", function(event) {
+        event.stopPropagation();
+        timeRangePanel.classList.toggle("open");
+      });
+
+      document.getElementById("applyRangeButton").addEventListener("click", function() {
+        timeRangePanel.classList.remove("open");
+        var personaId = document.getElementById("personaSelector").value;
+        if (personaId) loadPersonaAnalytics(personaId);
+      });
+
+      document.addEventListener("click", function(event) {
+        if (!event.target.closest(".time-range-control")) {
+          timeRangePanel.classList.remove("open");
+        }
+      });
+
+      document.addEventListener("keydown", function(event) {
+        if (event.key === "Escape") {
+          timeRangePanel.classList.remove("open");
+        }
+      });
     }
 
     // ── Configuration table ────────────────────────────────────────────────────
@@ -906,12 +1179,10 @@
         if (requestId === personaAnalyticsRequestId) loading.hidden = false;
       }, 300);
       try {
-        var range = readPersonaAnalyticsRange();
-        updateTrendChartTitle(
-          document.getElementById("personaRangeFromDate").value,
-          document.getElementById("personaRangeToDate").value
-        );
-        var data = await fetchAnalytics(personaId, range[0], range[1]);
+        var range = readRange();
+        document.getElementById("timeRangeButton").textContent = formatRangeLabel(range.from, range.to);
+        document.getElementById("trendChartTitle").textContent = "Sessions (" + formatRangeLabel(range.from, range.to) + ")";
+        var data = await fetchAnalytics(personaId, range.from.getTime() / 1000, range.to.getTime() / 1000);
         clearTimeout(loadingTimer);
         if (requestId !== personaAnalyticsRequestId) return;
         renderAnalytics(data);
@@ -932,9 +1203,7 @@
       loadPersonaAnalytics(evt.target.value);
     });
 
-    document.getElementById("personaRangeApplyButton").addEventListener("click", function() {
-      loadPersonaAnalytics(document.getElementById("personaSelector").value);
-    });
+    initTimeRangeControl();
 
     // ── Analytics rendering ────────────────────────────────────────────────────
     function renderAnalytics(data) {
