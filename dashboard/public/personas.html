@@ -1193,7 +1193,7 @@
       var highRisk = (riskCounts.critical || 0) + (riskCounts.high || 0);
       document.getElementById("metricHighRisk").textContent = highRisk;
       document.getElementById("metricTechniques").textContent = (data.top_techniques || []).length;
-      renderLineChart("trendChart", data.sessions_trend || [], function(d) { return d.date.slice(5); }, function(d) { return d.count; }, {
+      renderLineChart("trendChart", data.sessions_trend || [], function(d) { return formatDayMonth(d.date); }, function(d) { return d.count; }, {
         maxTicks: 8,
         rotateLabels: true,
         tooltipLabelFn: function(d) { return formatFullDate(d.date); }
@@ -1219,15 +1219,18 @@
     // problem: there's no label competing for space above each point.
     var LINE_CHART_WIDTH = 600;
 
-    var LINE_CHART_MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-
-    // "2026-08-04" -> "Aug 04, 2026" -- built manually (not
-    // toLocaleDateString) so the day always keeps its leading zero
-    // regardless of locale/browser formatting quirks.
+    // "2026-08-04" -> "04/08/2026" -- built manually (not
+    // toLocaleDateString) so the format is locale-independent and always
+    // dd/mm/yyyy, not the browser's local date convention.
     function formatFullDate(dateStr) {
       var parts = dateStr.split("-");
-      var month = LINE_CHART_MONTH_NAMES[Number(parts[1]) - 1] || parts[1];
-      return month + " " + parts[2] + ", " + parts[0];
+      return parts[2] + "/" + parts[1] + "/" + parts[0];
+    }
+
+    // "2026-08-04" -> "04/08" -- same dd/mm convention, for the axis tick.
+    function formatDayMonth(dateStr) {
+      var parts = dateStr.split("-");
+      return parts[2] + "/" + parts[1];
     }
 
     // 8 -> "08:00 – 09:00"
