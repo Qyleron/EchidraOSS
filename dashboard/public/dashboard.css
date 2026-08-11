@@ -1422,19 +1422,27 @@ a {
 .persona-analytics-header {
   display: flex;
   flex-wrap: wrap;
-  align-items: end;
+  align-items: center;
   gap: 8px 16px;
   padding: 18px 22px;
   border-bottom: 1px solid var(--line);
 }
 
 .persona-analytics-header .form-label {
-  display: block;
-  margin-bottom: 4px;
+  margin: 0;
 }
 
-.persona-analytics-header #personaSelector {
-  min-width: 260px;
+/* The native <select> is swapped for a .custom-select wrapper by
+   custom-select.js at runtime, so sizing the (now-hidden) native element
+   directly has no visible effect -- target the wrapper instead, same
+   pattern used for the filter dropdowns in .page-panel-filters. */
+.persona-analytics-header .custom-select {
+  flex: 0 1 280px;
+  min-width: 220px;
+}
+
+.persona-analytics-header .time-range-control {
+  margin-left: auto;
 }
 
 .analytics-placeholder {
