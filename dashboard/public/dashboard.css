@@ -865,20 +865,42 @@ a {
 
 /* Line/dot chart -- replaces .bar-chart for series with too many points
    (24 hours, 30 days) to render as fixed-min-width bar columns. Axis
-   labels are thinned to ~6-8 evenly spaced ticks (see LINE_CHART_MAX_TICKS
-   / opts.tickStep in renderLineChart) rather than shown for every point,
-   since dense date/hour strings touch each other well before that. */
+   labels are thinned to ~6-8 evenly spaced ticks (see opts.maxTicks /
+   opts.tickStep in renderLineChart) rather than shown for every point,
+   since dense date/hour strings touch each other well before that.
+
+   The plot (.line-chart-plot) and the axis row (.line-chart-axis) are
+   stacked as normal-flow flex children, NOT layered with position:
+   absolute -- a previous version absolutely-positioned the axis over the
+   bottom of the plot area, sized only by a fixed height, so growing that
+   height for rotated labels ate into the plotted line instead of
+   reserving its own space. Flex stacking makes the axis row's height
+   always additive: however tall it needs to be, the plot area just
+   shrinks to make room, and the two can never overlap. */
 .line-chart {
-  position: relative;
+  display: flex;
+  flex-direction: column;
   height: 190px;
-  padding: 10px 4px 22px;
+  padding: 10px 4px 6px;
 }
 
-/* Extra bottom room for the -45deg-rotated tick labels (Sessions trend
-   chart) so angled text has space to descend without clipping against
-   the card edge. */
-.line-chart-rotated {
-  padding-bottom: 34px;
+.line-chart-plot {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.line-chart-axis {
+  position: relative;
+  flex: 0 0 auto;
+  height: 16px;
+  margin-top: 4px;
+}
+
+/* Extra room for the -45deg-rotated tick labels (Sessions trend chart) --
+   additive now, so it can never bite into the plot above it. */
+.line-chart-axis-rotated {
+  height: 30px;
 }
 
 /* Peak Attack Hours -- drawn wider than its card (opts.scrollable) so the
@@ -892,7 +914,8 @@ a {
 }
 
 .line-chart-scroll {
-  position: relative;
+  display: flex;
+  flex-direction: column;
   height: 100%;
 }
 
@@ -928,16 +951,9 @@ a {
   fill: #f6691d;
 }
 
-.line-chart-axis {
-  position: absolute;
-  left: 4px;
-  right: 4px;
-  bottom: 2px;
-  height: 16px;
-}
-
 .line-chart-tick {
   position: absolute;
+  top: 0;
   transform: translateX(-50%);
   color: var(--subtle);
   font-size: 11px;
@@ -950,10 +966,6 @@ a {
 
 .line-chart-tick:last-child {
   transform: translateX(-100%);
-}
-
-.line-chart-axis-rotated {
-  height: 32px;
 }
 
 .line-chart-tick-rotated,
