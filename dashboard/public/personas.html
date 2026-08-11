@@ -1300,13 +1300,19 @@
         return '<span class="' + tickClass + '" style="left:' + pct + '%">' + escHtml(labels[i]) + '</span>';
       }).join("");
       var axisClass = "line-chart-axis" + (opts.rotateLabels ? " line-chart-axis-rotated" : "");
-      el.classList.toggle("line-chart-rotated", Boolean(opts.rotateLabels));
       el.classList.toggle("line-chart-scrollable", Boolean(opts.scrollable));
-      var chartMarkup = '<svg viewBox="0 0 ' + w + ' ' + h + '" preserveAspectRatio="none" class="line-chart-svg"' + (opts.scrollable ? ' style="width:' + w + 'px"' : '') + '>'
+      // .line-chart-plot and .line-chart-axis are stacked as normal-flow
+      // flex children (see dashboard.css) rather than layered with
+      // position:absolute -- that keeps the axis row's space strictly
+      // additive, so it can never overlap the plotted line above it no
+      // matter how tall rotated labels make it.
+      var chartMarkup = '<div class="line-chart-plot">'
+        + '<svg viewBox="0 0 ' + w + ' ' + h + '" preserveAspectRatio="none" class="line-chart-svg"' + (opts.scrollable ? ' style="width:' + w + 'px"' : '') + '>'
         + '<path class="line-chart-area" d="' + areaPath + '"></path>'
         + '<path class="line-chart-line" d="' + linePath + '"></path>'
         + dots
         + '</svg>'
+        + '</div>'
         + '<div class="' + axisClass + '">' + axisTicks + '</div>';
       // The scrollable variant needs a fixed-width wrapper so the SVG and
       // the percentage-positioned axis/tooltip share one unambiguous
@@ -1316,10 +1322,10 @@
       // stopped matching the SVG's own fixed w.
       if (opts.scrollable) {
         el.innerHTML = '<div class="line-chart-scroll" style="width:' + w + 'px">' + chartMarkup + '</div>';
-        attachLineChartTooltip(el.querySelector(".line-chart-scroll"), points, tooltipLabels, values, w, h);
+        attachLineChartTooltip(el.querySelector(".line-chart-plot"), points, tooltipLabels, values, w, h);
       } else {
         el.innerHTML = chartMarkup;
-        attachLineChartTooltip(el, points, tooltipLabels, values, w, h);
+        attachLineChartTooltip(el.querySelector(".line-chart-plot"), points, tooltipLabels, values, w, h);
       }
     }
 
