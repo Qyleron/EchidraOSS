@@ -1420,11 +1420,21 @@ a {
 
 /* ── Persona analytics layout ── */
 .persona-analytics-header {
-  display: grid;
-  gap: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 8px 16px;
   padding: 18px 22px;
   border-bottom: 1px solid var(--line);
-  max-width: 360px;
+}
+
+.persona-analytics-header .form-label {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.persona-analytics-header #personaSelector {
+  min-width: 260px;
 }
 
 .analytics-placeholder {

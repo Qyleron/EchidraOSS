@@ -119,6 +119,11 @@
             <select id="personaSelector" class="form-select">
               <option value="">Select a persona to view analytics&hellip;</option>
             </select>
+            <label for="personaRangeFromDate" class="form-label">From</label>
+            <input type="date" id="personaRangeFromDate" class="form-input" style="width: auto;" />
+            <label for="personaRangeToDate" class="form-label">To</label>
+            <input type="date" id="personaRangeToDate" class="form-input" style="width: auto;" />
+            <button id="personaRangeApplyButton" class="text-button" type="button">Apply</button>
           </div>
           <div id="analyticsContent" hidden>
             <div class="metric-grid" id="analyticsMetrics" style="padding: 22px 22px 0;">
@@ -137,7 +142,7 @@
             </div>
             <div class="persona-analytics-body">
               <div class="chart-card">
-                <div class="chart-card-header"><strong>Sessions (30 days)</strong></div>
+                <div class="chart-card-header"><strong id="trendChartTitle">Sessions (30 days)</strong></div>
                 <div class="chart-body">
                   <div class="line-chart" id="trendChart"></div>
                 </div>
@@ -230,10 +235,40 @@
       return r.json();
     }
 
-    async function fetchAnalytics(personaId) {
-      var r = await fetch("/persona-configs/" + encodeURIComponent(personaId) + "/analytics");
+    async function fetchAnalytics(personaId, fromTs, toTs) {
+      var url = "/persona-configs/" + encodeURIComponent(personaId) + "/analytics";
+      var qs = [];
+      if (fromTs != null) qs.push("from_ts=" + fromTs);
+      if (toTs != null) qs.push("to_ts=" + toTs);
+      if (qs.length) url += "?" + qs.join("&");
+      var r = await fetch(url);
       if (!r.ok) throw new Error("analytics " + r.status);
       return r.json();
+    }
+
+    // Reads the From/To date inputs and returns [fromTs, toTs] as Unix
+    // seconds (or null when a field is empty), matching the Analytics
+    // page's from_ts/to_ts convention. "To" is treated as end-of-day so a
+    // same-day range still includes that day's sessions.
+    function readPersonaAnalyticsRange() {
+      var fromVal = document.getElementById("personaRangeFromDate").value;
+      var toVal = document.getElementById("personaRangeToDate").value;
+      var fromTs = fromVal ? new Date(fromVal + "T00:00:00").getTime() / 1000 : null;
+      var toTs = toVal ? new Date(toVal + "T23:59:59").getTime() / 1000 : null;
+      return [fromTs, toTs];
+    }
+
+    // The trend chart title defaults to "Sessions (30 days)" to describe
+    // the backend's default window, but that becomes inaccurate once a
+    // custom range is applied -- swap in the actual dates so the label
+    // never lies about what's plotted.
+    function updateTrendChartTitle(fromVal, toVal) {
+      var title = document.getElementById("trendChartTitle");
+      if (!fromVal && !toVal) {
+        title.textContent = "Sessions (30 days)";
+      } else {
+        title.textContent = "Sessions (" + (fromVal || "start") + " to " + (toVal || "now") + ")";
+      }
     }
 
     // ── Configuration table ────────────────────────────────────────────────────
@@ -835,8 +870,7 @@
     // the DOM, regardless of which persona ids happen to match.
     var personaAnalyticsRequestId = 0;
 
-    document.getElementById("personaSelector").addEventListener("change", async function(evt) {
-      var personaId = evt.target.value;
+    async function loadPersonaAnalytics(personaId) {
       var requestId = ++personaAnalyticsRequestId;
       var content = document.getElementById("analyticsContent");
       var empty = document.getElementById("analyticsEmpty");
@@ -863,7 +897,12 @@
         if (requestId === personaAnalyticsRequestId) loading.hidden = false;
       }, 300);
       try {
-        var data = await fetchAnalytics(personaId);
+        var range = readPersonaAnalyticsRange();
+        updateTrendChartTitle(
+          document.getElementById("personaRangeFromDate").value,
+          document.getElementById("personaRangeToDate").value
+        );
+        var data = await fetchAnalytics(personaId, range[0], range[1]);
         clearTimeout(loadingTimer);
         if (requestId !== personaAnalyticsRequestId) return;
         renderAnalytics(data);
@@ -878,6 +917,14 @@
         empty.hidden = false;
         empty.textContent = "Could not load analytics: " + err.message;
       }
+    }
+
+    document.getElementById("personaSelector").addEventListener("change", function(evt) {
+      loadPersonaAnalytics(evt.target.value);
+    });
+
+    document.getElementById("personaRangeApplyButton").addEventListener("click", function() {
+      loadPersonaAnalytics(document.getElementById("personaSelector").value);
     });
 
     // ── Analytics rendering ────────────────────────────────────────────────────
