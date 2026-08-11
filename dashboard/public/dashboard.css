@@ -800,15 +800,11 @@ a {
   display: flex;
   align-items: end;
   gap: 10px;
-  min-height: 250px;
-  padding-top: 14px;
-}
-
-/* Peak Attack Hours runs 0-23 with no visual break, so the last bar (23)
-   otherwise sits flush against the card's edge -- a little breathing room
-   after it matches the padding the chart already has on every other side. */
-#hoursChart {
-  padding-right: 10px;
+  height: 250px;
+  /* Symmetric side padding so the first/last bar's value label -- which can be
+     wider than the bar itself (e.g. a 4-digit count) and is centered, not
+     clipped -- has room to overhang without touching the card border. */
+  padding: 14px 16px 0;
 }
 
 .bar-column {
@@ -816,8 +812,11 @@ a {
   align-content: end;
   flex: 1 1 0;
   gap: 8px;
-  min-width: 30px;
-  height: 220px;
+  min-width: 34px;
+  /* Match .bar-chart's own height (not a separate hardcoded value) so the
+     JS's height calc and this box always agree on how much vertical space
+     bars actually have. */
+  height: 100%;
 }
 
 .bar-value {

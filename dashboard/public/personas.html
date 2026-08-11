@@ -904,8 +904,15 @@
         return;
       }
       var max = Math.max.apply(null, items.map(countFn).concat([1]));
+      // Reserve space for the value label above the bar and the axis label
+      // below it (18px value + 8px gap + 8px gap + 14px axis label), so the
+      // scaled bar height never exceeds what .bar-column actually has left --
+      // using el.clientHeight instead of a hardcoded max keeps this correct
+      // even if the CSS height/padding changes later.
+      var reserved = 48;
+      var maxBarHeight = Math.max(20, el.clientHeight - reserved);
       el.innerHTML = items.map(function(item) {
-        var h = Math.round((countFn(item) / max) * 200);
+        var h = Math.round((countFn(item) / max) * maxBarHeight);
         return '<div class="bar-column">'
           + '<span class="bar-value">' + countFn(item) + '</span>'
           + '<div class="bar-fill" style="height:' + h + 'px;"></div>'
