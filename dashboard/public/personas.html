@@ -1296,7 +1296,10 @@
       // CSS border-radius circle positioned by percentage isn't subject
       // to that scale at all, so it's always round.
       var dotMarkers = points.map(function(p, i) {
-        return '<span class="line-chart-dot" data-index="' + i + '" style="left:' + ((p[0] / w) * 100).toFixed(2) + '%;top:' + ((p[1] / h) * 100).toFixed(2) + '%" title="' + escHtml(tooltipLabels[i]) + '\nSessions: ' + values[i] + '" tabindex="0"></span>';
+        // Native title tooltip only -- no custom JS-rendered tooltip
+        // alongside it, so there's exactly one tooltip on hover, not two
+        // competing/overlapping ones.
+        return '<span class="line-chart-dot" data-index="' + i + '" style="left:' + ((p[0] / w) * 100).toFixed(2) + '%;top:' + ((p[1] / h) * 100).toFixed(2) + '%" title="' + escHtml(tooltipLabels[i]) + ': ' + values[i] + ' sessions"></span>';
       }).join("");
       var tickStep = opts.tickStep || Math.max(1, Math.ceil(n / (opts.maxTicks || 8)));
       var tickClass = "line-chart-tick" + (opts.rotateLabels ? " line-chart-tick-rotated" : "");
@@ -1331,68 +1334,6 @@
       } else {
         el.innerHTML = chartMarkup;
       }
-      attachLineChartTooltip(el.querySelector(".line-chart-plot"), points, tooltipLabels, values, h);
-    }
-
-    // Custom hover tooltip -- the <title> element on each dot already gives
-    // a native, keyboard/screen-reader-reachable tooltip, but browsers
-    // delay showing it by ~1s and style it inconsistently. This mirrors
-    // that same label/value text in an immediately-visible themed tooltip
-    // on top, without removing the native fallback.
-    //
-    // Appended to document.body with position:fixed, positioned from the
-    // hovered dot's getBoundingClientRect() -- NOT appended inside the
-    // chart's own (possibly horizontally-scrolled) container. A tooltip
-    // living inside an overflow-x:scroll box gets clipped by that same
-    // box the moment it would render past the scrolled-out-of-view edge,
-    // and mutating that box's DOM on every hover was also nudging its
-    // scroll position. getBoundingClientRect is viewport-relative and
-    // already accounts for however far the chart is scrolled, so this
-    // sidesteps both problems at once.
-    function attachLineChartTooltip(container, points, labels, values, viewBoxH) {
-      var tooltip = null;
-      function show(i, evt) {
-        var dot = evt.target;
-        var rect = dot.getBoundingClientRect();
-        if (!tooltip) {
-          tooltip = document.createElement("div");
-          tooltip.className = "line-chart-tooltip";
-          document.body.appendChild(tooltip);
-        }
-        // Two stacked lines -- the label (date or hour range) above,
-        // "Sessions: N" below -- rather than one run-on string.
-        tooltip.innerHTML = '<div>' + escHtml(labels[i]) + '</div><div>Sessions: ' + values[i] + '</div>';
-        tooltip.style.left = (rect.left + rect.width / 2) + "px";
-        tooltip.style.top = (rect.top + rect.height / 2) + "px";
-        // A point in the top 20% of the Y range has no room above it for
-        // the tooltip's default above-point placement -- it would clip
-        // against (or spill out of) the card's top edge. Flip it below
-        // the point instead for just those high-value dots.
-        tooltip.classList.toggle("line-chart-tooltip-below", points[i][1] <= viewBoxH * 0.2);
-        dot.classList.add("is-active");
-      }
-      function hide(evt) {
-        if (tooltip) tooltip.remove();
-        tooltip = null;
-        evt.target.classList.remove("is-active");
-      }
-      Array.prototype.forEach.call(container.querySelectorAll(".line-chart-dot"), function(dot) {
-        var i = Number(dot.getAttribute("data-index"));
-        dot.addEventListener("mouseenter", function(evt) { show(i, evt); });
-        dot.addEventListener("mouseleave", hide);
-        dot.addEventListener("focus", function(evt) { show(i, evt); });
-        dot.addEventListener("blur", hide);
-      });
-      // A fixed-position tooltip doesn't move with the chart if the user
-      // scrolls it (e.g. the horizontally-scrollable hours chart) while
-      // hovering -- drop it rather than let it visually detach from its
-      // dot. Listening on window with capture:true catches the scroll
-      // event on its way down to the actual scrolling element (.line-
-      // chart, an ancestor of `container` here) regardless of whether
-      // that element's own "scroll" event bubbles back up.
-      window.addEventListener("scroll", function() {
-        if (tooltip) { tooltip.remove(); tooltip = null; }
-      }, true);
     }
 
     function renderRankList(id, counts) {
