@@ -1199,7 +1199,7 @@
         tooltipLabelFn: function(d) { return formatFullDate(d.date); }
       });
       renderLineChart("hoursChart", data.peak_hours || [], function(d) { return String(d.hour).padStart(2, "0"); }, function(d) { return d.count; }, {
-        tickStep: 3,
+        tickStep: 1,
         scrollable: true,
         tooltipLabelFn: function(d) { return formatHourRange(d.hour); }
       });
@@ -1287,10 +1287,16 @@
       // label when the caller doesn't supply one.
       var tooltipLabelFn = opts.tooltipLabelFn || labelFn;
       var tooltipLabels = items.map(function(item) { return String(tooltipLabelFn(item)); });
-      var dots = points.map(function(p, i) {
-        return '<circle class="line-chart-dot" data-index="' + i + '" cx="' + p[0].toFixed(1) + '" cy="' + p[1].toFixed(1) + '" r="3">'
-          + '<title>' + escHtml(tooltipLabels[i]) + '\nSessions: ' + values[i] + '</title>'
-          + '</circle>';
+      // Dots are absolutely-positioned HTML elements laid over the SVG,
+      // not <circle> elements inside it -- the SVG's own preserveAspect
+      // Ratio="none" stretch (needed so the line/area paths fill the
+      // card regardless of its aspect ratio) scales an SVG circle's x
+      // and y radii independently whenever the chart is wider than it
+      // is tall, rendering it as an oval instead of a circle. A plain
+      // CSS border-radius circle positioned by percentage isn't subject
+      // to that scale at all, so it's always round.
+      var dotMarkers = points.map(function(p, i) {
+        return '<span class="line-chart-dot" data-index="' + i + '" style="left:' + ((p[0] / w) * 100).toFixed(2) + '%;top:' + ((p[1] / h) * 100).toFixed(2) + '%" title="' + escHtml(tooltipLabels[i]) + '\nSessions: ' + values[i] + '" tabindex="0"></span>';
       }).join("");
       var tickStep = opts.tickStep || Math.max(1, Math.ceil(n / (opts.maxTicks || 8)));
       var tickClass = "line-chart-tick" + (opts.rotateLabels ? " line-chart-tick-rotated" : "");
@@ -1310,8 +1316,8 @@
         + '<svg viewBox="0 0 ' + w + ' ' + h + '" preserveAspectRatio="none" class="line-chart-svg"' + (opts.scrollable ? ' style="width:' + w + 'px"' : '') + '>'
         + '<path class="line-chart-area" d="' + areaPath + '"></path>'
         + '<path class="line-chart-line" d="' + linePath + '"></path>'
-        + dots
         + '</svg>'
+        + dotMarkers
         + '</div>'
         + '<div class="' + axisClass + '">' + axisTicks + '</div>';
       // The scrollable variant needs a fixed-width wrapper so the SVG and
