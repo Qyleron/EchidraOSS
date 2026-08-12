@@ -11,7 +11,7 @@ real attacker behavior, classifies it against MITRE ATT&CK techniques, and
 surfaces the result in a web dashboard — without ever executing real commands
 or exposing real data.
 
-**[Docs & full setup guide](https://qyleron.com/setup-and-onboarding/) · [Dashboard guide](https://qyleron.com/console-guide/)**
+**[Docs & full setup guide](https://qyleron.com/setup-and-onboarding/) · [Console guide](https://qyleron.com/console-guide/)**
 
 ---
 
@@ -33,7 +33,7 @@ if PostgreSQL isn't configured — for review in the dashboard.
 - **Storage & API** — PostgreSQL schema for sessions/events/classifier runs, always mirrored to `logs/sessions.jsonl`; FastAPI backend serves the classifier endpoints and dashboard
 - **Dashboard** — Intelligence (recurring issues + fixes), Sessions, Analytics, Personas, and Alerts (email/Slack)
 
-See the [Dashboard guide](https://qyleron.com/console-guide/) for a full field-by-field reference.
+See the [Console guide](https://qyleron.com/console-guide/) for a full field-by-field reference.
 
 ## Quick Start
 
