@@ -943,17 +943,27 @@ a {
   vector-effect: non-scaling-stroke;
 }
 
+/* A plain HTML/CSS circle (not an SVG <circle>) positioned by percentage
+   over .line-chart-plot -- the SVG beneath it uses preserveAspectRatio=
+   "none" so its line/area paths always fill the card regardless of
+   aspect ratio, but that same stretch scales an SVG circle's x/y radii
+   independently on any chart wider than it is tall, rendering it as an
+   oval. A CSS border-radius circle is immune to that scale; it's always
+   round no matter how the SVG underneath it is stretched. */
 .line-chart-dot {
-  fill: var(--surface);
-  stroke: #f6691d;
-  stroke-width: 2;
-  vector-effect: non-scaling-stroke;
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: var(--surface);
+  border: 2px solid #f6691d;
   cursor: pointer;
 }
 
 .line-chart-dot:hover,
 .line-chart-dot.is-active {
-  fill: #f6691d;
+  background: #f6691d;
 }
 
 .line-chart-tick {
