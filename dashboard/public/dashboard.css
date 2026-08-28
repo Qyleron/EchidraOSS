@@ -608,16 +608,33 @@ a {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: 4px;
   min-width: 30px;
   border: 0;
   border-radius: 999px;
-  padding: 4px 12px;
+  padding: 4px 10px 4px 12px;
   color: #000000;
   background: var(--text);
   font-weight: 680;
   text-decoration: none;
   box-shadow: 0 4px 12px rgba(255, 255, 255, 0.1);
   transition: background 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+/* The number alone reads as a static count, not a link -- this arrow is
+   the "goes somewhere" cue, and nudging it right on hover (independent of
+   the whole pill's own lift below) reinforces that it's navigating you
+   forward, not just a hover state on a badge. */
+.session-count-link-arrow {
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+  transition: transform 0.15s ease;
+}
+
+.session-count-link:hover .session-count-link-arrow,
+.session-count-link:focus-visible .session-count-link-arrow {
+  transform: translateX(2px);
 }
 
 .session-count-link:hover,
