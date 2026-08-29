@@ -709,7 +709,7 @@ a {
 .detail-block {
   display: grid;
   align-content: start;
-  gap: 12px;
+  gap: 16px;
   min-width: 0;
 }
 
@@ -1993,7 +1993,6 @@ a {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 18px 16px;
-  margin-top: 4px;
 }
 
 .session-inspector-meta-item {
@@ -2031,7 +2030,7 @@ a {
 }
 
 .inspector-note {
-  margin: 10px 0 0;
+  margin: 0;
   color: var(--muted);
   font-size: 13px;
 }
