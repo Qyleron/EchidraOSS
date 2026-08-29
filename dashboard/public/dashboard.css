@@ -709,7 +709,7 @@ a {
 .detail-block {
   display: grid;
   align-content: start;
-  gap: 16px;
+  gap: 22px;
   min-width: 0;
 }
 
