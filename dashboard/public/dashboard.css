@@ -2044,6 +2044,16 @@ a {
   text-transform: uppercase;
 }
 
+/* Sits alone in the footer in place of the "View in Intelligence" pill it
+   replaces when a session has none -- a plain .inspector-note reads as too
+   quiet standing in for what's normally a bold, high-contrast button. */
+.session-footer-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 600;
+}
+
 /* ── Alert page styles ── */
 .alert-config-form {
   display: grid;
