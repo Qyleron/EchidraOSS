@@ -709,7 +709,7 @@ a {
 .detail-block {
   display: grid;
   align-content: start;
-  gap: 10px;
+  gap: 12px;
   min-width: 0;
 }
 
@@ -1966,14 +1966,20 @@ a {
   padding: 20px 22px 28px;
   display: grid;
   align-content: start;
-  gap: 28px;
+  gap: 34px;
 }
 
 /* Sticky action bar: sits outside the scrolling body (as a flex sibling of
    it, not inside it), so it's a fixed part of the panel chrome, like the
    header, rather than content that scrolls out of view. Empty and
-   collapses to nothing when an issue has no actor to link sessions for. */
+   collapses to nothing when an issue/session has no linked action yet.
+   Stacks as a column since the Session Inspector variant can hold more
+   than one "View in Intelligence" pill (a session can match several
+   issues), each rendered full-width via .detail-sessions-link. */
 .session-inspector-footer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
   flex-shrink: 0;
   padding: 14px 22px;
   border-top: 1px solid var(--line);
@@ -2025,37 +2031,18 @@ a {
 }
 
 .inspector-note {
-  margin: 8px 0 0;
+  margin: 10px 0 0;
   color: var(--muted);
   font-size: 13px;
 }
 
-.session-inspector-linked-issues {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 4px;
-}
-
-.badge-linked-issue {
-  display: inline-flex;
-  align-items: center;
-  border: 0;
-  border-radius: 6px;
-  padding: 8px 16px;
-  color: #000000;
-  background: var(--text);
-  font-size: 13px;
-  font-weight: 680;
-  text-decoration: none;
-  box-shadow: 0 6px 18px rgba(255, 255, 255, 0.12);
-  transition: background 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
-}
-
-.badge-linked-issue:hover {
-  background: #eeeeee;
-  transform: translateY(-1px);
-  box-shadow: 0 8px 22px rgba(255, 255, 255, 0.18);
+/* insufficient_data_reason (classifier/scoring/session.py) is written
+   lowercase-first in the backend, and existing tests assert its exact
+   string. Capitalizing only the rendered first letter fixes the display
+   without touching that backend string or the tests that pin it. */
+.inspector-note::first-letter,
+.evidence-summary::first-letter {
+  text-transform: uppercase;
 }
 
 /* ── Alert page styles ── */

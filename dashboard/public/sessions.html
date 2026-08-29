@@ -52,6 +52,7 @@
         <button class="modal-close modal-close-danger" id="sessionInspectorCloseBtn" type="button" aria-label="Close">&times;</button>
       </div>
       <div class="session-inspector-body" id="sessionInspectorBody"></div>
+      <div class="session-inspector-footer" id="sessionInspectorFooter"></div>
     </aside>
 
     <main class="dashboard-main">
@@ -568,6 +569,7 @@
     const sessionInspector = document.getElementById("sessionInspector");
     const sessionInspectorBackdrop = document.getElementById("sessionInspectorBackdrop");
     const sessionInspectorBody = document.getElementById("sessionInspectorBody");
+    const sessionInspectorFooter = document.getElementById("sessionInspectorFooter");
     // Tracks which session the drawer is currently showing, so a background
     // refresh's async command-list fetch can tell it was closed/switched
     // away from before overwriting a now-stale or unrelated panel.
@@ -673,7 +675,6 @@
             <div class="session-inspector-meta-item"><span>Classification</span><strong>${escHtml(classificationLabel)}</strong></div>
           </div>
           ${session.insufficientDataReason ? `<p class="inspector-note">${escHtml(session.insufficientDataReason)}</p>` : ""}
-          <div class="session-inspector-linked-issues" id="${session.id}-linked-issues"></div>
         </section>
         ${session.evidence ? `
         <section class="detail-block" aria-label="Evidence">
@@ -690,6 +691,8 @@
           </div>
         </section>
       `;
+
+      sessionInspectorFooter.innerHTML = "";
 
       showSessionInspector();
 
@@ -718,11 +721,9 @@
       (async () => {
         try {
           const linkedIssues = await fetchJSON(`/sessions/${session.sessionId}/issues`);
-          if (inspectorSessionId !== sessionId) return;
-          const container = document.getElementById(`${session.id}-linked-issues`);
-          if (!container) return;
-          container.innerHTML = linkedIssues
-            .map((linkedIssue) => `<a class="badge-linked-issue" href="/dashboard/intelligence?issue=${encodeURIComponent(linkedIssue.id)}" title="${escHtml(linkedIssue.title)}" aria-label="View in Intelligence: ${escHtml(linkedIssue.title)}">View in Intelligence <span aria-hidden="true">&rarr;</span></a>`)
+          if (inspectorSessionId !== sessionId) return; // closed/switched before the fetch resolved
+          sessionInspectorFooter.innerHTML = linkedIssues
+            .map((linkedIssue) => `<a class="detail-sessions-link" href="/dashboard/intelligence?issue=${encodeURIComponent(linkedIssue.id)}" title="${escHtml(linkedIssue.title)}" aria-label="View in Intelligence: ${escHtml(linkedIssue.title)}">View in Intelligence<svg class="session-count-link-arrow" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3l5 5-5 5"/></svg></a>`)
             .join("");
         } catch (error) {
           console.error(error);
