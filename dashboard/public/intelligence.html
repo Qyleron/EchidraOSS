@@ -52,6 +52,7 @@
         <button class="modal-close modal-close-danger" id="issueInspectorCloseBtn" type="button" aria-label="Close">&times;</button>
       </div>
       <div class="session-inspector-body" id="issueInspectorBody"></div>
+      <div class="session-inspector-footer" id="issueInspectorFooter"></div>
     </aside>
 
     <main class="dashboard-main">
@@ -171,11 +172,7 @@
               ${(issue.mitre || []).map((technique) => `<li>${escHtml(technique.id)} - ${escHtml(technique.name)}</li>`).join("")}
             </ul>
           </td>
-          <td>${
-            issue.actor_label
-              ? `<a href="/dashboard/sessions?actor=${encodeURIComponent(issue.actor_label)}" class="session-count-link" title="View this actor's sessions">${escHtml(issue.session_count)}<svg class="session-count-link-arrow" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3l5 5-5 5"/></svg></a>`
-              : escHtml(issue.session_count)
-          }</td>
+          <td>${escHtml(issue.session_count)}</td>
           <td class="cell-truncate" title="${escAttr(issue.recommended_fix)}">${escHtml(issue.recommended_fix)}</td>
           <td>
             <button
@@ -228,6 +225,7 @@
     const issueInspector = document.getElementById("issueInspector");
     const issueInspectorBackdrop = document.getElementById("issueInspectorBackdrop");
     const issueInspectorBody = document.getElementById("issueInspectorBody");
+    const issueInspectorFooter = document.getElementById("issueInspectorFooter");
     let lastFocusedIssueTrigger = null;
     let issueHideTimeoutId = null;
 
@@ -310,6 +308,10 @@
           <p>${escHtml(issue.impact)}</p>
         </section>
       `;
+
+      issueInspectorFooter.innerHTML = issue.actor_label
+        ? `<a href="/dashboard/sessions?actor=${encodeURIComponent(issue.actor_label)}" class="detail-sessions-link">View Sessions<svg class="session-count-link-arrow" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3l5 5-5 5"/></svg></a>`
+        : "";
 
       showIssueInspector();
     }
@@ -407,9 +409,6 @@
       const statusButton = event.target.closest(".status-toggle");
       if (statusButton) {
         handleStatusToggle(statusButton);
-        return;
-      }
-      if (event.target.closest(".session-count-link")) {
         return;
       }
       const row = event.target.closest("[data-issue-row]");

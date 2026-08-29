@@ -600,53 +600,12 @@ a {
   border-bottom: 0;
 }
 
-/* Sits inline inside a table cell alongside plain (non-interactive) text,
-   so it needs its own deliberate signal that it's clickable -- unstyled,
-   it inherits plain body text color with only the browser's default link
-   underline, which reads as decorative rather than an affordance. */
-.session-count-link {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  min-width: 30px;
-  border: 0;
-  border-radius: 999px;
-  padding: 4px 10px 4px 12px;
-  color: #000000;
-  background: var(--text);
-  font-weight: 680;
-  text-decoration: none;
-  box-shadow: 0 4px 12px rgba(255, 255, 255, 0.1);
-  transition: background 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
-}
-
-/* The number alone reads as a static count, not a link -- this arrow is
-   the "goes somewhere" cue, and nudging it right on hover (independent of
-   the whole pill's own lift below) reinforces that it's navigating you
-   forward, not just a hover state on a badge. */
+/* Shared "goes somewhere" arrow, used inside .detail-sessions-link. */
 .session-count-link-arrow {
   width: 12px;
   height: 12px;
   flex-shrink: 0;
   transition: transform 0.15s ease;
-}
-
-.session-count-link:hover .session-count-link-arrow,
-.session-count-link:focus-visible .session-count-link-arrow {
-  transform: translateX(2px);
-}
-
-.session-count-link:hover,
-.session-count-link:focus-visible {
-  background: #eeeeee;
-  transform: translateY(-1px);
-  box-shadow: 0 6px 16px rgba(255, 255, 255, 0.16);
-}
-
-.session-count-link:active {
-  transform: translateY(1px);
-  box-shadow: 0 2px 6px rgba(255, 255, 255, 0.1);
 }
 
 .cell-primary {
@@ -706,6 +665,45 @@ a {
 
 .actor-badge.human::before {
   background: var(--low);
+}
+
+/* Lives in the panel's sticky footer rather than inline after Impact, so
+   it stays reachable without scrolling regardless of how long the Evidence
+   text runs -- it's the action the whole panel builds toward, not just
+   another list item in it. */
+.detail-sessions-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  border: 0;
+  border-radius: 999px;
+  padding: 10px 16px;
+  color: #000000;
+  background: var(--text);
+  font-weight: 680;
+  font-size: 13px;
+  text-decoration: none;
+  box-shadow: 0 4px 12px rgba(255, 255, 255, 0.1);
+  transition: background 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.detail-sessions-link:hover,
+.detail-sessions-link:focus-visible {
+  background: #eeeeee;
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(255, 255, 255, 0.16);
+}
+
+.detail-sessions-link:active {
+  transform: translateY(1px);
+  box-shadow: 0 2px 6px rgba(255, 255, 255, 0.1);
+}
+
+.detail-sessions-link:hover .session-count-link-arrow,
+.detail-sessions-link:focus-visible .session-count-link-arrow {
+  transform: translateX(2px);
 }
 
 .detail-block {
@@ -1967,7 +1965,22 @@ a {
   flex: 1;
   padding: 20px 22px 28px;
   display: grid;
+  align-content: start;
   gap: 28px;
+}
+
+/* Sticky action bar: sits outside the scrolling body (as a flex sibling of
+   it, not inside it), so it's a fixed part of the panel chrome, like the
+   header, rather than content that scrolls out of view. Empty and
+   collapses to nothing when an issue has no actor to link sessions for. */
+.session-inspector-footer {
+  flex-shrink: 0;
+  padding: 14px 22px;
+  border-top: 1px solid var(--line);
+}
+
+.session-inspector-footer:empty {
+  display: none;
 }
 
 .session-inspector-meta {
