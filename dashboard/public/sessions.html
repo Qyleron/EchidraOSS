@@ -731,7 +731,7 @@
             // catch branch below must NOT show this text: a failed fetch
             // means "unknown," and asserting "no issue" there would be a
             // false claim, not just an empty footer.
-            : `<p class="inspector-note">No related Intelligence issue for this session.</p>`;
+            : `<p class="session-footer-note">No related Intelligence issue for this session.</p>`;
         } catch (error) {
           console.error(error);
           // Silent otherwise -- this is a supplementary cross-link, not
