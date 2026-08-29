@@ -722,9 +722,16 @@
         try {
           const linkedIssues = await fetchJSON(`/sessions/${session.sessionId}/issues`);
           if (inspectorSessionId !== sessionId) return; // closed/switched before the fetch resolved
-          sessionInspectorFooter.innerHTML = linkedIssues
-            .map((linkedIssue) => `<a class="detail-sessions-link" href="/dashboard/intelligence?issue=${encodeURIComponent(linkedIssue.id)}" title="${escHtml(linkedIssue.title)}" aria-label="View in Intelligence: ${escHtml(linkedIssue.title)}">View in Intelligence<svg class="session-count-link-arrow" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3l5 5-5 5"/></svg></a>`)
-            .join("");
+          sessionInspectorFooter.innerHTML = linkedIssues.length
+            ? linkedIssues
+                .map((linkedIssue) => `<a class="detail-sessions-link" href="/dashboard/intelligence?issue=${encodeURIComponent(linkedIssue.id)}" title="${escHtml(linkedIssue.title)}" aria-label="View in Intelligence: ${escHtml(linkedIssue.title)}">View in Intelligence<svg class="session-count-link-arrow" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3l5 5-5 5"/></svg></a>`)
+                .join("")
+            // Confirmed empty, not unresolved -- the fetch succeeded and
+            // genuinely returned nothing, so it's safe to assert this. The
+            // catch branch below must NOT show this text: a failed fetch
+            // means "unknown," and asserting "no issue" there would be a
+            // false claim, not just an empty footer.
+            : `<p class="inspector-note">No related Intelligence issue for this session.</p>`;
         } catch (error) {
           console.error(error);
           // Silent otherwise -- this is a supplementary cross-link, not
