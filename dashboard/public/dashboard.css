@@ -762,7 +762,7 @@ a {
 
 .evidence-samples {
   display: grid;
-  gap: 6px;
+  gap: 10px;
   margin: 0;
   padding: 0;
   list-style: none;
@@ -770,7 +770,7 @@ a {
 
 .evidence-samples li {
   overflow-wrap: anywhere;
-  border: 1px solid var(--line);
+  border: 1px solid var(--border-strong);
   border-radius: 5px;
   padding: 7px 9px;
   color: #d7d7d7;
