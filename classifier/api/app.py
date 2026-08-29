@@ -1137,17 +1137,6 @@ def _classify_or_http_error(
         )
 
 
-_RISK_LEVEL_ORDER = ("critical", "high", "medium", "low", "none")
-
-
-def _risk_meets_threshold(risk_level: str, min_risk_level: str) -> bool:
-    """Return True when risk_level is at or above min_risk_level in severity."""
-    try:
-        return _RISK_LEVEL_ORDER.index(risk_level) <= _RISK_LEVEL_ORDER.index(min_risk_level)
-    except ValueError:
-        return False
-
-
 def _dispatch_test_email(config: AlertConfigRecord) -> str | None:
     """Send a test email using the current alert config. Returns error or None."""
     recipient = config.smtp_from_email or ""
