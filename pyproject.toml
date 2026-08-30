@@ -23,13 +23,13 @@ classifiers = [
 ]
 requires-python = ">=3.11"
 dependencies = [
-    "pydantic==1.10.13",
+    "pydantic==2.13.5",
     "psycopg[binary]==3.2.3",
     "python-dotenv==1.2.2",
     "PyYAML==6.0",
     "typing_extensions==4.15.0",
-    "fastapi==0.125.0",
-    "starlette==0.50.0",
+    "fastapi==0.141.1",
+    "starlette==1.6.0",
     "uvicorn==0.21.0",
     "geoip2fast==1.2.2",
     "cryptography>=42.0.0,<50.0.0",

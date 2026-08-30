@@ -7,7 +7,7 @@ from functools import lru_cache
 from pathlib import Path
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 DEFAULT_MITRE_CATALOG_PATH = Path(__file__).with_name("mitre_technique_names.json")
@@ -20,8 +20,7 @@ class IssueFixEntry(BaseModel):
     recommended_fix: str = Field(min_length=1)
     impact: str = Field(min_length=1)
 
-    class Config:
-        extra = "forbid"
+    model_config = ConfigDict(extra="forbid")
 
 
 class IssuePlaybook(BaseModel):
@@ -31,8 +30,7 @@ class IssuePlaybook(BaseModel):
     actor_label_names: dict[str, str] = Field(default_factory=dict)
     fixes: dict[str, dict[str, IssueFixEntry]] = Field(default_factory=dict)
 
-    class Config:
-        extra = "forbid"
+    model_config = ConfigDict(extra="forbid")
 
     def fix_for(self, actor_label: str, mitre_tag: str) -> IssueFixEntry | None:
         """Return the curated fix for this pair, if one has been written."""
@@ -47,7 +45,7 @@ def load_issue_playbook(path: str | Path) -> IssuePlaybook:
     """Load and validate the issue playbook YAML document."""
     with open(path, encoding="utf-8") as handle:
         raw = yaml.safe_load(handle) or {}
-    return IssuePlaybook.parse_obj(raw)
+    return IssuePlaybook.model_validate(raw)
 
 
 @lru_cache(maxsize=8)

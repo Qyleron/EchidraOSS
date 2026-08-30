@@ -59,7 +59,7 @@ def _maybe_send_alert(
         return
     try:
         if isinstance(session, dict):
-            session = SessionRecord.parse_obj(session)
+            session = SessionRecord.model_validate(session)
         repository = PostgresClassifierRepository()
         config = repository.get_alert_config()
         if config is None or not config.enabled:

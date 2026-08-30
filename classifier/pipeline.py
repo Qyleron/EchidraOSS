@@ -74,7 +74,7 @@ def classify_session_record(
     Raises pydantic.ValidationError when the record does not match the canonical
     session schema.
     """
-    session = SessionRecord.parse_obj(record)
+    session = SessionRecord.model_validate(record)
     return classify_session(session, rules)
 
 

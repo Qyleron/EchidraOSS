@@ -10,7 +10,7 @@ from functools import lru_cache
 from pathlib import Path
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from classifier.rules.issue_playbook import load_mitre_technique_catalog
 
@@ -31,8 +31,7 @@ class _RawPlaybookEntry(BaseModel):
     recommended_fix: str = Field(min_length=1)
     impact: str = Field(min_length=1)
 
-    class Config:
-        extra = "forbid"
+    model_config = ConfigDict(extra="forbid")
 
 
 class PlaybookEntry(BaseModel):
@@ -44,8 +43,7 @@ class PlaybookEntry(BaseModel):
     impact: str
     is_fallback: bool
 
-    class Config:
-        extra = "forbid"
+    model_config = ConfigDict(extra="forbid")
 
 
 @lru_cache(maxsize=1)
@@ -56,7 +54,7 @@ def load_technique_playbook(
     with open(path, encoding="utf-8") as handle:
         raw = yaml.safe_load(handle) or {}
     return {
-        technique_id: _RawPlaybookEntry.parse_obj(entry)
+        technique_id: _RawPlaybookEntry.model_validate(entry)
         for technique_id, entry in raw.items()
     }
 
