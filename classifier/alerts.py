@@ -4,6 +4,7 @@ import json
 import logging
 import smtplib
 import ssl
+import urllib.parse
 import urllib.request
 
 from classifier.schemas.session import SessionRecord
@@ -254,7 +255,8 @@ def _slack_post(webhook_url: str, text: str) -> str | None:
     # at save time (classifier/storage/models.py); this is defense in depth
     # for that path and the actual enforcement point for the test endpoint,
     # which takes a webhook URL directly rather than a saved config.
-    if not webhook_url.startswith("https://hooks.slack.com/"):
+    parsed = urllib.parse.urlsplit(webhook_url)
+    if parsed.scheme != "https" or parsed.hostname != "hooks.slack.com":
         return "slack_webhook must be an https://hooks.slack.com/ URL"
     request = urllib.request.Request(
         webhook_url,
