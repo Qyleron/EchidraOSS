@@ -3,7 +3,7 @@ from pathlib import PurePosixPath
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field, IPvAnyAddress, root_validator, validator
+from pydantic import BaseModel, ConfigDict, Field, IPvAnyAddress, field_validator, model_validator
 
 
 def _reject_non_finite(value: float | None) -> float | None:
@@ -24,10 +24,12 @@ class CommandEvent(BaseModel):
     cmd: str = Field(min_length=1)
     timestamp: float
 
-    _validate_timestamp = validator("timestamp", allow_reuse=True)(_reject_non_finite)
+    @field_validator("timestamp")
+    @classmethod
+    def _validate_timestamp(cls, value: float | None) -> float | None:
+        return _reject_non_finite(value)
 
-    class Config:
-        extra = "forbid"
+    model_config = ConfigDict(extra="forbid")
 
 
 class SessionRecord(BaseModel):
@@ -49,22 +51,22 @@ class SessionRecord(BaseModel):
     commands: list[CommandEvent]
     decoy_files_surfaced: list[str] = Field(default_factory=list)
 
-    _validate_finite = validator(
-        "latitude", "longitude", "started_at", "ended_at", "duration_seconds",
-        allow_reuse=True,
-    )(_reject_non_finite)
+    @field_validator("latitude", "longitude", "started_at", "ended_at", "duration_seconds")
+    @classmethod
+    def _validate_finite(cls, value: float | None) -> float | None:
+        return _reject_non_finite(value)
 
-    @root_validator
-    def validate_session_consistency(cls, values):
+    @model_validator(mode="after")
+    def validate_session_consistency(self) -> "SessionRecord":
         """Reject records whose summary fields disagree with their events."""
-        started_at = values.get("started_at")
-        ended_at = values.get("ended_at")
-        duration_seconds = values.get("duration_seconds")
-        commands = values.get("commands")
-        command_count = values.get("command_count")
-        decoy_files_surfaced = values.get("decoy_files_surfaced")
-        latitude = values.get("latitude")
-        longitude = values.get("longitude")
+        started_at = self.started_at
+        ended_at = self.ended_at
+        duration_seconds = self.duration_seconds
+        commands = self.commands
+        command_count = self.command_count
+        decoy_files_surfaced = self.decoy_files_surfaced
+        latitude = self.latitude
+        longitude = self.longitude
 
         if (latitude is None) != (longitude is None):
             raise ValueError("latitude and longitude must be provided together")
@@ -107,7 +109,6 @@ class SessionRecord(BaseModel):
                         "decoy_files_surfaced must contain safe absolute paths"
                     )
 
-        return values
+        return self
 
-    class Config:
-        extra = "forbid"
+    model_config = ConfigDict(extra="forbid")

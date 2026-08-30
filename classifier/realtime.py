@@ -68,4 +68,4 @@ class LiveSessionClassifier:
                 logger.exception("Live classification failed for session %s", self.session.session_id)
 
     def _snapshot(self) -> SessionRecord:
-        return SessionRecord.parse_obj(self.session.active_record())
+        return SessionRecord.model_validate(self.session.active_record())

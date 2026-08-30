@@ -5,7 +5,7 @@ from collections.abc import Iterable
 from typing import Any, Literal, get_args
 
 import yaml
-from pydantic import BaseModel, Field, root_validator, validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from classifier.features.session import SessionFeatures
 
@@ -39,10 +39,10 @@ class RuleCondition(BaseModel):
     operator: RuleOperator
     value: Any
 
-    @root_validator
-    def validate_operator_value_shape(cls, values):
-        operator = values.get("operator")
-        value = values.get("value")
+    @model_validator(mode="after")
+    def validate_operator_value_shape(self) -> "RuleCondition":
+        operator = self.operator
+        value = self.value
 
         if operator == "in" and not _is_non_string_iterable(value):
             raise ValueError("in operator value must be a non-string iterable")
@@ -50,10 +50,9 @@ class RuleCondition(BaseModel):
         if operator == "contains_any" and not _is_non_string_iterable(value):
             raise ValueError("contains_any operator value must be a non-string iterable")
 
-        return values
+        return self
 
-    class Config:
-        extra = "forbid"
+    model_config = ConfigDict(extra="forbid")
 
 
 class ClassificationRule(BaseModel):
@@ -66,40 +65,42 @@ class ClassificationRule(BaseModel):
     risk_score: int = Field(ge=0, le=100)
     mitre_tags: list[str] = Field(default_factory=list)
     evidence: list[str] = Field(default_factory=list)
-    conditions: list[RuleCondition] = Field(min_items=1)
+    conditions: list[RuleCondition] = Field(min_length=1)
 
-    @validator("mitre_tags", each_item=True)
-    def mitre_tags_must_not_be_empty(cls, value: str) -> str:
-        if not value.strip():
-            raise ValueError("mitre_tags items cannot be empty")
+    @field_validator("mitre_tags")
+    @classmethod
+    def mitre_tags_must_not_be_empty(cls, value: list[str]) -> list[str]:
+        for item in value:
+            if not item.strip():
+                raise ValueError("mitre_tags items cannot be empty")
         return value
 
-    @validator("evidence", each_item=True)
-    def evidence_items_must_not_be_empty(cls, value: str) -> str:
-        if not value.strip():
-            raise ValueError("evidence items cannot be empty")
+    @field_validator("evidence")
+    @classmethod
+    def evidence_items_must_not_be_empty(cls, value: list[str]) -> list[str]:
+        for item in value:
+            if not item.strip():
+                raise ValueError("evidence items cannot be empty")
         return value
 
-    class Config:
-        extra = "forbid"
+    model_config = ConfigDict(extra="forbid")
 
 
 class RuleSet(BaseModel):
     """Top-level YAML document containing all editable rules."""
 
     rules_version: str = "unversioned"
-    rules: list[ClassificationRule] = Field(min_items=1)
+    rules: list[ClassificationRule] = Field(min_length=1)
 
-    @root_validator
-    def rule_ids_must_be_unique(cls, values):
-        rules = values.get("rules") or []
+    @model_validator(mode="after")
+    def rule_ids_must_be_unique(self) -> "RuleSet":
+        rules = self.rules or []
         rule_ids = [rule.id for rule in rules]
         if len(rule_ids) != len(set(rule_ids)):
             raise ValueError("rule ids must be unique")
-        return values
+        return self
 
-    class Config:
-        extra = "forbid"
+    model_config = ConfigDict(extra="forbid")
 
 
 class RuleMatch(BaseModel):
@@ -113,8 +114,7 @@ class RuleMatch(BaseModel):
     mitre_tags: list[str]
     evidence: list[str]
 
-    class Config:
-        extra = "forbid"
+    model_config = ConfigDict(extra="forbid")
 
 
 class RuleEvaluation(BaseModel):
@@ -133,8 +133,7 @@ class RuleEvaluation(BaseModel):
             key=lambda match: (match.confidence, match.risk_score),
         )
 
-    class Config:
-        extra = "forbid"
+    model_config = ConfigDict(extra="forbid")
 
 
 def load_rules(path: str | Path) -> RuleSet:
@@ -145,7 +144,7 @@ def load_rules(path: str | Path) -> RuleSet:
     if raw_rules is None:
         raise ValueError("rules file cannot be empty")
 
-    return RuleSet.parse_obj(raw_rules)
+    return RuleSet.model_validate(raw_rules)
 
 
 def evaluate_rules(

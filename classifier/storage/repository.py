@@ -1077,7 +1077,7 @@ class PostgresClassifierRepository:
         """Persist one manual analyst label and return the stored label."""
         record = ManualLabelRecord(
             id=uuid4(),
-            **label.dict(),
+            **label.model_dump(),
         )
         _execute_insert(
             self.database_url,
@@ -1416,7 +1416,7 @@ class PostgresClassifierRepository:
         """
         from datetime import datetime, timezone
         now = datetime.now(timezone.utc)
-        record = PersonaConfigRecord(id=persona_id, created_at=now, updated_at=now, **config.dict())
+        record = PersonaConfigRecord(id=persona_id, created_at=now, updated_at=now, **config.model_dump())
         psycopg = _load_psycopg()
         try:
             _execute_insert(
@@ -1454,7 +1454,7 @@ class PostgresClassifierRepository:
         """Update one persona config and return the stored record, or None if not found."""
         from datetime import datetime, timezone
         now = datetime.now(timezone.utc)
-        record = PersonaConfigRecord(id=persona_id, created_at=now, updated_at=now, **config.dict())
+        record = PersonaConfigRecord(id=persona_id, created_at=now, updated_at=now, **config.model_dump())
         params = _persona_config_params(record)
 
         # Use UPDATE ... RETURNING to atomically verify the row was updated and
@@ -2098,7 +2098,7 @@ def _persona_config_params(record: PersonaConfigRecord) -> dict[str, Any]:
         "fake_users": list(record.fake_users),
         "running_processes": list(record.running_processes),
         "http_server_type": record.http_server_type,
-        "decoy_files": json.dumps([f.dict() for f in record.decoy_files]),
+        "decoy_files": json.dumps([f.model_dump() for f in record.decoy_files]),
         "alert_routing_level": record.alert_routing_level,
         "alert_min_risk_level": record.alert_min_risk_level,
         "contact_email": record.contact_email,

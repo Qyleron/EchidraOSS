@@ -1306,7 +1306,7 @@ def test_classify_session_route_accepts_session_record_body_model():
     route = route_for("/classify/session", "POST")
 
     assert route.body_field is not None
-    assert route.body_field.type_ is SessionRecord
+    assert route.body_field.field_info.annotation is SessionRecord
 
 
 def make_issue(**overrides):
@@ -1485,7 +1485,12 @@ def test_persona_id_path_param_is_constrained_to_a_slug_on_every_route():
     for path, method in routes:
         route = route_for(path, method)
         [persona_id_param] = [f for f in route.dependant.path_params if f.name == "persona_id"]
-        assert persona_id_param.field_info.regex == app_module._PERSONA_ID_PATTERN, (path, method)
+        patterns = [
+            meta.pattern
+            for meta in persona_id_param.field_info.metadata
+            if hasattr(meta, "pattern")
+        ]
+        assert patterns == [app_module._PERSONA_ID_PATTERN], (path, method)
 
 
 @pytest.mark.parametrize(
