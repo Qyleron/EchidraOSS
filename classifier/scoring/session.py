@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from classifier.features.session import SessionFeatures
 from classifier.rules.engine import ACTOR_LABELS, ActorLabel, RuleEvaluation, RuleMatch
@@ -44,8 +44,7 @@ class EvidenceItem(BaseModel):
     rule_id: str
     text: str
 
-    class Config:
-        extra = "forbid"
+    model_config = ConfigDict(extra="forbid")
 
 
 class PersonaContext(BaseModel):
@@ -54,8 +53,7 @@ class PersonaContext(BaseModel):
     persona_id: str | None
     decoy_files_surfaced: list[str]
 
-    class Config:
-        extra = "forbid"
+    model_config = ConfigDict(extra="forbid")
 
 
 class FeatureSummary(BaseModel):
@@ -75,8 +73,7 @@ class FeatureSummary(BaseModel):
     # session has fewer than two commands and so has no cadence to score.
     human_timing_score: float | None = Field(default=None, ge=0, le=1)
 
-    class Config:
-        extra = "forbid"
+    model_config = ConfigDict(extra="forbid")
 
 
 class DeceptionAction(BaseModel):
@@ -86,8 +83,7 @@ class DeceptionAction(BaseModel):
     delay_seconds: float = Field(ge=0, le=10)
     rationale: str
 
-    class Config:
-        extra = "forbid"
+    model_config = ConfigDict(extra="forbid")
 
 
 class AlertAction(BaseModel):
@@ -99,8 +95,7 @@ class AlertAction(BaseModel):
     rationale: str
     supporting_evidence: list[str]
 
-    class Config:
-        extra = "forbid"
+    model_config = ConfigDict(extra="forbid")
 
 
 class AnalystRecommendation(BaseModel):
@@ -111,8 +106,7 @@ class AnalystRecommendation(BaseModel):
     rationale: str
     supporting_evidence: list[str]
 
-    class Config:
-        extra = "forbid"
+    model_config = ConfigDict(extra="forbid")
 
 
 class ClassificationSummary(BaseModel):
@@ -138,8 +132,7 @@ class ClassificationSummary(BaseModel):
     evidence: list[EvidenceItem]
     matched_rule_ids: list[str]
 
-    class Config:
-        extra = "forbid"
+    model_config = ConfigDict(extra="forbid")
 
 
 def summarize_rule_evaluation(

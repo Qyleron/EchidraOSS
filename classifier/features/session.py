@@ -5,7 +5,7 @@ import shlex
 from urllib.parse import parse_qsl
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from classifier.schemas.session import SessionRecord
 
@@ -151,8 +151,7 @@ class SessionFeatures(BaseModel):
     # is available; None in the stateless /classify/session endpoint by design.
     connection_count_from_same_ip: int | None = None
 
-    class Config:
-        extra = "forbid"
+    model_config = ConfigDict(extra="forbid")
 
 
 def extract_session_features(

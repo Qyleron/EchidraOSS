@@ -9,7 +9,7 @@ from pathlib import PurePosixPath
 from typing import Any
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, Field, root_validator, validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from classifier.schemas.session import SessionRecord
 from classifier.scoring.session import ClassificationSummary
@@ -20,7 +20,7 @@ def _utc_now() -> datetime:
 
 
 def _model_dict(model: BaseModel) -> dict[str, Any]:
-    return json.loads(model.json())
+    return json.loads(model.model_dump_json())
 
 
 # Mirrors classifier.scoring.session.ClassificationStatus (a Literal there,
@@ -59,7 +59,8 @@ class ClassifierRunRecord(BaseModel):
     summary: dict[str, Any]
     created_at: datetime = Field(default_factory=_utc_now)
 
-    @validator("classification_status")
+    @field_validator("classification_status")
+    @classmethod
     def validate_classification_status(cls, value: str) -> str:
         if value not in CLASSIFICATION_STATUSES:
             raise ValueError(
@@ -97,8 +98,7 @@ class ClassifierRunRecord(BaseModel):
             summary=_model_dict(summary),
         )
 
-    class Config:
-        extra = "forbid"
+    model_config = ConfigDict(extra="forbid")
 
 
 class ManualLabelInput(BaseModel):
@@ -113,8 +113,7 @@ class ManualLabelInput(BaseModel):
     notes: str | None = None
     labeled_by: str | None = None
 
-    class Config:
-        extra = "forbid"
+    model_config = ConfigDict(extra="forbid")
 
 
 class ManualLabelRecord(ManualLabelInput):
@@ -133,8 +132,7 @@ class DashboardUserRecord(BaseModel):
     created_at: datetime = Field(default_factory=_utc_now)
     session_version: int = 1
 
-    class Config:
-        extra = "forbid"
+    model_config = ConfigDict(extra="forbid")
 
 
 class StoredClassifierSignal(BaseModel):
@@ -145,8 +143,7 @@ class StoredClassifierSignal(BaseModel):
     signal_key: str
     signal_value: str
 
-    class Config:
-        extra = "forbid"
+    model_config = ConfigDict(extra="forbid")
 
 
 class StoredSessionEvent(BaseModel):
@@ -157,8 +154,7 @@ class StoredSessionEvent(BaseModel):
     event_value: str
     observed_at: float | None = None
 
-    class Config:
-        extra = "forbid"
+    model_config = ConfigDict(extra="forbid")
 
 
 class StoredClassifierRun(BaseModel):
@@ -186,7 +182,8 @@ class StoredClassifierRun(BaseModel):
     insufficient_data_reason: str | None = None
     signals: list[StoredClassifierSignal] = Field(default_factory=list)
 
-    @validator("classification_status")
+    @field_validator("classification_status")
+    @classmethod
     def validate_classification_status(cls, value: str) -> str:
         if value not in CLASSIFICATION_STATUSES:
             raise ValueError(
@@ -195,8 +192,7 @@ class StoredClassifierRun(BaseModel):
             )
         return value
 
-    class Config:
-        extra = "forbid"
+    model_config = ConfigDict(extra="forbid")
 
 
 class DashboardReportSummary(BaseModel):
@@ -211,8 +207,7 @@ class DashboardReportSummary(BaseModel):
     actor_counts: dict[str, int] = Field(default_factory=dict)
     intent_counts: dict[str, int] = Field(default_factory=dict)
 
-    class Config:
-        extra = "forbid"
+    model_config = ConfigDict(extra="forbid")
 
 
 class ClassifyAndStoreResponse(BaseModel):
@@ -221,8 +216,7 @@ class ClassifyAndStoreResponse(BaseModel):
     run_id: UUID
     summary: ClassificationSummary
 
-    class Config:
-        extra = "forbid"
+    model_config = ConfigDict(extra="forbid")
 
 
 ISSUE_SEVERITIES = {"high", "medium", "low"}
@@ -244,8 +238,7 @@ class MitreTechnique(BaseModel):
     id: str
     name: str
 
-    class Config:
-        extra = "forbid"
+    model_config = ConfigDict(extra="forbid")
 
 
 class LinkedIssueSummary(BaseModel):
@@ -258,8 +251,7 @@ class LinkedIssueSummary(BaseModel):
     severity: str
     status: str
 
-    class Config:
-        extra = "forbid"
+    model_config = ConfigDict(extra="forbid")
 
 
 class IssueRecord(BaseModel):
@@ -282,7 +274,8 @@ class IssueRecord(BaseModel):
     session_ids: list[UUID] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=_utc_now)
 
-    @validator("severity")
+    @field_validator("severity")
+    @classmethod
     def validate_severity(cls, value: str) -> str:
         if value not in ISSUE_SEVERITIES:
             raise ValueError(
@@ -290,7 +283,8 @@ class IssueRecord(BaseModel):
             )
         return value
 
-    @validator("status")
+    @field_validator("status")
+    @classmethod
     def validate_status(cls, value: str) -> str:
         if value not in ISSUE_STATUSES:
             raise ValueError(
@@ -298,8 +292,7 @@ class IssueRecord(BaseModel):
             )
         return value
 
-    class Config:
-        extra = "forbid"
+    model_config = ConfigDict(extra="forbid")
 
 
 class IssueStatusUpdate(BaseModel):
@@ -307,7 +300,8 @@ class IssueStatusUpdate(BaseModel):
 
     status: str
 
-    @validator("status")
+    @field_validator("status")
+    @classmethod
     def validate_status(cls, value: str) -> str:
         if value not in ISSUE_STATUSES:
             raise ValueError(
@@ -315,8 +309,7 @@ class IssueStatusUpdate(BaseModel):
             )
         return value
 
-    class Config:
-        extra = "forbid"
+    model_config = ConfigDict(extra="forbid")
 
 
 PERSONA_ALERT_ROUTING_LEVELS = {"none", "email", "slack", "both"}
@@ -374,14 +367,14 @@ class DecoyFile(BaseModel):
     path: str = Field(min_length=1, max_length=256)
     content: str = Field(max_length=65_536)
 
-    @validator("path")
+    @field_validator("path")
+    @classmethod
     def validate_path(cls, value: str) -> str:
         if not value.startswith("/") or ".." in PurePosixPath(value).parts:
             raise ValueError("Decoy file path must be a safe absolute path")
         return value
 
-    class Config:
-        extra = "forbid"
+    model_config = ConfigDict(extra="forbid")
 
 
 class PersonaConfigInput(BaseModel):
@@ -392,31 +385,35 @@ class PersonaConfigInput(BaseModel):
     ssh_banner: str = Field(default="", max_length=256)
     hostname: str = Field(default="", max_length=253)
     internal_notes: str = Field(default="", max_length=4_000)
-    fake_users: list[str] = Field(default_factory=list, max_items=100)
-    running_processes: list[str] = Field(default_factory=list, max_items=100)
+    fake_users: list[str] = Field(default_factory=list, max_length=100)
+    running_processes: list[str] = Field(default_factory=list, max_length=100)
     http_server_type: str = "nginx"
-    decoy_files: list[DecoyFile] = Field(default_factory=list, max_items=50)
+    decoy_files: list[DecoyFile] = Field(default_factory=list, max_length=50)
     alert_routing_level: str = "none"
     alert_min_risk_level: str | None = None
     contact_email: str | None = Field(default=None, max_length=254)
     slack_webhook: str | None = Field(default=None, max_length=512)
 
-    @validator("fake_users", "running_processes", each_item=True)
-    def validate_list_item_length(cls, value: str) -> str:
-        if not value.strip():
-            raise ValueError("Entries cannot be blank")
-        if len(value) > 128:
-            raise ValueError("Entries must be 128 characters or fewer")
+    @field_validator("fake_users", "running_processes")
+    @classmethod
+    def validate_list_item_length(cls, value: list[str]) -> list[str]:
+        for item in value:
+            if not item.strip():
+                raise ValueError("Entries cannot be blank")
+            if len(item) > 128:
+                raise ValueError("Entries must be 128 characters or fewer")
         return value
 
-    @validator("decoy_files")
+    @field_validator("decoy_files")
+    @classmethod
     def validate_decoy_files_unique(cls, value: list[DecoyFile]) -> list[DecoyFile]:
         paths = [f.path for f in value]
         if len(paths) != len(set(paths)):
             raise ValueError("Decoy files cannot contain duplicate paths")
         return value
 
-    @validator("http_server_type")
+    @field_validator("http_server_type")
+    @classmethod
     def validate_http_server_type(cls, value: str) -> str:
         if value not in PERSONA_HTTP_SERVER_TYPES:
             raise ValueError(
@@ -425,7 +422,8 @@ class PersonaConfigInput(BaseModel):
             )
         return value
 
-    @validator("alert_routing_level")
+    @field_validator("alert_routing_level")
+    @classmethod
     def validate_routing(cls, value: str) -> str:
         if value not in PERSONA_ALERT_ROUTING_LEVELS:
             raise ValueError(
@@ -434,7 +432,8 @@ class PersonaConfigInput(BaseModel):
             )
         return value
 
-    @validator("alert_min_risk_level")
+    @field_validator("alert_min_risk_level")
+    @classmethod
     def validate_alert_min_risk_level(cls, value: str | None) -> str | None:
         if value is not None and value not in RISK_LEVELS_ORDERED:
             raise ValueError(
@@ -443,30 +442,30 @@ class PersonaConfigInput(BaseModel):
             )
         return value
 
-    @validator("contact_email")
+    @field_validator("contact_email")
+    @classmethod
     def validate_contact_email(cls, value: str | None) -> str | None:
         if value is not None and not _EMAIL_RE.match(value):
             raise ValueError("Contact email must be a valid email address")
         return value
 
-    @validator("slack_webhook")
+    @field_validator("slack_webhook")
+    @classmethod
     def validate_slack_webhook(cls, value: str | None) -> str | None:
         if value is not None and not value.startswith("https://hooks.slack.com/"):
             raise ValueError("Slack webhook must be an https://hooks.slack.com/ URL")
         return value
 
-    @root_validator(skip_on_failure=True)
-    def validate_cross_field_requirements(cls, values):
-        routing = values.get("alert_routing_level")
-        if routing in ("email", "both") and not values.get("contact_email"):
+    @model_validator(mode="after")
+    def validate_cross_field_requirements(self) -> "PersonaConfigInput":
+        if self.alert_routing_level in ("email", "both") and not self.contact_email:
             raise ValueError("Contact email is required when alert routing includes email")
-        if routing in ("slack", "both") and not values.get("slack_webhook"):
+        if self.alert_routing_level in ("slack", "both") and not self.slack_webhook:
             raise ValueError("Slack webhook is required when alert routing includes Slack")
 
-        return values
+        return self
 
-    class Config:
-        extra = "forbid"
+    model_config = ConfigDict(extra="forbid")
 
 
 class PersonaConfigRecord(PersonaConfigInput):
@@ -488,8 +487,7 @@ class PersonaAnalytics(BaseModel):
     peak_hours: list[dict[str, Any]] = Field(default_factory=list)
     top_countries: list[dict[str, Any]] = Field(default_factory=list)
 
-    class Config:
-        extra = "forbid"
+    model_config = ConfigDict(extra="forbid")
 
 
 class AnalyticsSummary(BaseModel):
@@ -509,8 +507,7 @@ class AnalyticsSummary(BaseModel):
     protocol_breakdown: list[dict[str, Any]] = Field(default_factory=list)
     avg_dwell_seconds: float | None = None
 
-    class Config:
-        extra = "forbid"
+    model_config = ConfigDict(extra="forbid")
 
 
 class AlertConfigInput(BaseModel):
@@ -526,7 +523,8 @@ class AlertConfigInput(BaseModel):
     global_min_risk_level: str = "high"
     excluded_ips: str | None = Field(default=None, max_length=4_000)
 
-    @validator("global_min_risk_level")
+    @field_validator("global_min_risk_level")
+    @classmethod
     def validate_global_min_risk_level(cls, value: str) -> str:
         if value not in RISK_LEVELS_ORDERED:
             raise ValueError(
@@ -535,8 +533,7 @@ class AlertConfigInput(BaseModel):
             )
         return value
 
-    class Config:
-        extra = "forbid"
+    model_config = ConfigDict(extra="forbid")
 
 
 class AlertConfigRecord(BaseModel):
@@ -553,8 +550,7 @@ class AlertConfigRecord(BaseModel):
     excluded_ips: str | None = None
     updated_at: datetime = Field(default_factory=_utc_now)
 
-    class Config:
-        extra = "forbid"
+    model_config = ConfigDict(extra="forbid")
 
 
 class AlertEventRecord(BaseModel):
@@ -572,5 +568,4 @@ class AlertEventRecord(BaseModel):
     success: bool
     error_message: str | None = None
 
-    class Config:
-        extra = "forbid"
+    model_config = ConfigDict(extra="forbid")
