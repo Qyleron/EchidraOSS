@@ -16,7 +16,7 @@ from uuid import UUID
 from fastapi import FastAPI, HTTPException, Query, Request, Response
 from fastapi import Path as PathParam
 from fastapi.responses import FileResponse, RedirectResponse
-from pydantic import BaseModel, validator
+from pydantic import BaseModel, ConfigDict, field_validator
 
 from classifier.pipeline import classify_session
 from classifier.schemas.session import SessionRecord
@@ -151,17 +151,18 @@ class DashboardSignupInput(BaseModel):
     email: str
     password: str
 
-    @validator("email")
+    @field_validator("email")
+    @classmethod
     def validate_email(cls, value: str) -> str:
         return _validate_email_format(value)
 
-    @validator("password")
+    @field_validator("password")
+    @classmethod
     def validate_password(cls, value: str) -> str:
         _validate_password_format(value)
         return value
 
-    class Config:
-        extra = "forbid"
+    model_config = ConfigDict(extra="forbid")
 
 
 class DashboardLoginInput(BaseModel):
@@ -170,17 +171,18 @@ class DashboardLoginInput(BaseModel):
     email: str
     password: str
 
-    @validator("email")
+    @field_validator("email")
+    @classmethod
     def validate_email(cls, value: str) -> str:
         return _validate_email_format(value)
 
-    @validator("password")
+    @field_validator("password")
+    @classmethod
     def validate_password(cls, value: str) -> str:
         _validate_password_format(value)
         return value
 
-    class Config:
-        extra = "forbid"
+    model_config = ConfigDict(extra="forbid")
 
 
 class DashboardSlackTestInput(BaseModel):
@@ -188,8 +190,7 @@ class DashboardSlackTestInput(BaseModel):
 
     slack_webhook: str
 
-    class Config:
-        extra = "forbid"
+    model_config = ConfigDict(extra="forbid")
 
 
 class DashboardPersonaFile(BaseModel):
@@ -198,8 +199,7 @@ class DashboardPersonaFile(BaseModel):
     path: str
     content: str
 
-    class Config:
-        extra = "forbid"
+    model_config = ConfigDict(extra="forbid")
 
 
 class DashboardPersonaPreset(BaseModel):
@@ -220,8 +220,7 @@ class DashboardPersonaPreset(BaseModel):
     fake_filesystem: list[DashboardPersonaFile]
     decoy_credential_count: int
 
-    class Config:
-        extra = "forbid"
+    model_config = ConfigDict(extra="forbid")
 
 
 def create_app() -> FastAPI:

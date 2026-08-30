@@ -12,7 +12,7 @@ class ProtocolSession:
     """
     Minimal session state for HTTP, FTP, and Telnet honeypot handlers.
 
-    Produces a to_record() dict that satisfies SessionRecord.parse_obj()
+    Produces a to_record() dict that satisfies SessionRecord.model_validate()
     so it can be persisted through the same SessionLogger used by the SSH shell.
     """
 
@@ -38,7 +38,7 @@ class ProtocolSession:
             self.end_reason = reason
 
     def to_record(self) -> dict:
-        """Return a dict compatible with SessionRecord.parse_obj()."""
+        """Return a dict compatible with SessionRecord.model_validate()."""
         if self.end_time is None or self.end_reason is None:
             raise ValueError("Cannot serialize an active session")
 

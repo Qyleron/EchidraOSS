@@ -22,8 +22,8 @@ class SessionLogger:
         without re-deriving the same record from the session a second time.
         """
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        record = SessionRecord.parse_obj(session.to_record())
-        line = json.dumps(json.loads(record.json()), sort_keys=True) + "\n"
+        record = SessionRecord.model_validate(session.to_record())
+        line = json.dumps(json.loads(record.model_dump_json()), sort_keys=True) + "\n"
 
         # 0o600: this file accumulates captured FTP/Telnet credentials and
         # HTTP Authorization headers, so it must not be world/group-readable.

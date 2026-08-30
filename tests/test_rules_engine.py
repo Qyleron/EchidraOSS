@@ -96,7 +96,7 @@ def test_ruleset_rejects_duplicate_rule_ids():
 
 
 def test_rule_rejects_unknown_actor_labels():
-    with pytest.raises(ValidationError, match="unexpected value"):
+    with pytest.raises(ValidationError, match="Input should be"):
         make_rule(actor_label="commodity_bto")
 
 

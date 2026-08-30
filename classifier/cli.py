@@ -111,7 +111,7 @@ def _write_jsonl_summaries(input_path: Path, output: TextIO, skip_invalid: bool 
                     f"invalid session record on line {line_number}: {exc}"
                 ) from exc
 
-            json.dump(json.loads(summary.json()), output, sort_keys=True)
+            json.dump(json.loads(summary.model_dump_json()), output, sort_keys=True)
             output.write("\n")
 
 
