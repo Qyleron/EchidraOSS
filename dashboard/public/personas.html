@@ -1299,7 +1299,7 @@
         // Native title tooltip only -- no custom JS-rendered tooltip
         // alongside it, so there's exactly one tooltip on hover, not two
         // competing/overlapping ones.
-        return '<span class="line-chart-dot" data-index="' + i + '" style="left:' + ((p[0] / w) * 100).toFixed(2) + '%;top:' + ((p[1] / h) * 100).toFixed(2) + '%" title="' + escHtml(tooltipLabels[i]) + ': ' + values[i] + ' sessions"></span>';
+        return '<span class="line-chart-dot" data-index="' + i + '" style="left:' + ((p[0] / w) * 100).toFixed(2) + '%;top:' + ((p[1] / h) * 100).toFixed(2) + '%" title="' + escAttr(tooltipLabels[i]) + ': ' + values[i] + ' sessions"></span>';
       }).join("");
       var tickStep = opts.tickStep || Math.max(1, Math.ceil(n / (opts.maxTicks || 8)));
       var tickClass = "line-chart-tick" + (opts.rotateLabels ? " line-chart-tick-rotated" : "");
