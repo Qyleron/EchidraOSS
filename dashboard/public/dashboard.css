@@ -1860,6 +1860,15 @@ a {
   color: var(--text);
 }
 
+.modal-close:focus {
+  outline: none;
+}
+
+.modal-close:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--border-strong);
+}
+
 .modal-close-danger {
   border-color: #e5484d;
   background: transparent;
