@@ -693,6 +693,10 @@
           </div>
         </section>
       `;
+      // Reset scroll -- reusing the same panel for a new session (or
+      // reopening it) must not carry over wherever the reader left the
+      // previous session's content scrolled to.
+      sessionInspectorBody.scrollTop = 0;
 
       sessionInspectorFooter.innerHTML = "";
 
