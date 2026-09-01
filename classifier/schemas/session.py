@@ -7,9 +7,10 @@ from pydantic import BaseModel, ConfigDict, Field, IPvAnyAddress, field_validato
 
 
 def _reject_non_finite(value: float | None) -> float | None:
-    """NaN/Infinity silently pass Pydantic v1's ge/le Field constraints
-    (comparisons against NaN are always False, and +/-inf satisfies most
-    bounds), so every timing/coordinate float needs this explicit check --
+    """NaN/Infinity silently pass Pydantic's ge/le Field constraints in both
+    v1 and v2 (comparisons against NaN are always False, and +/-inf
+    satisfies most bounds), so every timing/coordinate float needs this
+    explicit check --
     a NaN risk_score or an infinite timestamp would otherwise reach scoring
     and JSON-serialize as a token (`NaN`/`Infinity`) that isn't valid JSON
     and that JS's JSON.parse rejects on the dashboard side."""
