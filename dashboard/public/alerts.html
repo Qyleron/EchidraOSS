@@ -524,10 +524,9 @@
       if (typeof detail === "string") return detail;
       if (Array.isArray(detail)) {
         return detail.map(function(d) {
-          // Pydantic v2 prefixes a raised ValueError's message with
-          // "Value error, " -- our validators already write complete,
+          // Pydantic v2 (current) prefixes a raised ValueError's message
+          // with "Value error, " -- our validators already write complete,
           // user-facing sentences, so that prefix is noise, not signal.
-          // No-op under Pydantic v1 (current), which never adds it.
           var msg = d && d.msg;
           if (msg) return msg.replace(/^Value error,\s*/, "");
           return JSON.stringify(d);
