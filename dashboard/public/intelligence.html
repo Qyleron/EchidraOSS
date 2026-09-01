@@ -308,6 +308,10 @@
           <p>${escHtml(issue.impact)}</p>
         </section>
       `;
+      // Reset scroll -- reusing the same panel for a new issue (or
+      // reopening it) must not carry over wherever the reader left the
+      // previous issue's content scrolled to.
+      issueInspectorBody.scrollTop = 0;
 
       issueInspectorFooter.innerHTML = issue.actor_label
         ? `<a href="/dashboard/sessions?actor=${encodeURIComponent(issue.actor_label)}" class="detail-sessions-link">View Sessions<svg class="session-count-link-arrow" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3l5 5-5 5"/></svg></a>`
