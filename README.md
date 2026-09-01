@@ -1,6 +1,6 @@
 # Echidra — Multi-Protocol Honeypot & Attacker Behavior Classifier
 
-![image](assets/Qyleron_Banner_README.png)
+![Echidra open-source multi-protocol honeypot and attacker behavior classifier banner.](assets/qyleron-cyber-deception-banner.png)
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](LICENSE.md)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](pyproject.toml)
@@ -12,6 +12,10 @@ surfaces the result in a web dashboard — without ever executing real commands
 or exposing real data.
 
 **[Docs & full setup guide](https://qyleron.com/setup-and-onboarding/) · [Console guide](https://qyleron.com/console-guide/)**
+
+<br />
+
+![Echidra Intelligence dashboard aggregating recurring attacker sessions by actor profile and MITRE ATT&CK technique.](assets/echidra-oss-issue-intelligence-dashboard.gif)
 
 ---
 
@@ -37,10 +41,20 @@ See the [Console guide](https://qyleron.com/console-guide/) for a full field-by-
 
 ## Quick Start
 
+### Method A: Native (Recommended for trying it out)
+
 ```bash
 pip install -e .    # installs Echidra + puts the `echidra` command on your PATH
 echidra init         # creates .env, generates ECHIDRA_INGEST_API_KEY, initializes the schema
 echidra start        # runs the honeypot listeners and the API/dashboard together until Ctrl+C
+```
+
+### Method B: Docker Compose
+
+Set `ECHIDRA_DB_PASSWORD`, `ECHIDRA_INGEST_API_KEY`, and `ECHIDRA_SESSION_SECRET` in a `.env` file (see [docker-compose.yml](docker-compose.yml) for the full list of environment variables), then:
+
+```bash
+docker compose up -d
 ```
 
 Open **http://localhost:8000** — it takes you straight to the dashboard (sign
