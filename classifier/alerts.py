@@ -258,8 +258,14 @@ def _slack_post(webhook_url: str, text: str) -> str | None:
     parsed = urllib.parse.urlsplit(webhook_url)
     if parsed.scheme != "https" or parsed.hostname != "hooks.slack.com":
         return "slack_webhook must be an https://hooks.slack.com/ URL"
+    # Rebuild the request URL from a hardcoded scheme/host rather than reusing
+    # webhook_url directly, so the value reaching Request() is provably not
+    # attacker-controlled (the hostname check above guards a derived value,
+    # which static SSRF analysis can't always credit as sanitizing the
+    # original string).
+    safe_url = urllib.parse.urlunsplit(("https", "hooks.slack.com", parsed.path, parsed.query, ""))
     request = urllib.request.Request(
-        webhook_url,
+        safe_url,
         data=json.dumps({"text": text}).encode("utf-8"),
         headers={"Content-Type": "application/json"},
         method="POST",
