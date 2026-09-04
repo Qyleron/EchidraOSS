@@ -851,13 +851,6 @@ a {
   font-weight: 650;
 }
 
-.bar-fill {
-  width: 100%;
-  min-height: 8px;
-  border-radius: 5px 5px 2px 2px;
-  background: linear-gradient(180deg, #f02f0d, #f6691d);
-}
-
 .stacked-bar {
   display: flex;
   flex-direction: column-reverse;
@@ -1011,40 +1004,6 @@ a {
 .line-chart-tick-rotated:last-child {
   transform: translateX(-100%) rotate(-45deg);
   transform-origin: top right;
-}
-
-/* Custom hover tooltip for chart dots -- layered over the native <title>
-   (which still exists as a keyboard/screen-reader-reachable fallback) so
-   the value is visible immediately on hover instead of after the
-   browser's ~1s native tooltip delay. */
-.line-chart-tooltip {
-  /* Fixed + appended to document.body (see attachLineChartTooltip), not
-     absolute inside the chart card -- a chart with a horizontal scroll
-     container would otherwise clip the tooltip the moment it tried to
-     render past the scrolled-out-of-view edge. getBoundingClientRect
-     gives viewport coordinates, so this has to be position:fixed to
-     match, not position:absolute against some scrolled ancestor. */
-  position: fixed;
-  z-index: 1000;
-  transform: translate(-50%, -100%);
-  margin-top: -10px;
-  padding: 4px 8px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: var(--surface-strong);
-  color: var(--text);
-  font-size: 12px;
-  font-weight: 650;
-  white-space: nowrap;
-  pointer-events: none;
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5);
-}
-
-/* Points in the top 20% of the chart have no headroom for the default
-   above-point placement -- flip below the dot instead. */
-.line-chart-tooltip-below {
-  transform: translate(-50%, 0%);
-  margin-top: 10px;
 }
 
 .rank-list {
