@@ -78,14 +78,20 @@ production systems.
 ## Benchmarks
 
 Reproduce the load test used in the demo video and blog post yourself.
-Requires a native `echidra start` (see Quick Start above), not Docker Compose,
-since the monitor script reads the PIDs `echidra start` writes to
-`logs/echidra.pid`.
 
-Terminal 1, watch CPU and RSS on the honeypot and classifier processes:
+Terminal 1, watch CPU and RSS on the honeypot and classifier processes. If
+Echidra was started with `echidra start`, this reads its PIDs automatically
+from `logs/echidra.pid`:
 
 ```bash
 ./benchmarks/monitor.sh
+```
+
+Running under systemd, Docker, or anything else that doesn't write that
+pidfile? Pass the PIDs directly instead:
+
+```bash
+./benchmarks/monitor.sh <honeypot_pid>,<classifier_pid>
 ```
 
 Terminal 2, run the flood:
