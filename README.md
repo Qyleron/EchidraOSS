@@ -75,6 +75,37 @@ data only, reconstructed from an in-memory persona, never the real
 filesystem. Echidra never itself blocks IPs, changes firewalls, or touches
 production systems.
 
+## Benchmarks
+
+Reproduce the load test used in the demo video and blog post yourself.
+Requires a native `echidra start` (see Quick Start above), not Docker Compose,
+since the monitor script reads the PIDs `echidra start` writes to
+`logs/echidra.pid`.
+
+Terminal 1, watch CPU and RSS on the honeypot and classifier processes:
+
+```bash
+./benchmarks/monitor.sh
+```
+
+Terminal 2, run the flood:
+
+```bash
+pip install aiohttp
+python3 benchmarks/flood_test.py
+```
+
+Reference result from our own run: CPU rose by 0.4% during a sustained
+100 req/s flood over 10 seconds, and RSS stayed below its pre-flood baseline
+throughout, no restarts. Actual numbers depend on your hardware; this
+reproduces the methodology, not a guaranteed result.
+
+Running under Docker Compose instead? Use `docker stats` to watch the same
+two containers' CPU/memory while `flood_test.py` runs.
+
+Full writeup: [Defending Against Automated Botnet Floods Without Degrading
+Container CPU Footprints](https://qyleron.com/blog/defending-botnet-floods-container-cpu/)
+
 ## Tech Stack
 
 Python 3.11 (`asyncio`) · FastAPI · YAML rule engine · Pydantic · PostgreSQL
