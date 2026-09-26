@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Watches CPU and RSS of the running honeypot and classifier processes.
 # Run this in one terminal while benchmarks/flood_test.py runs in another.
+# CPU is instantaneous (top's second sample), not a lifetime average.
 #
 # Usage:
 #   ./benchmarks/monitor.sh              # reads PIDs from logs/echidra.pid
@@ -8,7 +9,7 @@
 #   ./benchmarks/monitor.sh 758,894      # or pass PIDs directly, e.g. when
 #                                         # Echidra runs under systemd/Docker
 #
-# Requires GNU 'watch'. On macOS: brew install watch
+# Requires Linux (procps 'top' and 'ps').
 
 set -euo pipefail
 
@@ -28,4 +29,11 @@ else
     PIDS="$(paste -sd, "$PID_FILE")"
 fi
 
-watch -n 1 "ps -p $PIDS -o pid,%cpu,rss,comm; echo '-----------------------------'; ps -p $PIDS -o rss= | awk '{sum+=\$1} END {printf \"Total RSS: %.1f MB\n\", sum/1024}'"
+while true; do
+    out="$(top -b -n 2 -d 1 -p "$PIDS" | awk '/^top -/{n++} n==2')"
+    clear
+    date
+    echo "$out" | awk '/^ *PID/{print "  PID  %CPU  RSS_KB COMMAND"; next} /^ *[0-9]/{printf "%5s %5s %7s %s\n", $1, $9, $6, $12}'
+    echo "-----------------------------"
+    ps -p "$PIDS" -o rss= | awk '{sum+=$1} END {printf "Total RSS: %.1f MB\n", sum/1024}'
+done

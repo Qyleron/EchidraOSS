@@ -101,10 +101,24 @@ pip install aiohttp
 python3 benchmarks/flood_test.py
 ```
 
-Reference result from our own run: CPU rose by 0.4% during a sustained
-100 req/s flood over 10 seconds, and RSS stayed below its pre-flood baseline
-throughout, no restarts. Actual numbers depend on your hardware; this
-reproduces the methodology, not a guaranteed result.
+Reference result from our own run, on an idle instance with no internet
+exposure, using the default 100 req/s for 10 seconds:
+
+| | Honeypot RSS | Total RSS (honeypot + API) |
+|---|---|---|
+| Before the flood | 24 MB | 50 MB |
+| After the flood | 133 MB | 156 MB |
+
+RSS steps up once on first traffic, then stays flat: two further floods added
+about 60 KB each. No restarts.
+
+CPU is bursty, not flat. Each request becomes a full session that is
+classified and stored, so the honeypot's CPU spiked to a peak of about 135%
+(more than one core) for roughly a second, then rose and fell repeatedly for
+about 40 seconds while it worked through the backlog, and returned to idle
+(0 to 1%). That was on a VirtualBox VM; on a single-vCPU host the peak is
+capped at 100% and the backlog takes longer to clear. Actual numbers depend on
+your hardware; this reproduces the methodology, not a guaranteed result.
 
 Running under Docker Compose instead? Use `docker stats` to watch the same
 two containers' CPU/memory while `flood_test.py` runs.
