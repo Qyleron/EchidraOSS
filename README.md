@@ -115,7 +115,7 @@ about 60 KB each. No restarts.
 CPU is bursty, not flat. Each request becomes a full session that is
 classified and stored, so the honeypot's CPU spiked to a peak of about 135%
 (more than one core) for roughly a second, then rose and fell repeatedly for
-about 40 seconds while it worked through the backlog, and returned to idle
+about 79 seconds while it worked through the backlog, and returned to idle
 (0 to 1%). That was on a VirtualBox VM; on a single-vCPU host the peak is
 capped at 100% and the backlog takes longer to clear. Actual numbers depend on
 your hardware; this reproduces the methodology, not a guaranteed result.
