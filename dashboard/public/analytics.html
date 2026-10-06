@@ -681,6 +681,32 @@
       return { from, to };
     }
 
+    // The applied range lives in the URL (?from=&from_hour=&to=&to_hour=) so a
+    // reload or a shared link keeps it, like ?session= on the Sessions page.
+    // Anything malformed or inverted falls back to the default last 7 days.
+    function readRangeFromUrl() {
+      const params = new URLSearchParams(window.location.search);
+      const fromDate = params.get("from");
+      const toDate = params.get("to");
+      const fromHour = Number(params.get("from_hour") ?? 0);
+      const toHour = Number(params.get("to_hour") ?? 23);
+      const isDate = (value) =>
+        /^\d{4}-\d{2}-\d{2}$/.test(value || "") && !Number.isNaN(new Date(`${value}T00:00:00`).getTime());
+      const isHour = (hour) => Number.isInteger(hour) && hour >= 0 && hour <= 23;
+      if (!isDate(fromDate) || !isDate(toDate) || !isHour(fromHour) || !isHour(toHour)) return null;
+      if (toDate < fromDate || (fromDate === toDate && fromHour > toHour)) return null;
+      return { fromDate, fromHour, toDate, toHour };
+    }
+
+    function writeRangeToUrl() {
+      const params = new URLSearchParams(window.location.search);
+      params.set("from", document.getElementById("rangeFromDate").value);
+      params.set("from_hour", document.getElementById("rangeFromHour").value);
+      params.set("to", document.getElementById("rangeToDate").value);
+      params.set("to_hour", document.getElementById("rangeToHour").value);
+      history.replaceState(null, "", `${window.location.pathname}?${params}${window.location.hash}`);
+    }
+
     let analyticsRequestId = 0;
 
     async function applyRange({ background = false } = {}) {
@@ -734,13 +760,19 @@
       const timeRangeButton = document.getElementById("timeRangeButton");
       const timeRangePanel = document.getElementById("timeRangePanel");
 
-      const now = new Date();
-      populateHourSelect(fromHourSelect, HOUR_OPTIONS, 0);
-      populateHourSelect(toHourSelect, HOUR_OPTIONS, 23);
-      toDateInput.value = localDateKey(now);
-      const defaultFrom = new Date(now);
-      defaultFrom.setDate(defaultFrom.getDate() - 6);
-      fromDateInput.value = localDateKey(defaultFrom);
+      const savedRange = readRangeFromUrl();
+      populateHourSelect(fromHourSelect, HOUR_OPTIONS, savedRange ? savedRange.fromHour : 0);
+      populateHourSelect(toHourSelect, HOUR_OPTIONS, savedRange ? savedRange.toHour : 23);
+      if (savedRange) {
+        fromDateInput.value = savedRange.fromDate;
+        toDateInput.value = savedRange.toDate;
+      } else {
+        const now = new Date();
+        toDateInput.value = localDateKey(now);
+        const defaultFrom = new Date(now);
+        defaultFrom.setDate(defaultFrom.getDate() - 6);
+        fromDateInput.value = localDateKey(defaultFrom);
+      }
       syncRangeConstraints();
 
       [fromDateInput, toDateInput, fromHourSelect, toHourSelect].forEach((input) => {
@@ -753,6 +785,7 @@
       });
 
       document.getElementById("applyRangeButton").addEventListener("click", () => {
+        writeRangeToUrl();
         applyRange();
         timeRangePanel.classList.remove("open");
       });
