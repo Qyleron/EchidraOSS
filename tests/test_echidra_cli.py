@@ -420,7 +420,7 @@ def test_read_pid_file_rejects_zero_negative_and_out_of_range_values(monkeypatch
     assert cli._read_pid_file() == [1234]
 
 
-def test_stop_skips_a_stale_pid_that_no_longer_exists(monkeypatch, tmp_path):
+def test_stop_skips_a_stale_pid_that_no_longer_exists(monkeypatch, tmp_path, capsys):
     pid_path = tmp_path / "echidra.pid"
     monkeypatch.setattr(cli, "PID_PATH", pid_path)
     # A PID no live process will plausibly hold during the test run.
@@ -428,8 +428,11 @@ def test_stop_skips_a_stale_pid_that_no_longer_exists(monkeypatch, tmp_path):
 
     exit_code = cli._cmd_stop(cli._build_parser().parse_args(["stop"]))
 
+    captured = capsys.readouterr()
     assert exit_code == 0
     assert not pid_path.exists()
+    assert "was not running" in captured.out
+    assert "Stopped." not in captured.out
 
 
 def test_stop_leaves_pidfile_when_permission_denied(monkeypatch, tmp_path, capsys):

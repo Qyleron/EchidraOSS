@@ -327,9 +327,11 @@ def _cmd_stop(args: argparse.Namespace) -> int:
 
     signaled = []
     permission_denied = []
+    found_running = False
     for pid in pids:
         if not _pid_is_echidra_process(pid):
             continue
+        found_running = True
         try:
             os.kill(pid, signal.SIGTERM)
         except ProcessLookupError:
@@ -368,6 +370,9 @@ def _cmd_stop(args: argparse.Namespace) -> int:
         return 1
 
     PID_PATH.unlink(missing_ok=True)
+    if not found_running:
+        print(f"Echidra was not running -- removed stale PID file {PID_PATH}.")
+        return 0
     print("Stopped.")
     return 0
 
