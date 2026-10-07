@@ -229,7 +229,7 @@ def test_list_alert_events_reads_back_channel(monkeypatch):
 
 
 def test_classifier_run_record_captures_searchable_summary_fields():
-    session = SessionRecord.parse_obj(make_record())
+    session = SessionRecord.model_validate(make_record())
     summary = classify_session_record(make_record())
     run_id = uuid4()
 
@@ -254,7 +254,7 @@ def test_classifier_run_record_captures_searchable_summary_fields():
 
 
 def test_classifier_run_insert_params_match_storage_columns():
-    session = SessionRecord.parse_obj(make_record())
+    session = SessionRecord.model_validate(make_record())
     summary = classify_session_record(make_record())
     record = ClassifierRunRecord.from_session_summary(session, summary)
 
@@ -270,7 +270,7 @@ def test_classifier_run_insert_params_match_storage_columns():
 
 
 def test_session_insert_params_match_storage_columns():
-    session = SessionRecord.parse_obj(
+    session = SessionRecord.model_validate(
         make_record(latitude=12.9716, longitude=77.5946)
     )
     summary = classify_session_record(make_record())
@@ -291,7 +291,7 @@ def test_session_insert_params_match_storage_columns():
 
 
 def test_session_event_insert_params_normalize_timeline_and_exposures():
-    session = SessionRecord.parse_obj(make_record())
+    session = SessionRecord.model_validate(make_record())
     summary = classify_session_record(make_record())
     record = ClassifierRunRecord.from_session_summary(session, summary)
 
@@ -312,7 +312,7 @@ def test_session_event_insert_params_normalize_timeline_and_exposures():
 
 
 def test_classifier_signal_insert_params_normalize_analysis_fields():
-    session = SessionRecord.parse_obj(make_record())
+    session = SessionRecord.model_validate(make_record())
     summary = classify_session_record(make_record())
     record = ClassifierRunRecord.from_session_summary(session, summary)
 
@@ -339,7 +339,7 @@ def test_classifier_signal_insert_params_normalize_analysis_fields():
 
 
 def test_classifier_run_statements_include_parent_and_child_writes():
-    session = SessionRecord.parse_obj(make_record())
+    session = SessionRecord.model_validate(make_record())
     summary = classify_session_record(make_record())
     record = ClassifierRunRecord.from_session_summary(session, summary)
 
@@ -369,7 +369,7 @@ def test_manual_label_insert_params_match_storage_columns():
             risk_level="high",
             notes="Analyst confirmed interactive behavior.",
             labeled_by="analyst@example.com",
-        ).dict()
+        ).model_dump()
     )
 
     params = manual_label_insert_params(label)
@@ -383,7 +383,7 @@ def test_manual_label_insert_params_match_storage_columns():
 
 
 def test_stored_classifier_run_from_rows_includes_session_and_signals():
-    session = SessionRecord.parse_obj(
+    session = SessionRecord.model_validate(
         make_record(latitude=12.9716, longitude=77.5946)
     )
     summary = classify_session_record(make_record())
@@ -437,7 +437,7 @@ def test_stored_classifier_run_distinguishes_partial_from_complete_classificatio
     told apart from a fully closed session once read back -- previously
     classification_status/insufficient_data_reason were computed but never
     made it into classifier_runs at all."""
-    session = SessionRecord.parse_obj(make_record())
+    session = SessionRecord.model_validate(make_record())
     active_summary = classify_session(session, active=True)
     assert active_summary.classification_status == "partial"
 
@@ -464,12 +464,12 @@ def test_stored_classifier_run_distinguishes_partial_from_complete_classificatio
 
 
 def test_classifier_run_record_rejects_invalid_classification_status():
-    session = SessionRecord.parse_obj(make_record())
+    session = SessionRecord.model_validate(make_record())
     summary = classify_session_record(make_record())
     valid = ClassifierRunRecord.from_session_summary(session, summary)
 
     with pytest.raises(ValidationError, match="Classification status must be one of"):
-        ClassifierRunRecord(**{**valid.dict(), "classification_status": "bogus_status"})
+        ClassifierRunRecord(**{**valid.model_dump(), "classification_status": "bogus_status"})
 
 
 def test_stored_classifier_run_rejects_invalid_classification_status():
@@ -497,7 +497,7 @@ def test_manual_label_from_row_returns_storage_model():
             session_id=uuid4(),
             actor_label="commodity_bot",
             notes="Confirmed from command sequence.",
-        ).dict()
+        ).model_dump()
     )
     row = manual_label_insert_params(label)
 
@@ -685,7 +685,7 @@ def test_list_session_events_returns_ordered_timeline(monkeypatch):
 
 
 def test_get_analytics_summary_aggregates_all_dimensions_without_driver(monkeypatch):
-    """All eight aggregate queries must run via the simple per-call fallback
+    """All nine aggregate queries must run via the simple per-call fallback
     (no psycopg installed / cursor-reuse path not exercised here)."""
     query_results = iter(
         [
@@ -713,9 +713,15 @@ def test_get_analytics_summary_aggregates_all_dimensions_without_driver(monkeypa
         "classifier.storage.repository._fetch_all",
         lambda database_url, sql, params: next(query_results),
     )
+    fetch_one_results = iter(
+        [
+            {"avg_dwell_seconds": 42.5},
+            {"classified_sessions": 12, "unclassified_sessions": 3},
+        ]
+    )
     monkeypatch.setattr(
         "classifier.storage.repository._fetch_one",
-        lambda database_url, sql, params: {"avg_dwell_seconds": 42.5},
+        lambda database_url, sql, params: next(fetch_one_results),
     )
 
     summary = PostgresClassifierRepository(
@@ -737,6 +743,32 @@ def test_get_analytics_summary_aggregates_all_dimensions_without_driver(monkeypa
     assert summary.top_countries == [{"country": "United States", "count": 3}]
     assert summary.protocol_breakdown == [{"protocol": "tcp_shell", "count": 7}]
     assert summary.avg_dwell_seconds == 42.5
+    assert summary.classified_sessions == 12
+    assert summary.unclassified_sessions == 3
+
+
+def test_get_analytics_summary_coverage_defaults_to_zero_when_no_runs(monkeypatch):
+    """With no classifier runs in range, coverage must read 0/0, not crash on
+    a missing row or NULL counts."""
+
+    def raise_driver_missing():
+        raise DatabaseDriverMissingError("psycopg is not installed")
+
+    monkeypatch.setattr("classifier.storage.repository._load_psycopg", raise_driver_missing)
+    monkeypatch.setattr("classifier.storage.repository._fetch_all", lambda database_url, sql, params: [])
+    fetch_one_results = iter([None, {"classified_sessions": None, "unclassified_sessions": None}])
+    monkeypatch.setattr(
+        "classifier.storage.repository._fetch_one",
+        lambda database_url, sql, params: next(fetch_one_results),
+    )
+
+    summary = PostgresClassifierRepository(
+        "postgresql://example/echidra"
+    ).get_analytics_summary(from_ts=1000.0, to_ts=2000.0)
+
+    assert summary.classified_sessions == 0
+    assert summary.unclassified_sessions == 0
+    assert summary.avg_dwell_seconds is None
 
 
 def test_repository_update_issue_status_returns_none_when_missing(monkeypatch):
@@ -832,7 +864,11 @@ def test_issue_upsert_statements_includes_parent_and_child_writes():
 
     assert "INSERT INTO issues" in statements[0][0]
     assert "ON CONFLICT (id) DO UPDATE" in statements[0][0]
-    assert "status" not in statements[0][0].split("DO UPDATE SET")[1]
+    # Status is only ever changed by the upsert to reopen an issue that
+    # picked up new sessions -- an analyst's status is otherwise kept.
+    update_clause = statements[0][0].split("DO UPDATE SET")[1]
+    assert "WHEN EXCLUDED.session_count > issues.session_count THEN 'open'" in update_clause
+    assert "ELSE issues.status" in update_clause
     assert "DELETE FROM issue_mitre_techniques" in statements[1][0]
     assert statements[1][1] == {"issue_id": issue.id}
     assert statements[2][1]["technique_id"] == "T1110"
@@ -866,7 +902,7 @@ def test_repository_aggregate_classifier_runs_by_actor_and_technique_queries_sig
 
 def test_repository_upsert_issue_refetches_persisted_status(monkeypatch):
     issue = make_issue(status="open")
-    persisted_row = {**issue.dict(exclude={"mitre", "session_ids"}), "status": "closed"}
+    persisted_row = {**issue.model_dump(exclude={"mitre", "session_ids"}), "status": "closed"}
     mitre_rows = [
         {"issue_id": issue.id, "technique_index": 0, "technique_id": "T1110", "technique_name": "Brute Force"}
     ]
@@ -1098,6 +1134,35 @@ def test_classifier_run_list_query_applies_supported_filters():
     }
 
 
+def test_classifier_run_list_query_unclassified_matches_null_actor():
+    sql, params = classifier_run_list_query(actor_label="unclassified", limit=25)
+
+    assert "classifier_runs.actor_label IS NULL" in sql
+    assert "%(actor_label)s" not in sql
+    assert params == {"limit": 25}
+
+
+def test_classifier_run_list_query_offset_pages_past_the_limit():
+    sql, params = classifier_run_list_query(limit=500, offset=500)
+
+    assert sql.endswith("LIMIT %(limit)s\nOFFSET %(offset)s")
+    assert params["offset"] == 500
+
+    sql, params = classifier_run_list_query(limit=500)
+    assert "OFFSET" not in sql
+    assert "offset" not in params
+
+
+def test_classifier_run_list_query_scopes_to_an_issues_sessions():
+    issue_id = uuid4()
+
+    sql, params = classifier_run_list_query(issue_id=issue_id, limit=25)
+
+    assert "SELECT session_id FROM issue_sessions WHERE issue_id = %(issue_id)s" in sql
+    assert "from_ts" not in sql
+    assert params == {"issue_id": issue_id, "limit": 25}
+
+
 def test_classifier_run_list_query_applies_date_range_filter():
     """sessions.html previously fetched a flat limit=500 (most-recent-first)
     and filtered by date range only client-side -- a range older than the
@@ -1155,6 +1220,17 @@ def test_issue_list_query_omits_filter_when_status_not_given():
 
     assert "WHERE" not in sql
     assert params == {"limit": 10}
+
+
+def test_issue_list_query_counts_only_sessions_in_the_date_range():
+    sql, params = issue_list_query(status="open", limit=10, from_ts=100.0, to_ts=200.0)
+
+    assert "FROM issue_sessions" in sql
+    assert "in_range.session_count" in sql
+    assert "sessions.started_at >= %(from_ts)s" in sql
+    assert "sessions.started_at <= %(to_ts)s" in sql
+    assert "status = %(status)s" in sql
+    assert params == {"status": "open", "limit": 10, "from_ts": 100.0, "to_ts": 200.0}
 
 
 def test_issue_list_query_clamps_limit_to_maximum():

@@ -63,6 +63,23 @@
           </div>
         </div>
 
+        <div class="page-panel-filters compact">
+          <select id="issueRangeFilter" class="form-select filter-control" aria-label="Time range">
+            <option value="24h">Last 24 hours</option>
+            <option value="7d">Last 7 days</option>
+            <option value="30d">Last 30 days</option>
+            <option value="all">All time</option>
+          </select>
+          <select id="issueActorFilter" class="form-select filter-control" aria-label="Filter by attacker type">
+            <option value="">All attacker types</option>
+            <option value="automated_scanner">Automated Scanner</option>
+            <option value="brute_force_bot">Brute-Force Bot</option>
+            <option value="commodity_bot">Commodity Bot</option>
+            <option value="script_kiddie">Script Kiddie</option>
+            <option value="skilled_human_operator">Skilled Human Operator</option>
+          </select>
+        </div>
+
         <div class="table-shell">
           <table class="data-table" aria-describedby="issuesTitle">
             <colgroup>
@@ -91,8 +108,75 @@
     </main>
   </div>
 
+  <script src="/custom-select.js"></script>
   <script>
     const SEVERITY_LABELS = { high: "High", medium: "Medium", low: "Low" };
+    const SEVERITY_RANK = { high: 0, medium: 1, low: 2 };
+    const severityRank = (issue) => SEVERITY_RANK[issue.severity] ?? 3;
+
+    // One flat list, worst first: severity, then how many sessions hit it.
+    function sortIssues(issues) {
+      return [...issues].sort((a, b) =>
+        severityRank(a) - severityRank(b) || (b.session_count || 0) - (a.session_count || 0)
+      );
+    }
+
+    const rangeFilter = document.getElementById("issueRangeFilter");
+    const actorFilter = document.getElementById("issueActorFilter");
+
+    // Range and attacker type live in the URL (?range=&actor=) so a reload
+    // or shared link keeps them. The default matches the Sessions page
+    // (last 7 days), except a direct ?issue= link, which looks across all
+    // time so the finding it names is always found.
+    (() => {
+      const params = new URLSearchParams(window.location.search);
+      const range = params.get("range") || (params.get("issue") ? "all" : "7d");
+      rangeFilter.value = [...rangeFilter.options].some((opt) => opt.value === range) ? range : "7d";
+      const actor = params.get("actor") || "";
+      actorFilter.value = [...actorFilter.options].some((opt) => opt.value === actor) ? actor : "";
+    })();
+
+    function writeFiltersToUrl() {
+      const url = new URL(window.location.href);
+      url.searchParams.set("range", rangeFilter.value);
+      if (actorFilter.value) url.searchParams.set("actor", actorFilter.value);
+      else url.searchParams.delete("actor");
+      history.replaceState(null, "", url);
+    }
+
+    function localDateKey(date) {
+      const pad = (n) => String(n).padStart(2, "0");
+      return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+    }
+
+    // The selected range as Dates, or null for all time. Whole hours/days,
+    // matching what the Sessions page's picker can express, so "View
+    // Sessions" can hand over exactly the same window.
+    function selectedRange() {
+      const key = rangeFilter.value;
+      if (key === "all") return null;
+      const now = new Date();
+      const to = new Date(now);
+      to.setHours(23, 59, 59, 999);
+      const from = new Date(now);
+      if (key === "24h") {
+        from.setTime(now.getTime() - 24 * 60 * 60 * 1000);
+        from.setMinutes(0, 0, 0);
+      } else {
+        from.setDate(from.getDate() - (key === "30d" ? 29 : 6));
+        from.setHours(0, 0, 0, 0);
+      }
+      return { from, to };
+    }
+
+    function sessionsRangeParams() {
+      const range = selectedRange();
+      if (!range) return "";
+      return `&from=${localDateKey(range.from)}&from_hour=${range.from.getHours()}`
+        + `&to=${localDateKey(range.to)}&to_hour=23`;
+    }
+
+    let allIssues = [];
     let currentIssues = [];
     let currentIssuePage = 1;
     const ISSUES_PAGE_SIZE = 10;
@@ -116,28 +200,30 @@
     // Evidence strings are always built server-side as "<summary sentence>."
     // optionally followed by " Matched: cmd1; cmd2; cmd3." (see
     // _build_evidence in issue_sync.py). Splitting on that fixed marker lets
-    // the summary and the matched commands render as a labeled block instead
-    // of one run-on paragraph, without needing a schema change to store them
-    // as separate fields.
+    // the summary and the matched commands render as their own sections
+    // instead of one run-on paragraph, without needing a schema change to
+    // store them as separate fields.
     function renderEvidence(evidence) {
       const marker = " Matched: ";
       const markerIndex = evidence.indexOf(marker);
-      if (markerIndex === -1) {
-        return `<p class="evidence-summary">${escHtml(evidence)}</p>`;
-      }
-      const summary = evidence.slice(0, markerIndex);
+      const evidenceSection = (summary) => `
+        <section class="detail-block" aria-label="Evidence">
+          <h3>Evidence</h3>
+          <p class="evidence-summary">${escHtml(summary)}</p>
+        </section>`;
+      if (markerIndex === -1) return evidenceSection(evidence);
       const samples = evidence
         .slice(markerIndex + marker.length)
         .replace(/\.$/, "")
         .split("; ")
         .filter(Boolean);
-      return `
-        <p class="evidence-summary">${escHtml(summary)}</p>
-        <span class="evidence-samples-label">Matched commands</span>
-        <ul class="evidence-samples">
-          ${samples.map((sample) => `<li>${escHtml(sample)}</li>`).join("")}
-        </ul>
-      `;
+      return evidenceSection(evidence.slice(0, markerIndex)) + `
+        <section class="detail-block" aria-label="Matched commands">
+          <h3>Matched Commands</h3>
+          <ul class="evidence-samples">
+            ${samples.map((sample) => `<li>${escHtml(sample)}</li>`).join("")}
+          </ul>
+        </section>`;
     }
 
     function statusLabel(status) {
@@ -145,7 +231,10 @@
     }
 
     async function fetchIssues() {
-      const response = await fetch("/issues");
+      const range = selectedRange();
+      let url = "/issues?limit=500";
+      if (range) url += `&from_ts=${range.from.getTime() / 1000}&to_ts=${range.to.getTime() / 1000}`;
+      const response = await fetch(url);
       if (!response.ok) {
         throw new Error(`Failed to load issues (${response.status})`);
       }
@@ -155,7 +244,10 @@
     function renderIssueRows(issues) {
       const tableBody = document.getElementById("issueTableBody");
       if (issues.length === 0) {
-        tableBody.innerHTML = `<tr><td colspan="6" class="empty-state" style="text-align: center;">No issues detected yet.</td></tr>`;
+        const message = allIssues.length
+          ? "No findings match these filters in this range."
+          : rangeFilter.value === "all" ? "No findings yet." : "No findings in this range.";
+        tableBody.innerHTML = `<tr><td colspan="6" class="empty-state" style="text-align: center;">${message}</td></tr>`;
         renderIssuesPagination(1);
         return;
       }
@@ -164,7 +256,7 @@
       const pageStart = (currentIssuePage - 1) * ISSUES_PAGE_SIZE;
       const pageItems = issues.slice(pageStart, pageStart + ISSUES_PAGE_SIZE);
       tableBody.innerHTML = pageItems.map((issue) => `
-        <tr data-issue-row="${escAttr(issue.id)}" tabindex="0" aria-haspopup="dialog">
+        <tr data-issue-row="${escAttr(issue.id)}" class="${issue.status === "closed" ? "is-closed" : ""}" tabindex="0" aria-haspopup="dialog">
           <td><div class="cell-primary"><strong>${escHtml(issue.title)}</strong></div></td>
           <td><span class="risk-badge ${escAttr(issue.severity)}">${escHtml(SEVERITY_LABELS[issue.severity] ?? issue.severity ?? "Unknown")}</span></td>
           <td>
@@ -180,6 +272,7 @@
               class="status-toggle ${escAttr(issue.status)}"
               data-issue-id="${escAttr(issue.id)}"
               aria-pressed="${issue.status === "closed"}"
+              title="${issue.status === "open" ? "Mark as closed" : "Reopen"}"
             >${escHtml(statusLabel(issue.status))}</button>
           </td>
         </tr>
@@ -286,7 +379,7 @@
     }
 
     function openIssueInspector(issueId) {
-      const issue = currentIssues.find((item) => String(item.id) === issueId);
+      const issue = allIssues.find((item) => String(item.id) === issueId);
       if (!issue) return;
       lastFocusedIssueTrigger = document.querySelector(`[data-issue-row="${issueId}"]`) || document.activeElement;
 
@@ -295,10 +388,7 @@
       });
 
       issueInspectorBody.innerHTML = `
-        <section class="detail-block" aria-label="Evidence">
-          <h3>Evidence</h3>
-          ${renderEvidence(issue.evidence)}
-        </section>
+        ${renderEvidence(issue.evidence)}
         <section class="detail-block" aria-label="Recommended fix">
           <h3>Recommended Fix</h3>
           <p>${escHtml(issue.recommended_fix)}</p>
@@ -313,8 +403,8 @@
       // previous issue's content scrolled to.
       issueInspectorBody.scrollTop = 0;
 
-      issueInspectorFooter.innerHTML = issue.actor_label
-        ? `<a href="/dashboard/sessions?actor=${encodeURIComponent(issue.actor_label)}" class="detail-sessions-link">View Sessions<svg class="session-count-link-arrow" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3l5 5-5 5"/></svg></a>`
+      issueInspectorFooter.innerHTML = issue.session_count
+        ? `<a href="/dashboard/sessions?issue=${encodeURIComponent(issue.id)}${sessionsRangeParams()}" class="detail-sessions-link">View Sessions<svg class="session-count-link-arrow" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3l5 5-5 5"/></svg></a>`
         : "";
 
       showIssueInspector();
@@ -340,7 +430,8 @@
         // overlapping on a slow connection) -- drop it instead of letting
         // it clobber the data a later request already applied.
         if (requestId !== issuesRequestId) return;
-        currentIssues = issues;
+        allIssues = sortIssues(issues);
+        currentIssues = applyActorFilter(allIssues);
         // Re-check for an open Issue Inspector *after* the fetch resolves,
         // not just before it starts -- an analyst can open one while a
         // background refresh is in flight, and rebuilding the table here
@@ -359,8 +450,8 @@
       }
     }
 
-    // Arriving from a Session Inspector's "View in Intelligence" badge
-    // (/dashboard/intelligence?issue=<uuid>) jumps straight to that issue's
+    // A link to /dashboard/intelligence?issue=<uuid> (bookmarked or
+    // shared) jumps straight to that issue's
     // row -- paginating to it and opening its Inspector -- instead of
     // leaving an analyst to search for it by hand across however many pages
     // of issues exist.
@@ -379,6 +470,22 @@
       if (row) row.scrollIntoView({ block: "center" });
     }
 
+    function applyActorFilter(issues) {
+      return actorFilter.value ? issues.filter((issue) => issue.actor_label === actorFilter.value) : issues;
+    }
+
+    rangeFilter.addEventListener("change", () => {
+      writeFiltersToUrl();
+      currentIssuePage = 1;
+      loadIssues();
+    });
+    actorFilter.addEventListener("change", () => {
+      writeFiltersToUrl();
+      currentIssuePage = 1;
+      currentIssues = applyActorFilter(allIssues);
+      renderIssueRows(currentIssues);
+    });
+
     async function handleStatusToggle(button) {
       const nextStatus = button.classList.contains("open") ? "closed" : "open";
       button.disabled = true;
@@ -396,6 +503,9 @@
         button.classList.add(updated.status);
         button.textContent = statusLabel(updated.status);
         button.setAttribute("aria-pressed", String(updated.status === "closed"));
+        button.title = updated.status === "open" ? "Mark as closed" : "Reopen";
+        const row = button.closest("[data-issue-row]");
+        if (row) row.classList.toggle("is-closed", updated.status === "closed");
         const cached = currentIssues.find((item) => item.id === updated.id);
         if (cached) {
           cached.status = updated.status;
@@ -445,6 +555,7 @@
       trapIssueInspectorTab(event);
     });
 
+    if (typeof initCustomSelects === "function") initCustomSelects(document);
     loadIssues();
     setInterval(() => {
       loadIssues({ background: true });

@@ -722,7 +722,7 @@ def test_list_manual_labels_route_uses_manual_label_list_contract():
 
 def test_classify_session_endpoint_returns_classifier_summary():
     route = route_for("/classify/session", "POST")
-    session = SessionRecord.parse_obj(make_record())
+    session = SessionRecord.model_validate(make_record())
 
     summary = route.endpoint(session)
 
@@ -742,12 +742,12 @@ def test_classify_session_endpoint_rejects_invalid_session_record():
     record = make_record(command_count=99)
 
     with pytest.raises(ValidationError, match="command_count must match commands"):
-        SessionRecord.parse_obj(record)
+        SessionRecord.model_validate(record)
 
 
 def test_classify_session_endpoint_maps_classify_session_value_error_to_http_exception(monkeypatch):
     route = route_for("/classify/session", "POST")
-    session = SessionRecord.parse_obj(make_record())
+    session = SessionRecord.model_validate(make_record())
 
     def failing_classify_session(_session, **_kwargs):
         raise ValueError("unsupported feature evaluation")
@@ -763,7 +763,7 @@ def test_classify_session_endpoint_maps_classify_session_value_error_to_http_exc
 
 def test_classify_session_endpoint_hides_unhandled_exception_details(monkeypatch):
     route = route_for("/classify/session", "POST")
-    session = SessionRecord.parse_obj(make_record())
+    session = SessionRecord.model_validate(make_record())
 
     def crashing_classify_session(_session, **_kwargs):
         raise RuntimeError("database password was leaked into this error")
@@ -780,7 +780,7 @@ def test_classify_session_endpoint_hides_unhandled_exception_details(monkeypatch
 def test_classify_and_store_endpoint_returns_run_id(monkeypatch):
     monkeypatch.setenv(app_module.INGEST_API_KEY_ENV, "test-ingest-key")
     route = route_for("/classify/session/store", "POST")
-    session = SessionRecord.parse_obj(make_record())
+    session = SessionRecord.model_validate(make_record())
     saved_runs = []
 
     class FakeRepository(_SessionVersionMixin):
@@ -807,7 +807,7 @@ def test_classify_and_store_endpoint_returns_run_id(monkeypatch):
 def test_classify_and_store_endpoint_reports_missing_database(monkeypatch):
     monkeypatch.setenv(app_module.INGEST_API_KEY_ENV, "test-ingest-key")
     route = route_for("/classify/session/store", "POST")
-    session = SessionRecord.parse_obj(make_record())
+    session = SessionRecord.model_validate(make_record())
 
     class MissingDatabaseRepository:
         def __init__(self):
@@ -829,7 +829,7 @@ def test_classify_and_store_endpoint_reports_missing_database(monkeypatch):
 def test_classify_and_store_endpoint_hides_persistence_failures(monkeypatch):
     monkeypatch.setenv(app_module.INGEST_API_KEY_ENV, "test-ingest-key")
     route = route_for("/classify/session/store", "POST")
-    session = SessionRecord.parse_obj(make_record())
+    session = SessionRecord.model_validate(make_record())
 
     class CrashingRepository:
         def __init__(self):
@@ -853,7 +853,7 @@ def test_classify_and_store_endpoint_hides_persistence_failures(monkeypatch):
 def test_classify_and_store_endpoint_fails_closed_without_configured_key():
     """No ECHIDRA_INGEST_API_KEY set at all -> 503, not a silent accept."""
     route = route_for("/classify/session/store", "POST")
-    session = SessionRecord.parse_obj(make_record())
+    session = SessionRecord.model_validate(make_record())
 
     with pytest.raises(HTTPException) as exc_info:
         route.endpoint(session, ingest_request("anything"))
@@ -865,7 +865,7 @@ def test_classify_and_store_endpoint_fails_closed_without_configured_key():
 def test_classify_and_store_endpoint_rejects_missing_or_wrong_key(monkeypatch):
     monkeypatch.setenv(app_module.INGEST_API_KEY_ENV, "correct-key")
     route = route_for("/classify/session/store", "POST")
-    session = SessionRecord.parse_obj(make_record())
+    session = SessionRecord.model_validate(make_record())
 
     with pytest.raises(HTTPException) as exc_info:
         route.endpoint(session, ingest_request(None))
@@ -878,7 +878,7 @@ def test_classify_and_store_endpoint_rejects_missing_or_wrong_key(monkeypatch):
 
 def test_get_classifier_run_endpoint_returns_stored_run(monkeypatch):
     route = route_for("/classifier/runs/{run_id}", "GET")
-    session = SessionRecord.parse_obj(make_record())
+    session = SessionRecord.model_validate(make_record())
     summary = app_module.classify_session(session)
     record = ClassifierRunRecord.from_session_summary(session, summary)
     stored_run = StoredClassifierRun(
@@ -914,7 +914,7 @@ def test_get_classifier_run_endpoint_returns_stored_run(monkeypatch):
 
 def test_get_classifier_run_endpoint_reports_missing_run(monkeypatch):
     route = route_for("/classifier/runs/{run_id}", "GET")
-    run_id = SessionRecord.parse_obj(make_record()).session_id
+    run_id = SessionRecord.model_validate(make_record()).session_id
 
     class FakeRepository(_SessionVersionMixin):
         def get_classifier_run(self, requested_run_id):
@@ -935,7 +935,7 @@ def test_get_classifier_run_endpoint_fails_auth_when_database_missing(monkeypatc
     session_version revocation lookup needs it), before the endpoint's own
     DatabaseNotConfiguredError handling is ever reached."""
     route = route_for("/classifier/runs/{run_id}", "GET")
-    run_id = SessionRecord.parse_obj(make_record()).session_id
+    run_id = SessionRecord.model_validate(make_record()).session_id
 
     class MissingDatabaseRepository:
         def __init__(self):
@@ -958,7 +958,7 @@ def test_list_session_events_endpoint_returns_ordered_timeline(monkeypatch):
     from classifier.storage import StoredSessionEvent
 
     route = route_for("/sessions/{session_id}/events", "GET")
-    session_id = SessionRecord.parse_obj(make_record()).session_id
+    session_id = SessionRecord.model_validate(make_record()).session_id
     events = [
         StoredSessionEvent(event_index=0, event_type="command", event_value="whoami", observed_at=100.0),
         StoredSessionEvent(event_index=1, event_type="decoy_file", event_value="/etc/passwd", observed_at=None),
@@ -981,7 +981,7 @@ def test_list_session_events_endpoint_fails_auth_when_database_missing(monkeypat
     session_version revocation lookup needs it), before the endpoint's own
     DatabaseNotConfiguredError handling is ever reached."""
     route = route_for("/sessions/{session_id}/events", "GET")
-    session_id = SessionRecord.parse_obj(make_record()).session_id
+    session_id = SessionRecord.model_validate(make_record()).session_id
 
     class MissingDatabaseRepository:
         def __init__(self):
@@ -1002,7 +1002,7 @@ def test_list_session_events_endpoint_fails_auth_when_database_missing(monkeypat
 
 def test_list_session_events_endpoint_requires_dashboard_auth():
     route = route_for("/sessions/{session_id}/events", "GET")
-    session_id = SessionRecord.parse_obj(make_record()).session_id
+    session_id = SessionRecord.model_validate(make_record()).session_id
 
     with pytest.raises(HTTPException) as exc_info:
         route.endpoint(session_id, dashboard_request(authenticated=False))
@@ -1012,7 +1012,7 @@ def test_list_session_events_endpoint_requires_dashboard_auth():
 
 def test_list_classifier_runs_endpoint_passes_filters(monkeypatch):
     route = route_for("/classifier/runs", "GET")
-    session = SessionRecord.parse_obj(make_record())
+    session = SessionRecord.model_validate(make_record())
     summary = app_module.classify_session(session)
     record = ClassifierRunRecord.from_session_summary(session, summary)
     stored_run = StoredClassifierRun(
@@ -1042,14 +1042,18 @@ def test_list_classifier_runs_endpoint_passes_filters(monkeypatch):
             risk_level,
             actor_label,
             persona_id,
+            issue_id,
             from_ts,
             to_ts,
             limit,
+            offset,
         ):
+            assert offset == 0
             assert session_id == session.session_id
             assert risk_level == "medium"
             assert actor_label == "commodity_bot"
             assert persona_id == "generic_linux"
+            assert issue_id is None
             assert from_ts is None
             assert to_ts is None
             assert limit == 25
@@ -1064,6 +1068,7 @@ def test_list_classifier_runs_endpoint_passes_filters(monkeypatch):
         actor_label="commodity_bot",
         persona_id="generic_linux",
         limit=25,
+        offset=0,
     )
 
     assert response == [stored_run]
@@ -1212,10 +1217,10 @@ def test_get_manual_label_endpoint_returns_stored_label(monkeypatch):
     route = route_for("/manual-labels/{label_id}", "GET")
     label = ManualLabelRecord(
         **ManualLabelInput(
-            session_id=SessionRecord.parse_obj(make_record()).session_id,
+            session_id=SessionRecord.model_validate(make_record()).session_id,
             actor_label="commodity_bot",
             labeled_by="analyst@example.com",
-        ).dict()
+        ).model_dump()
     )
 
     class FakeRepository(_SessionVersionMixin):
@@ -1232,7 +1237,7 @@ def test_get_manual_label_endpoint_returns_stored_label(monkeypatch):
 
 def test_get_manual_label_endpoint_reports_missing_label(monkeypatch):
     route = route_for("/manual-labels/{label_id}", "GET")
-    label_id = SessionRecord.parse_obj(make_record()).session_id
+    label_id = SessionRecord.model_validate(make_record()).session_id
 
     class FakeRepository(_SessionVersionMixin):
         def get_manual_label(self, requested_label_id):
@@ -1250,14 +1255,14 @@ def test_get_manual_label_endpoint_reports_missing_label(monkeypatch):
 
 def test_list_manual_labels_endpoint_passes_filters(monkeypatch):
     route = route_for("/manual-labels", "GET")
-    session_id = SessionRecord.parse_obj(make_record()).session_id
-    classifier_run_id = SessionRecord.parse_obj(make_record()).session_id
+    session_id = SessionRecord.model_validate(make_record()).session_id
+    classifier_run_id = SessionRecord.model_validate(make_record()).session_id
     label = ManualLabelRecord(
         **ManualLabelInput(
             session_id=session_id,
             classifier_run_id=classifier_run_id,
             actor_label="commodity_bot",
-        ).dict()
+        ).model_dump()
     )
 
     class FakeRepository(_SessionVersionMixin):
@@ -1329,9 +1334,10 @@ def test_list_issues_endpoint_returns_stored_issues(monkeypatch):
     issue = make_issue()
 
     class FakeRepository(_SessionVersionMixin):
-        def list_issues(self, *, status, limit):
+        def list_issues(self, *, status, limit, from_ts, to_ts):
             assert status == "open"
             assert limit == 50
+            assert from_ts is None and to_ts is None
             return [issue]
 
     monkeypatch.setattr(app_module, "PostgresClassifierRepository", FakeRepository)
@@ -1439,7 +1445,7 @@ def test_create_persona_config_endpoint_binds_persona_id_as_path_param(monkeypat
                 id=persona_id,
                 created_at=datetime.now(timezone.utc),
                 updated_at=datetime.now(timezone.utc),
-                **config.dict(),
+                **config.model_dump(),
             )
 
     monkeypatch.setattr(app_module, "PostgresClassifierRepository", FakeRepository)

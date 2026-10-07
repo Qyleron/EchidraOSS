@@ -872,29 +872,11 @@
         }
         var saved = await resp.json();
         allConfigs[targetId] = saved;
-        statusEl.textContent = "Saved.";
-        statusEl.style.color = "var(--low)";
         renderPersonaRows(allPresets, allConfigs);
         populateSelector(allPresets, Object.values(allConfigs));
-        // openModal() below rebuilds the whole form (including this status
-        // element) to reflect the saved values -- restore the message into
-        // the freshly-rendered element afterward, or it's visible for well
-        // under 100ms and looks like saving silently failed.
-        var savedModalId = personaId;
-        setTimeout(function() {
-          if (modalBackdrop.hidden || expandedPersonaId !== savedModalId) return;
-          openModal(targetId);
-          var freshStatusEl = document.getElementById("status_" + targetId);
-          if (freshStatusEl) {
-            freshStatusEl.textContent = "Saved.";
-            freshStatusEl.style.color = "var(--low)";
-            setTimeout(function() {
-              if (!modalBackdrop.hidden && expandedPersonaId === targetId) {
-                freshStatusEl.textContent = "";
-              }
-            }, 3000);
-          }
-        }, 80);
+        // The refreshed table row is the confirmation. Only close if the
+        // analyst hasn't already switched to another persona mid-save.
+        if (!modalBackdrop.hidden && expandedPersonaId === personaId) closeModal();
       } catch (err) {
         statusEl.textContent = "Error: " + err.message;
         statusEl.style.color = "var(--critical)";

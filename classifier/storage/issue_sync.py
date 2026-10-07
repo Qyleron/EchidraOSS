@@ -52,8 +52,9 @@ def sync_issues_from_classifier_runs(
     """Aggregate stored classifier runs by (actor_label, MITRE technique).
 
     Each pair maps to a stable issue id, so re-running this is idempotent:
-    counts get refreshed from real captured sessions but an analyst's
-    open/closed status is never reset. Unlike a rule-id rollup, this reads
+    counts get refreshed from real captured sessions and an analyst's
+    open/closed status is kept -- unless a closed issue picks up new
+    sessions, which reopens it (see UPSERT_ISSUE_SQL). Unlike a rule-id rollup, this reads
     directly off classifier_runs/classifier_signals -- any actor/technique
     combination your classifier actually produces shows up here, even
     without a dedicated rule written just for it. Repeat-connection

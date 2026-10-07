@@ -29,7 +29,7 @@ def make_rule(**overrides):
         ],
     }
     data.update(overrides)
-    return ClassificationRule.parse_obj(data)
+    return ClassificationRule.model_validate(data)
 
 
 def test_rule_evaluation_returns_matching_rules():

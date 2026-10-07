@@ -49,11 +49,11 @@ def make_persona_config_record(*, validate=True, **overrides):
     fields.update(overrides)
     if not validate:
         # PersonaConfigRecord now rejects some of these shapes itself (eg.
-        # duplicate decoy_files paths) -- .construct() bypasses that so
+        # duplicate decoy_files paths) -- .model_construct() bypasses that so
         # tests can still simulate a row that reached the DB before this
         # validation existed, or was edited directly, to exercise the
         # separate validate_persona() defense downstream.
-        return PersonaConfigRecord.construct(**fields)
+        return PersonaConfigRecord.model_construct(**fields)
     return PersonaConfigRecord(**fields)
 
 
@@ -174,7 +174,7 @@ def test_active_persona_falls_back_to_preset_when_db_lookup_fails(monkeypatch):
 
 def test_active_persona_falls_back_to_preset_when_db_record_fails_validation(monkeypatch):
     """A saved config that fails validate_persona() (eg. duplicate decoy file
-    paths -- built via .construct() to simulate a row saved before
+    paths -- built via .model_construct() to simulate a row saved before
     PersonaConfigRecord itself started rejecting duplicates) must fall back
     to the preset instead of crashing every new session."""
     from classifier.storage import DecoyFile

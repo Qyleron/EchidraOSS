@@ -32,7 +32,7 @@ def valid_record():
 
 def test_schema_accepts_valid_completed_session():
     """Valid JSONL records should be ready for classifier feature extraction."""
-    session = SessionRecord.parse_obj(valid_record())
+    session = SessionRecord.model_validate(valid_record())
 
     assert str(session.peer_ip) == "127.0.0.1"
     assert session.commands[0].cmd == "whoami"
@@ -43,7 +43,7 @@ def test_schema_defaults_historical_records_to_no_surfaced_decoys():
     record = valid_record()
     del record["decoy_files_surfaced"]
 
-    session = SessionRecord.parse_obj(record)
+    session = SessionRecord.model_validate(record)
 
     assert session.decoy_files_surfaced == []
 
@@ -52,7 +52,7 @@ def test_schema_accepts_optional_geoip_coordinates():
     record = valid_record()
     record.update({"latitude": 12.9716, "longitude": 77.5946})
 
-    session = SessionRecord.parse_obj(record)
+    session = SessionRecord.model_validate(record)
 
     assert session.latitude == 12.9716
     assert session.longitude == 77.5946
@@ -63,7 +63,7 @@ def test_schema_requires_geoip_coordinates_as_a_pair():
     record["latitude"] = 12.9716
 
     with pytest.raises(ValidationError, match="provided together"):
-        SessionRecord.parse_obj(record)
+        SessionRecord.model_validate(record)
 
 
 def test_schema_rejects_unknown_end_reason():
@@ -72,7 +72,7 @@ def test_schema_rejects_unknown_end_reason():
     record["end_reason"] = "mystery"
 
     with pytest.raises(ValidationError):
-        SessionRecord.parse_obj(record)
+        SessionRecord.model_validate(record)
 
 
 def test_schema_rejects_mismatched_command_count():
@@ -81,7 +81,7 @@ def test_schema_rejects_mismatched_command_count():
     record["command_count"] = 2
 
     with pytest.raises(ValidationError, match="command_count"):
-        SessionRecord.parse_obj(record)
+        SessionRecord.model_validate(record)
 
 
 def test_schema_rejects_command_outside_session_timestamps():
@@ -90,7 +90,7 @@ def test_schema_rejects_command_outside_session_timestamps():
     record["commands"][0]["timestamp"] = 99.0
 
     with pytest.raises(ValidationError, match="command timestamps"):
-        SessionRecord.parse_obj(record)
+        SessionRecord.model_validate(record)
 
 
 def test_schema_rejects_unexpected_fields():
@@ -99,7 +99,7 @@ def test_schema_rejects_unexpected_fields():
     record["unexpected"] = True
 
     with pytest.raises(ValidationError):
-        SessionRecord.parse_obj(record)
+        SessionRecord.model_validate(record)
 
 
 def test_schema_rejects_commands_out_of_timestamp_order():
@@ -114,7 +114,7 @@ def test_schema_rejects_commands_out_of_timestamp_order():
     })
 
     with pytest.raises(ValidationError, match="ordered by timestamp"):
-        SessionRecord.parse_obj(record)
+        SessionRecord.model_validate(record)
 
 
 def test_schema_rejects_duplicate_surfaced_decoy_files():
@@ -123,7 +123,7 @@ def test_schema_rejects_duplicate_surfaced_decoy_files():
     record["decoy_files_surfaced"] = ["/etc/passwd", "/etc/passwd"]
 
     with pytest.raises(ValidationError, match="duplicates"):
-        SessionRecord.parse_obj(record)
+        SessionRecord.model_validate(record)
 
 
 def test_schema_rejects_unsafe_surfaced_decoy_paths():
@@ -132,7 +132,7 @@ def test_schema_rejects_unsafe_surfaced_decoy_paths():
     record["decoy_files_surfaced"] = ["../etc/passwd"]
 
     with pytest.raises(ValidationError, match="safe absolute paths"):
-        SessionRecord.parse_obj(record)
+        SessionRecord.model_validate(record)
 
 
 @pytest.mark.parametrize("field", ["started_at", "ended_at"])
@@ -145,7 +145,7 @@ def test_schema_rejects_non_finite_timestamps(field, bad_value):
     record[field] = bad_value
 
     with pytest.raises(ValidationError, match="finite"):
-        SessionRecord.parse_obj(record)
+        SessionRecord.model_validate(record)
 
 
 @pytest.mark.parametrize("bad_value", [float("nan"), float("inf"), float("-inf")])
@@ -157,7 +157,7 @@ def test_schema_rejects_non_finite_duration_seconds(bad_value):
     record["duration_seconds"] = bad_value
 
     with pytest.raises(ValidationError):
-        SessionRecord.parse_obj(record)
+        SessionRecord.model_validate(record)
 
 
 @pytest.mark.parametrize("bad_value", [float("nan"), float("inf"), float("-inf")])
@@ -168,7 +168,7 @@ def test_schema_rejects_non_finite_coordinates(bad_value):
     record.update({"latitude": bad_value, "longitude": 77.5946})
 
     with pytest.raises(ValidationError):
-        SessionRecord.parse_obj(record)
+        SessionRecord.model_validate(record)
 
 
 @pytest.mark.parametrize("bad_value", [float("nan"), float("inf"), float("-inf")])
@@ -177,4 +177,4 @@ def test_schema_rejects_non_finite_command_timestamp(bad_value):
     record["commands"][0]["timestamp"] = bad_value
 
     with pytest.raises(ValidationError, match="finite"):
-        SessionRecord.parse_obj(record)
+        SessionRecord.model_validate(record)

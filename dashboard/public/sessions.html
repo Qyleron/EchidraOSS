@@ -52,7 +52,6 @@
         <button class="modal-close modal-close-danger" id="sessionInspectorCloseBtn" type="button" aria-label="Close">&times;</button>
       </div>
       <div class="session-inspector-body" id="sessionInspectorBody"></div>
-      <div class="session-inspector-footer" id="sessionInspectorFooter"></div>
     </aside>
 
     <main class="dashboard-main">
@@ -96,6 +95,10 @@
         </div>
 
         <div class="page-panel-filters">
+          <span id="issueScopeChip" class="filter-chip" hidden>
+            <span class="filter-chip-label"><span>Finding:</span> <strong id="issueScopeTitle">loading…</strong></span>
+            <button type="button" id="issueScopeClear" aria-label="Show all sessions, not just this finding's">&times;</button>
+          </span>
           <select id="riskLevelFilter" class="form-select filter-control" aria-label="Filter by risk level">
             <option value="">All risk levels</option>
             <option value="critical">Critical</option>
@@ -110,6 +113,7 @@
             <option value="commodity_bot">Commodity Bot</option>
             <option value="script_kiddie">Script Kiddie</option>
             <option value="skilled_human_operator">Skilled Human Operator</option>
+            <option value="unclassified">Unclassified</option>
           </select>
           <select id="personaFilter" class="form-select filter-control" aria-label="Filter by persona">
             <option value="">All personas</option>
@@ -123,9 +127,6 @@
           </div>
         </div>
 
-        <p id="rangeTruncatedNotice" style="display:none;padding:0 22px 12px;font-size:12px;color:var(--muted);">
-          Showing the most recent 500 sessions in this range — narrow the date range to see the rest.
-        </p>
         <p id="personaFilterWarning" style="display:none;padding:0 22px 12px;font-size:12px;color:var(--muted);" role="alert">
           Persona filter list may be incomplete — some personas failed to load. Reload the page to retry.
         </p>
@@ -148,6 +149,10 @@
           </table>
         </div>
         <div id="sessionsPagination" class="table-pagination"></div>
+        <div id="loadOlderBar" class="load-older-bar" hidden>
+          <span id="loadOlderText"></span>
+          <button type="button" class="text-button" id="loadOlderButton">Load older sessions</button>
+        </div>
       </section>
     </main>
   </div>
@@ -532,7 +537,8 @@
           // Landing back on page 1 is exactly the moment background
           // refreshes were being skipped for -- fetch fresh data now
           // instead of showing whatever was last fetched while away.
-          if (currentPage === 1) {
+          // (Not once older sessions were loaded -- refetching would drop them.)
+          if (currentPage === 1 && loadedRunCount <= SESSIONS_FETCH_LIMIT) {
             applyRange();
           } else {
             renderSessions(visibleSessions);
@@ -571,7 +577,6 @@
     const sessionInspector = document.getElementById("sessionInspector");
     const sessionInspectorBackdrop = document.getElementById("sessionInspectorBackdrop");
     const sessionInspectorBody = document.getElementById("sessionInspectorBody");
-    const sessionInspectorFooter = document.getElementById("sessionInspectorFooter");
     // Tracks which session the drawer is currently showing, so a background
     // refresh's async command-list fetch can tell it was closed/switched
     // away from before overwriting a now-stale or unrelated panel.
@@ -654,6 +659,9 @@
       return date ? formatSessionTime(date) : "—";
     }
 
+    const SEVERITY_ORDER = { high: 0, medium: 1, low: 2 };
+    const SEVERITY_NAMES = { high: "High", medium: "Medium", low: "Low" };
+
     async function openSessionInspector(sessionId) {
       const session = allSessions.find((item) => String(item.id) === String(sessionId));
       if (!session) return;
@@ -668,15 +676,22 @@
       const endedDate = session.endedAt ? new Date(session.endedAt * 1000) : null;
 
       const classificationLabel = session.classificationStatus === "complete" ? "Complete" : "Partial";
+      const classificationHint = session.classificationStatus === "complete"
+        ? "The session captured enough activity to classify the attacker."
+        : "The session captured too little activity to classify the attacker with confidence.";
 
       sessionInspectorBody.innerHTML = `
         <section class="detail-block" aria-label="Session summary">
           <h3>${escHtml(shortId)}</h3>
           <div class="session-inspector-meta">
             <div class="session-inspector-meta-item"><span>End Time</span><strong>${escHtml(formatInspectorTimestamp(endedDate))}</strong></div>
-            <div class="session-inspector-meta-item"><span>Classification</span><strong>${escHtml(classificationLabel)}</strong></div>
+            <div class="session-inspector-meta-item" title="${escAttr(classificationHint)}"><span>Classification</span><strong>${escHtml(classificationLabel)}</strong></div>
           </div>
           ${session.insufficientDataReason ? `<p class="inspector-note">${escHtml(session.insufficientDataReason)}</p>` : ""}
+        </section>
+        <section class="detail-block" aria-label="Intelligence findings" id="sessionFindings" hidden>
+          <h3>Intelligence Findings</h3>
+          <ul class="finding-links" id="sessionFindingsList"></ul>
         </section>
         ${session.evidence ? `
         <section class="detail-block" aria-label="Evidence">
@@ -698,13 +713,8 @@
       // previous session's content scrolled to.
       sessionInspectorBody.scrollTop = 0;
 
-      sessionInspectorFooter.innerHTML = "";
-
       showSessionInspector();
 
-      // Fired independently (not awaited in sequence) so a slow/failed
-      // fetch on one never delays or gets skipped by an early return in
-      // the other.
       (async () => {
         try {
           const events = await loadSessionEvents(session.sessionId);
@@ -724,26 +734,26 @@
         }
       })();
 
+      // The Intelligence findings this session was rolled into, listed by
+      // title and severity -- each opens that finding's detail on the
+      // Intelligence page. Hidden until the session is part of a finding.
       (async () => {
         try {
           const linkedIssues = await fetchJSON(`/sessions/${session.sessionId}/issues`);
-          if (inspectorSessionId !== sessionId) return; // closed/switched before the fetch resolved
-          sessionInspectorFooter.innerHTML = linkedIssues.length
-            ? linkedIssues
-                .map((linkedIssue) => `<a class="detail-sessions-link" href="/dashboard/intelligence?issue=${encodeURIComponent(linkedIssue.id)}" title="${escHtml(linkedIssue.title)}" aria-label="View in Intelligence: ${escHtml(linkedIssue.title)}">View in Intelligence<svg class="session-count-link-arrow" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3l5 5-5 5"/></svg></a>`)
-                .join("")
-            // Confirmed empty, not unresolved -- the fetch succeeded and
-            // genuinely returned nothing, so it's safe to assert this. The
-            // catch branch below must NOT show this text: a failed fetch
-            // means "unknown," and asserting "no issue" there would be a
-            // false claim, not just an empty footer.
-            : `<p class="session-footer-note">No related Intelligence issue for this session</p>`;
+          if (inspectorSessionId !== sessionId || !linkedIssues.length) return;
+          linkedIssues.sort((a, b) => (SEVERITY_ORDER[a.severity] ?? 3) - (SEVERITY_ORDER[b.severity] ?? 3));
+          document.getElementById("sessionFindingsList").innerHTML = linkedIssues.map((issue) => `
+            <li>
+              <a class="finding-link" href="/dashboard/intelligence?issue=${encodeURIComponent(issue.id)}" title="Open in Intelligence">
+                <span class="finding-link-severity ${escAttr(issue.severity)}">${escHtml(SEVERITY_NAMES[issue.severity] || issue.severity)}</span>
+                <span class="finding-link-title">${escHtml(issue.title.replace(/\.$/, ""))}</span>
+                <span class="finding-link-status ${issue.status === "closed" ? "closed" : "open"}">${issue.status === "closed" ? "Closed" : "Open"}</span>
+                <svg class="session-count-link-arrow" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3l5 5-5 5"/></svg>
+              </a>
+            </li>`).join("");
+          document.getElementById("sessionFindings").hidden = false;
         } catch (error) {
           console.error(error);
-          // Silent otherwise -- this is a supplementary cross-link, not
-          // core session detail, so a failed fetch just leaves the badge
-          // area empty instead of showing an error alongside Evidence/
-          // Command Timeline for something this secondary.
         }
       })();
     }
@@ -945,9 +955,74 @@
     async function applyRange({ background = false } = {}) {
       const { from, to } = background && appliedRange ? appliedRange : readRange();
       appliedRange = { from, to };
-      document.getElementById("timeRangeButton").textContent = formatRangeLabel(from, to);
+      document.getElementById("timeRangeButton").textContent = issueAllTime ? "All time" : formatRangeLabel(from, to);
       await loadSessions(from, to, { background });
     }
+
+    // The applied range lives in the URL (?from=&from_hour=&to=&to_hour=),
+    // like on Analytics, so a reload or shared link keeps it and the
+    // Intelligence page can hand over the range its counts were taken in.
+    // Anything malformed or inverted falls back to the default last 7 days.
+    function readRangeFromUrl() {
+      const params = new URLSearchParams(window.location.search);
+      const fromDate = params.get("from");
+      const toDate = params.get("to");
+      const fromHour = Number(params.get("from_hour") ?? 0);
+      const toHour = Number(params.get("to_hour") ?? 23);
+      const isDate = (value) =>
+        /^\d{4}-\d{2}-\d{2}$/.test(value || "") && !Number.isNaN(new Date(`${value}T00:00:00`).getTime());
+      const isHour = (hour) => Number.isInteger(hour) && hour >= 0 && hour <= 23;
+      if (!isDate(fromDate) || !isDate(toDate) || !isHour(fromHour) || !isHour(toHour)) return null;
+      if (toDate < fromDate || (fromDate === toDate && fromHour > toHour)) return null;
+      return { fromDate, fromHour, toDate, toHour };
+    }
+
+    function writeRangeToUrl() {
+      const params = new URLSearchParams(window.location.search);
+      params.set("from", document.getElementById("rangeFromDate").value);
+      params.set("from_hour", document.getElementById("rangeFromHour").value);
+      params.set("to", document.getElementById("rangeToDate").value);
+      params.set("to_hour", document.getElementById("rangeToHour").value);
+      history.replaceState(null, "", `${window.location.pathname}?${params}${window.location.hash}`);
+    }
+
+    // /dashboard/sessions?issue=<uuid> (an Intelligence finding's "View
+    // Sessions" link) lists exactly the sessions behind that finding, in
+    // the range the link carries -- or across all time when it carries none
+    // (Intelligence set to "All time"), so the list matches the count the
+    // finding showed. Removing the chip goes back to all sessions.
+    let issueScope = (() => {
+      const id = new URLSearchParams(window.location.search).get("issue");
+      return id && /^[0-9a-f-]{36}$/i.test(id) ? id : null;
+    })();
+    let issueAllTime = Boolean(issueScope) && !readRangeFromUrl();
+    const issueScopeChip = document.getElementById("issueScopeChip");
+    function showIssueScope() {
+      if (!issueScope) return;
+      issueScopeChip.hidden = false;
+      fetchJSON("/issues?limit=500")
+        .then((issues) => {
+          const issue = issues.find((item) => String(item.id) === issueScope);
+          const title = issue ? issue.title.replace(/\.$/, "") : "this finding";
+          document.getElementById("issueScopeTitle").textContent = title;
+          issueScopeChip.title = title;
+        })
+        .catch((error) => console.error(error));
+    }
+    function clearIssueScope() {
+      if (!issueScope) return;
+      issueScope = null;
+      issueAllTime = false;
+      issueScopeChip.hidden = true;
+      const url = new URL(window.location.href);
+      url.searchParams.delete("issue");
+      history.replaceState(null, "", url);
+    }
+    document.getElementById("issueScopeClear").addEventListener("click", () => {
+      clearIssueScope();
+      applyRange();
+    });
+    showIssueScope();
 
     const riskLevelFilter = document.getElementById("riskLevelFilter");
     const actorLabelFilter = document.getElementById("actorLabelFilter");
@@ -1021,13 +1096,21 @@
       const timeRangeButton = document.getElementById("timeRangeButton");
       const timeRangePanel = document.getElementById("timeRangePanel");
 
-      const now = new Date();
-      populateHourSelect(fromHourSelect, HOUR_OPTIONS, 0);
-      populateHourSelect(toHourSelect, HOUR_OPTIONS, 23);
-      toDateInput.value = localDateKey(now);
-      const defaultFrom = new Date(now);
-      defaultFrom.setDate(defaultFrom.getDate() - 6);
-      fromDateInput.value = localDateKey(defaultFrom);
+      const urlRange = readRangeFromUrl();
+      if (urlRange) {
+        populateHourSelect(fromHourSelect, HOUR_OPTIONS, urlRange.fromHour);
+        populateHourSelect(toHourSelect, HOUR_OPTIONS, urlRange.toHour);
+        fromDateInput.value = urlRange.fromDate;
+        toDateInput.value = urlRange.toDate;
+      } else {
+        const now = new Date();
+        populateHourSelect(fromHourSelect, HOUR_OPTIONS, 0);
+        populateHourSelect(toHourSelect, HOUR_OPTIONS, 23);
+        toDateInput.value = localDateKey(now);
+        const defaultFrom = new Date(now);
+        defaultFrom.setDate(defaultFrom.getDate() - 6);
+        fromDateInput.value = localDateKey(defaultFrom);
+      }
       syncRangeConstraints();
 
       [fromDateInput, toDateInput, fromHourSelect, toHourSelect].forEach((input) => {
@@ -1051,6 +1134,8 @@
       });
 
       document.getElementById("applyRangeButton").addEventListener("click", () => {
+        issueAllTime = false;
+        writeRangeToUrl();
         applyRange();
         setTimeRangePanelOpen(false);
       });
@@ -1134,23 +1219,65 @@
     // guaranteed to resolve in the order they were sent.
     let latestSessionsRequestId = 0;
 
+    function sessionsUrl(from, to) {
+      let url = issueAllTime
+        ? `/classifier/runs?limit=${SESSIONS_FETCH_LIMIT}`
+        : `/classifier/runs?from_ts=${from.getTime() / 1000}&to_ts=${to.getTime() / 1000}&limit=${SESSIONS_FETCH_LIMIT}`;
+      if (issueScope) url += `&issue_id=${encodeURIComponent(issueScope)}`;
+      if (riskLevelFilter.value) url += `&risk_level=${encodeURIComponent(riskLevelFilter.value)}`;
+      if (actorLabelFilter.value) url += `&actor_label=${encodeURIComponent(actorLabelFilter.value)}`;
+      if (personaFilter.value) url += `&persona_id=${encodeURIComponent(personaFilter.value)}`;
+      return url;
+    }
+
+    // Sessions are fetched newest first, SESSIONS_FETCH_LIMIT at a time.
+    // When a batch comes back full there may be older ones, and the bar
+    // under the table offers to fetch the next batch (?offset=) and append
+    // it, rather than older sessions being unreachable without narrowing
+    // the range.
+    const loadOlderBar = document.getElementById("loadOlderBar");
+    const loadOlderButton = document.getElementById("loadOlderButton");
+    let loadedRunCount = 0;
+    function updateLoadOlderBar(hasMore) {
+      loadOlderBar.hidden = !hasMore;
+      document.getElementById("loadOlderText").textContent =
+        `Showing the ${loadedRunCount.toLocaleString()} most recent sessions${issueScope ? " behind this finding" : " in this range"}.`;
+    }
+
+    loadOlderButton.addEventListener("click", async () => {
+      if (!appliedRange) return;
+      const requestId = latestSessionsRequestId;
+      loadOlderButton.disabled = true;
+      loadOlderButton.textContent = "Loading…";
+      try {
+        const runs = await fetchJSON(`${sessionsUrl(appliedRange.from, appliedRange.to)}&offset=${loadedRunCount}`);
+        if (requestId !== latestSessionsRequestId) return; // filters changed meanwhile
+        // Sessions that arrived since the first batch shift everything down,
+        // so the start of this batch can repeat ones already shown.
+        const seen = new Set(allSessions.map((item) => item.id));
+        allSessions = allSessions.concat(runs.map(mapRun).filter((item) => !seen.has(item.id)));
+        loadedRunCount += runs.length;
+        visibleSessions = applySearchToSessions(allSessions);
+        renderSessions(visibleSessions);
+        updateLoadOlderBar(runs.length >= SESSIONS_FETCH_LIMIT);
+      } catch (error) {
+        console.error(error);
+      } finally {
+        loadOlderButton.disabled = false;
+        loadOlderButton.textContent = "Load older sessions";
+      }
+    });
+
     async function loadSessions(from, to, { background = false } = {}) {
       const requestId = ++latestSessionsRequestId;
-      const truncatedNotice = document.getElementById("rangeTruncatedNotice");
       if (!background) {
         tableBody.innerHTML = '<tr><td colspan="8" class="table-loader-cell"><div class="spinner" role="status" aria-label="Loading sessions"></div></td></tr>';
         renderPagination(0);
-        truncatedNotice.style.display = "none";
+        loadOlderBar.hidden = true;
       }
       let runs = null;
       try {
-        const fromTs = from.getTime() / 1000;
-        const toTs = to.getTime() / 1000;
-        let url = `/classifier/runs?from_ts=${fromTs}&to_ts=${toTs}&limit=${SESSIONS_FETCH_LIMIT}`;
-        if (riskLevelFilter.value) url += `&risk_level=${encodeURIComponent(riskLevelFilter.value)}`;
-        if (actorLabelFilter.value) url += `&actor_label=${encodeURIComponent(actorLabelFilter.value)}`;
-        if (personaFilter.value) url += `&persona_id=${encodeURIComponent(personaFilter.value)}`;
-        runs = await fetchJSON(url);
+        runs = await fetchJSON(sessionsUrl(from, to));
       } catch (error) {
         console.error(error);
       }
@@ -1165,21 +1292,22 @@
       // flight. Applying a stale background result at this point would
       // otherwise silently reset their page/close their Inspector selection
       // out from under them.
-      if (background && (sessionInspector.classList.contains("open") || currentPage !== 1)) {
+      // Same once older sessions were loaded: a refresh only refetches the
+      // newest batch and would drop them.
+      if (background && (sessionInspector.classList.contains("open") || currentPage !== 1 || loadedRunCount > SESSIONS_FETCH_LIMIT)) {
         return;
       }
 
       if (runs) {
         allSessions = runs.map(mapRun);
         sessionsLoadFailed = false;
-        // The server filters by range server-side now, so a full page means
-        // there may be more matching sessions beyond the cap -- say so
-        // rather than silently showing an incomplete result as if complete.
-        truncatedNotice.style.display = runs.length >= SESSIONS_FETCH_LIMIT ? "" : "none";
+        loadedRunCount = runs.length;
+        // A full batch means there may be older matching sessions.
+        updateLoadOlderBar(runs.length >= SESSIONS_FETCH_LIMIT);
       } else {
         allSessions = [];
         sessionsLoadFailed = true;
-        truncatedNotice.style.display = "none";
+        loadOlderBar.hidden = true;
       }
       visibleSessions = applySearchToSessions(allSessions);
       currentPage = 1;

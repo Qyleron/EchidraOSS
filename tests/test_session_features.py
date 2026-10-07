@@ -20,7 +20,7 @@ def create_session(
         for command, offset in commands
     ]
 
-    return SessionRecord.parse_obj({
+    return SessionRecord.model_validate({
         "schema_version": 1,
         "session_id": str(uuid.uuid4()),
         "protocol": "tcp_shell",
@@ -155,7 +155,7 @@ def create_http_session(commands, duration_seconds=10.0, end_reason="disconnect"
         {"cmd": command, "timestamp": started_at + offset}
         for command, offset in commands
     ]
-    return SessionRecord.parse_obj({
+    return SessionRecord.model_validate({
         "schema_version": 1,
         "session_id": str(uuid.uuid4()),
         "protocol": "http",
@@ -179,7 +179,7 @@ def create_telnet_session(commands, duration_seconds=10.0, end_reason="disconnec
         {"cmd": command, "timestamp": started_at + offset}
         for command, offset in commands
     ]
-    return SessionRecord.parse_obj({
+    return SessionRecord.model_validate({
         "schema_version": 1,
         "session_id": str(uuid.uuid4()),
         "protocol": "telnet",
@@ -221,7 +221,7 @@ def create_ftp_session(commands, duration_seconds=10.0, end_reason="disconnect")
         {"cmd": command, "timestamp": started_at + offset}
         for command, offset in commands
     ]
-    return SessionRecord.parse_obj({
+    return SessionRecord.model_validate({
         "schema_version": 1,
         "session_id": str(uuid.uuid4()),
         "protocol": "ftp",

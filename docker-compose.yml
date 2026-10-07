@@ -88,6 +88,16 @@ services:
       ECHIDRA_SESSION_SECRET: ${ECHIDRA_SESSION_SECRET:?set ECHIDRA_SESSION_SECRET in your .env}
       ECHIDRA_COOKIE_SECURE: ${ECHIDRA_COOKIE_SECURE:-false}
       ECHIDRA_ALLOW_SIGNUPS: ${ECHIDRA_ALLOW_SIGNUPS:-false}
+    # python:3.11-slim has no curl, so the probe uses the stdlib instead.
+    # urlopen raises on a refused connection or a non-2xx status, which
+    # exits non-zero and marks the container unhealthy. start_period gives
+    # uvicorn time to boot before failed checks start counting.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     # Bound to the host's loopback only -- unlike the four decoy ports above,
     # the dashboard isn't meant for the same audience. Reach it via an SSH
     # tunnel or your own reverse proxy (see DEPLOYMENT.md), not directly.

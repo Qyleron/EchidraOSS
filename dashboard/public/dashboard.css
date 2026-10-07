@@ -20,6 +20,13 @@
   box-sizing: border-box;
 }
 
+/* Focus rings only for keyboard focus (Tab), never left behind after a
+   mouse click -- clicking a button, dropdown or table row shouldn't leave
+   it outlined, but keyboard users still see where they are. */
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
 html {
   min-width: 320px;
   background: var(--bg);
@@ -257,6 +264,16 @@ a {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 16px;
+}
+
+.classification-coverage {
+  margin: 14px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.classification-coverage:empty {
+  display: none;
 }
 
 .metric-card {
@@ -537,6 +554,22 @@ a {
   padding: 14px 22px;
 }
 
+/* Sessions: "Showing the 500 most recent… [Load older sessions]". */
+.load-older-bar {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 8px 14px;
+  padding: 4px 22px 22px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.load-older-bar[hidden] {
+  display: none;
+}
+
 .table-pagination .pagination-status {
   font-size: 12px;
   color: var(--muted);
@@ -594,6 +627,164 @@ a {
 .data-table tbody tr[data-issue-row]:hover,
 .data-table tbody tr[data-issue-row].selected {
   background: var(--surface-hover);
+}
+
+/* Session Inspector: the Intelligence findings a session belongs to. */
+.finding-links {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.finding-link {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 14px;
+  text-decoration: none;
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+.finding-link:hover,
+.finding-link:focus-visible {
+  border-color: var(--border-strong);
+  background: var(--surface-hover);
+}
+
+.finding-link-severity {
+  flex: none;
+  min-width: 62px;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.finding-link-severity.high { color: #ff9aa6; }
+.finding-link-severity.medium { color: #ffc46f; }
+.finding-link-severity.low { color: #7ee18f; }
+
+.finding-link-title {
+  flex: 1;
+  min-width: 0;
+  line-height: 1.4;
+}
+
+/* Same look as the Intelligence page's Status control (blue Open, grey
+   tick Closed), as a read-only pill. */
+.finding-link-status {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px 3px 8px;
+  border: 1px solid rgba(76, 154, 255, 0.5);
+  border-radius: 999px;
+  background: rgba(76, 154, 255, 0.14);
+  color: #8ec1ff;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.finding-link-status::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.finding-link-status.closed {
+  border-color: var(--border-strong);
+  background: transparent;
+  color: var(--muted);
+}
+
+.finding-link-status.closed::before {
+  content: "\2713";
+  width: auto;
+  height: auto;
+  border-radius: 0;
+  background: none;
+  font-size: 11px;
+  line-height: 1;
+}
+
+.finding-link .session-count-link-arrow {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  color: var(--muted);
+}
+
+/* Removable filter chip in a .page-panel-filters row -- eg. the Sessions
+   page's "Finding: ..." scope when opened from an Intelligence finding.
+   Long labels truncate; the full text is in the title tooltip. */
+.filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 1 auto;
+  max-width: 360px;
+  min-width: 0;
+  padding: 4px 4px 4px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text);
+  font-size: 13px;
+}
+
+.filter-chip[hidden] {
+  display: none;
+}
+
+.filter-chip-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.filter-chip-label span {
+  color: var(--muted);
+}
+
+.filter-chip button {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--muted);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.filter-chip button:hover,
+.filter-chip button:focus-visible {
+  background: rgba(255, 255, 255, 0.16);
+  color: var(--text);
+}
+
+/* Filter row with a few fixed-width controls (Intelligence) rather than
+   controls stretched across the whole row. */
+@media (min-width: 768px) {
+  .page-panel-filters.compact {
+    justify-content: flex-start;
+  }
+
+  .page-panel-filters.compact > .filter-control,
+  .page-panel-filters.compact > .custom-select {
+    flex: 0 1 220px;
+  }
 }
 
 .data-table tbody tr:last-child td {
@@ -747,18 +938,6 @@ a {
   font-size: 14px;
 }
 
-.evidence-summary {
-  margin: 0 0 8px;
-}
-
-.evidence-samples-label {
-  display: block;
-  margin: 0 0 6px;
-  color: var(--muted);
-  font-size: 11px;
-  text-transform: uppercase;
-  font-weight: 650;
-}
 
 .evidence-samples {
   display: grid;
@@ -1077,34 +1256,71 @@ a {
   line-height: 1.4;
 }
 
+/* Triage status. "Open" is the one thing on the Intelligence table asking
+   for attention, so it's blue -- a hue severity never uses, so it can't be
+   mistaken for a severity badge (amber "Open" used to look exactly like
+   Medium, green "Closed" exactly like Low). "Closed" steps back to grey
+   with a tick. A closed finding that picks up new sessions reopens on its
+   own (issue sync), so blue always means "needs a look". */
 .status-toggle {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  min-width: 84px;
-  border: 1px solid var(--line);
-  border-radius: 5px;
-  padding: 8px 12px;
-  color: var(--muted);
-  background: transparent;
+  gap: 8px;
+  min-width: 96px;
+  border: 1px solid rgba(76, 154, 255, 0.5);
+  border-radius: 999px;
+  padding: 6px 14px 6px 12px;
+  color: #8ec1ff;
+  background: rgba(76, 154, 255, 0.14);
   cursor: pointer;
   font: inherit;
   font-size: 13px;
-  font-weight: 650;
-  text-transform: uppercase;
+  font-weight: 600;
   transition: border-color 0.2s ease, background 0.2s ease, color 0.2s ease;
 }
 
-.status-toggle.open {
-  border-color: rgba(255, 167, 38, 0.4);
-  color: #ffc46f;
-  background: rgba(255, 167, 38, 0.2);
+.status-toggle::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 0 3px rgba(76, 154, 255, 0.25);
+}
+
+.status-toggle:hover,
+.status-toggle:focus-visible {
+  border-color: #8ec1ff;
+  background: rgba(76, 154, 255, 0.22);
 }
 
 .status-toggle.closed {
-  border-color: rgba(81, 207, 102, 0.4);
-  color: #7ee18f;
-  background: rgba(81, 207, 102, 0.18);
+  border-color: var(--border-strong);
+  color: var(--muted);
+  background: transparent;
+}
+
+.status-toggle.closed::before {
+  content: "\2713";
+  width: auto;
+  height: auto;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  font-size: 12px;
+  line-height: 1;
+}
+
+.status-toggle.closed:hover,
+.status-toggle.closed:focus-visible {
+  border-color: var(--muted);
+  color: var(--text);
+  background: var(--surface-hover);
+}
+
+/* Closed findings fade back so open ones are what the eye lands on. */
+.data-table tbody tr.is-closed td:not(:last-child) {
+  opacity: 0.5;
 }
 
 .map-frame {
@@ -1940,10 +2156,7 @@ a {
 /* Sticky action bar: sits outside the scrolling body (as a flex sibling of
    it, not inside it), so it's a fixed part of the panel chrome, like the
    header, rather than content that scrolls out of view. Empty and
-   collapses to nothing when an issue/session has no linked action yet.
-   Stacks as a column since the Session Inspector variant can hold more
-   than one "View in Intelligence" pill (a session can match several
-   issues), each rendered full-width via .detail-sessions-link. */
+   collapses to nothing when there is no linked action. */
 .session-inspector-footer {
   display: flex;
   flex-direction: column;
@@ -1963,28 +2176,33 @@ a {
   gap: 18px 16px;
 }
 
+/* Summary facts at the top of the Session Inspector: a readable label over
+   a large value, so they read as key facts rather than fine print. */
 .session-inspector-meta-item {
   display: grid;
   gap: 6px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
 }
 
 .session-inspector-meta-item span {
   color: var(--muted);
-  font-size: 11px;
-  text-transform: uppercase;
-  font-weight: 650;
+  font-size: 13px;
+  font-weight: 500;
 }
 
 .session-inspector-meta-item strong {
   color: var(--text);
-  font-size: 14px;
-  font-weight: 650;
+  font-size: 18px;
+  font-weight: 700;
   overflow-wrap: anywhere;
 }
 
+/* No max-height/overflow of its own: the inspector body already scrolls, and
+   a second scroller nested inside it traps the wheel and shows two bars. */
 .command-block {
-  max-height: 260px;
-  overflow-y: auto;
   border: 1px solid var(--line);
   border-radius: 6px;
   background: var(--surface);
@@ -2010,16 +2228,6 @@ a {
 .inspector-note::first-letter,
 .evidence-summary::first-letter {
   text-transform: uppercase;
-}
-
-/* Sits alone in the footer in place of the "View in Intelligence" pill it
-   replaces when a session has none -- a plain .inspector-note reads as too
-   quiet standing in for what's normally a bold, high-contrast button. */
-.session-footer-note {
-  margin: 0;
-  color: var(--muted);
-  font-size: 14px;
-  font-weight: 600;
 }
 
 /* ── Alert page styles ── */
@@ -2217,7 +2425,7 @@ select:hover,
 }
 
 .custom-select-trigger:hover,
-.custom-select-trigger:focus,
+.custom-select-trigger:focus-visible,
 .custom-select.open .custom-select-trigger {
   border-color: var(--text);
   cursor: pointer;
@@ -2229,7 +2437,7 @@ select:hover,
 }
 
 .custom-select-trigger[aria-disabled="true"]:hover,
-.custom-select-trigger[aria-disabled="true"]:focus {
+.custom-select-trigger[aria-disabled="true"]:focus-visible {
   border-color: var(--border-strong);
 }
 
@@ -2336,7 +2544,7 @@ select:hover,
 }
 
 .custom-date-trigger:hover,
-.custom-date-trigger:focus,
+.custom-date-trigger:focus-visible,
 .custom-date.open .custom-date-trigger {
   border-color: var(--border-strong);
 }

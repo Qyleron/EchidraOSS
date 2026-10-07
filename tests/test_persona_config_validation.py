@@ -99,6 +99,10 @@ def test_accepts_well_formed_contact_email():
         "ftp://example.com",
         "https://example.com/not-slack",  # https, but not hooks.slack.com
         "https://evil.com/?u=https://hooks.slack.com/services/x",  # domain check must anchor at the start
+        "https://hooks.slack.com.evil.example/services/x",  # prefix match would accept this
+        "https://hooks.slack.com@evil.example/services/x",  # userinfo trick, real host is evil.example
+        "https://hooks.slack.com:8443/services/x",  # non-default port
+        "https://hooks.slack.com:notaport/services/x",  # unparseable port
     ],
 )
 def test_rejects_non_slack_webhook(bad_webhook):

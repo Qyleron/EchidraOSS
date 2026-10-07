@@ -16,7 +16,7 @@ def make_session(protocol, commands, duration_seconds, persona_id="generic_linux
         {"cmd": cmd, "timestamp": started_at + offset}
         for cmd, offset in commands
     ]
-    return SessionRecord.parse_obj({
+    return SessionRecord.model_validate({
         "schema_version": 1,
         "session_id": str(uuid.uuid4()),
         "protocol": protocol,

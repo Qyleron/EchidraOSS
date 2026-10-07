@@ -7,6 +7,7 @@ import re
 from datetime import datetime, timezone
 from pathlib import PurePosixPath
 from typing import Any
+from urllib.parse import urlsplit
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -349,6 +350,21 @@ _EMAIL_RE = re.compile(
 )
 
 
+def _is_slack_webhook_url(value: str) -> bool:
+    try:
+        parsed = urlsplit(value)
+        port = parsed.port
+    except ValueError:
+        return False
+    return (
+        parsed.scheme == "https"
+        and parsed.hostname == "hooks.slack.com"
+        and parsed.username is None
+        and parsed.password is None
+        and port is None
+    )
+
+
 def _option_labels(values: set[str] | tuple[str, ...], labels: dict[str, str]) -> str:
     """Render values as a comma-separated label list for a validation message.
 
@@ -452,7 +468,11 @@ class PersonaConfigInput(BaseModel):
     @field_validator("slack_webhook")
     @classmethod
     def validate_slack_webhook(cls, value: str | None) -> str | None:
-        if value is not None and not value.startswith("https://hooks.slack.com/"):
+        # Parse and compare the exact hostname, matching the dispatch-time check
+        # in classifier/alerts.py::_slack_post. A plain startswith() prefix
+        # match accepts https://hooks.slack.com.evil.example/, which only got
+        # rejected later at send time instead of when the operator saved it.
+        if value is not None and not _is_slack_webhook_url(value):
             raise ValueError("Slack webhook must be an https://hooks.slack.com/ URL")
         return value
 
@@ -506,6 +526,11 @@ class AnalyticsSummary(BaseModel):
     top_countries: list[dict[str, Any]] = Field(default_factory=list)
     protocol_breakdown: list[dict[str, Any]] = Field(default_factory=list)
     avg_dwell_seconds: float | None = None
+    # Sessions in range whose classifier runs did / did not produce an actor
+    # label. The unclassified share is what backs (or undercuts) the public
+    # "nothing goes unattributed" claim, so it's surfaced, not hidden.
+    classified_sessions: int = 0
+    unclassified_sessions: int = 0
 
     model_config = ConfigDict(extra="forbid")
 

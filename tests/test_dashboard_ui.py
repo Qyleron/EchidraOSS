@@ -106,12 +106,14 @@ def test_sessions_page_server_side_filters_by_date_range_not_client_side():
     """A flat limit=500 fetch filtered client-side would silently drop
     older in-range sessions once the honeypot has more than 500 total --
     the range must be sent to the server, and truncation must be visible
-    rather than presenting a capped result as if it were complete."""
+    rather than presenting a capped result as if it were complete -- with a
+    way to load the older sessions beyond the cap."""
     html = (DASHBOARD_PUBLIC_PATH / "sessions.html").read_text(encoding="utf-8")
 
     assert "async function loadSessions(from, to, { background = false } = {})" in html
-    assert 'id="rangeTruncatedNotice"' in html
+    assert 'id="loadOlderBar"' in html
     assert "runs.length >= SESSIONS_FETCH_LIMIT" in html
+    assert "&offset=${loadedRunCount}" in html
 
 
 def test_sessions_page_exports_classification_status_without_a_redundant_risk_badge():

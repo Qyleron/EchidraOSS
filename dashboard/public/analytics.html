@@ -106,6 +106,7 @@
               <span class="metric-label">Interactive Operation</span>
             </article>
           </section>
+          <p class="classification-coverage" id="classificationCoverage"></p>
         </div>
       </section>
 
@@ -568,6 +569,19 @@
       });
     }
 
+    // Share of sessions in range that got an actor label. Kept visible on
+    // purpose: it's the honest measure of how much traffic the rules cover.
+    function renderClassificationCoverage(summary) {
+      const classified = summary.classified_sessions || 0;
+      const unclassified = summary.unclassified_sessions || 0;
+      const total = classified + unclassified;
+      // Floor to one decimal so any unclassified session keeps it below 100%.
+      const percent = total ? Math.floor((classified / total) * 1000) / 10 : 0;
+      document.getElementById("classificationCoverage").textContent = total
+        ? `Classified: ${classified} of ${total} sessions (${percent}%) \u00b7 ${unclassified} unclassified`
+        : "";
+    }
+
     // Wider ranges get coarser buckets from the server (risk_trend_bucket:
     // "day"/"week"/"month") so a 3-month range doesn't render 90+ daily
     // bars -- the label format has to match whichever bucket came back.
@@ -614,6 +628,7 @@
       renderRankedList("personasList", summary.top_personas.map((row) => [personaDisplay(row.persona_id), row.count]));
       renderRankedList("countriesList", summary.top_countries.map((row) => [row.country, row.count]));
       renderIntentMetrics(summary.intent_counts);
+      renderClassificationCoverage(summary);
     }
 
     const HOUR_OPTIONS = Array.from({ length: 24 }, (_, hour) => {
@@ -877,6 +892,15 @@
             ["Reconnaissance", summary.intent_counts.reconnaissance || 0],
             ["Data Access", summary.intent_counts.data_access || 0],
             ["Interactive Operation", summary.intent_counts.interactive_operation || 0],
+          ],
+        },
+        {
+          key: "coverage",
+          name: "Classification Coverage",
+          header: ["Status", "Sessions"],
+          rows: [
+            ["Classified", summary.classified_sessions || 0],
+            ["Unclassified", summary.unclassified_sessions || 0],
           ],
         },
         {

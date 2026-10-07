@@ -107,6 +107,12 @@ finishes -- three long-running containers remain afterward: `db`,
 port 8000). The `init-db` step only needs to run once — it's idempotent,
 so re-running it against an existing database is safe.
 
+`docker compose up -d` returns before uvicorn has finished booting inside
+`api`, so opening the dashboard in the first few seconds can fail with
+"Connection reset by peer". Wait until `docker compose ps` shows `api` as
+`(healthy)` — its healthcheck polls `/health` — or look for
+`Uvicorn running on http://0.0.0.0:8000` in `docker compose logs api --tail 20`.
+
 Both `honeypot` and `api` bind-mount the host's `/etc/localtime` and
 `/etc/timezone` read-only, so container log timestamps automatically match
 the host machine's timezone — no `TZ` env var or manual config needed. Both

@@ -629,9 +629,11 @@ def create_app() -> FastAPI:
         risk_level: str | None = None,
         actor_label: str | None = None,
         persona_id: str | None = None,
+        issue_id: UUID | None = None,
         from_ts: float | None = None,
         to_ts: float | None = None,
         limit: int = Query(default=100, ge=1, le=500),
+        offset: int = Query(default=0, ge=0),
     ) -> list[StoredClassifierRun]:
         """Return stored classifier runs matching optional exact filters."""
         _require_dashboard_auth(request)
@@ -642,9 +644,11 @@ def create_app() -> FastAPI:
                 risk_level=risk_level,
                 actor_label=actor_label,
                 persona_id=persona_id,
+                issue_id=issue_id,
                 from_ts=from_ts,
                 to_ts=to_ts,
                 limit=limit,
+                offset=offset,
             )
         except (DatabaseDriverMissingError, DatabaseNotConfiguredError) as exc:
             raise HTTPException(status_code=503, detail=_user_facing_error_detail(exc))
@@ -794,12 +798,20 @@ def create_app() -> FastAPI:
         request: Request,
         status: str | None = None,
         limit: int = Query(default=100, ge=1, le=500),
+        from_ts: float | None = None,
+        to_ts: float | None = None,
     ) -> list[IssueRecord]:
-        """Return stored issues matching an optional status filter."""
+        """Return stored issues matching an optional status filter.
+
+        With from_ts/to_ts, session counts cover only that range and issues
+        with no sessions in it are omitted.
+        """
         _require_dashboard_auth(request)
         try:
             repository = PostgresClassifierRepository()
-            return repository.list_issues(status=status, limit=limit)
+            return repository.list_issues(
+                status=status, limit=limit, from_ts=from_ts, to_ts=to_ts
+            )
         except (DatabaseDriverMissingError, DatabaseNotConfiguredError) as exc:
             raise HTTPException(status_code=503, detail=_user_facing_error_detail(exc))
         except Exception as exc:

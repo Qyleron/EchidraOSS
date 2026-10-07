@@ -58,4 +58,4 @@ def make_features(**overrides):
         "command_names": ["whoami", "ls", "cat", "ls"],
     }
     data.update(overrides)
-    return SessionFeatures.parse_obj(data)
+    return SessionFeatures.model_validate(data)

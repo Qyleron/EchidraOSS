@@ -422,6 +422,37 @@ FROM issues
 
 SELECT_ISSUE_BY_ID_SQL = SELECT_ISSUE_BASE_SQL + "WHERE id = %(id)s"
 
+# Same columns as SELECT_ISSUE_BASE_SQL, but session_count/persona_count are
+# recounted from only the linked sessions that started inside a date range
+# (issue_list_query fills in {range_filters}), and issues with none in that
+# range drop out -- so a count on the Intelligence page always matches what
+# the Sessions page shows for the same range.
+SELECT_ISSUE_IN_RANGE_BASE_SQL = """
+SELECT
+    issues.id,
+    issues.title,
+    issues.severity,
+    issues.evidence,
+    issues.recommended_fix,
+    issues.impact,
+    in_range.session_count,
+    in_range.persona_count,
+    issues.status,
+    issues.actor_label,
+    issues.created_at
+FROM issues
+JOIN (
+    SELECT
+        issue_sessions.issue_id,
+        COUNT(*) AS session_count,
+        COUNT(DISTINCT sessions.persona_id) AS persona_count
+    FROM issue_sessions
+    JOIN sessions ON sessions.id = issue_sessions.session_id
+    WHERE {range_filters}
+    GROUP BY issue_sessions.issue_id
+) in_range ON in_range.issue_id = issues.id
+"""
+
 SELECT_ISSUE_MITRE_TECHNIQUES_SQL = """
 SELECT
     issue_id,
@@ -503,7 +534,14 @@ ON CONFLICT (id) DO UPDATE SET
     impact = EXCLUDED.impact,
     session_count = EXCLUDED.session_count,
     persona_count = EXCLUDED.persona_count,
-    actor_label = EXCLUDED.actor_label
+    actor_label = EXCLUDED.actor_label,
+    -- A closed finding that picks up new sessions reopens, so activity
+    -- after an analyst closed it is never silently absorbed. Otherwise
+    -- the analyst's status is kept.
+    status = CASE
+        WHEN EXCLUDED.session_count > issues.session_count THEN 'open'
+        ELSE issues.status
+    END
 """
 
 DELETE_ISSUE_MITRE_TECHNIQUES_SQL = """
@@ -835,6 +873,22 @@ FROM sessions
 WHERE started_at >= %(from_ts)s AND started_at <= %(to_ts)s AND ended_at IS NOT NULL
 """
 
+# A session can have several classifier runs (live partial runs plus the
+# final one) and classifier_runs has no timestamp to pick the latest, so
+# coverage is per session: classified if any of its runs got an actor label.
+SELECT_ANALYTICS_CLASSIFICATION_COVERAGE_SQL = """
+SELECT
+    COUNT(*) FILTER (WHERE classified) AS classified_sessions,
+    COUNT(*) FILTER (WHERE NOT classified) AS unclassified_sessions
+FROM (
+    SELECT cr.session_id, bool_or(cr.actor_label IS NOT NULL) AS classified
+    FROM classifier_runs cr
+    JOIN sessions s ON s.id = cr.session_id
+    WHERE s.started_at >= %(from_ts)s AND s.started_at <= %(to_ts)s
+    GROUP BY cr.session_id
+) per_session
+"""
+
 SELECT_ANALYTICS_INTENT_COUNTS_SQL = """
 SELECT cr.intent AS key, COUNT(*) AS count
 FROM classifier_runs cr
@@ -1121,19 +1175,23 @@ class PostgresClassifierRepository:
         risk_level: str | None = None,
         actor_label: str | None = None,
         persona_id: str | None = None,
+        issue_id: UUID | None = None,
         from_ts: float | None = None,
         to_ts: float | None = None,
         limit: int = 100,
+        offset: int = 0,
     ) -> list[StoredClassifierRun]:
         """Fetch stored classifier runs matching optional exact filters."""
         sql, params = classifier_run_list_query(
             session_id=session_id,
             risk_level=risk_level,
             actor_label=actor_label,
+            issue_id=issue_id,
             persona_id=persona_id,
             from_ts=from_ts,
             to_ts=to_ts,
             limit=limit,
+            offset=offset,
         )
         rows = _fetch_all(self.database_url, sql, params)
         if not rows:
@@ -1333,9 +1391,13 @@ class PostgresClassifierRepository:
         *,
         status: str | None = None,
         limit: int = 100,
+        from_ts: float | None = None,
+        to_ts: float | None = None,
     ) -> list[IssueRecord]:
-        """Fetch stored issues matching an optional status filter."""
-        sql, params = issue_list_query(status=status, limit=limit)
+        """Fetch stored issues matching an optional status filter and date range."""
+        sql, params = issue_list_query(
+            status=status, limit=limit, from_ts=from_ts, to_ts=to_ts
+        )
         rows = _fetch_all(self.database_url, sql, params)
         if not rows:
             return []
@@ -1548,6 +1610,7 @@ class PostgresClassifierRepository:
             country_rows,
             protocol_rows,
             dwell_row,
+            coverage_row,
         ) = _fetch_aggregate_batch(
             self.database_url,
             [
@@ -1559,6 +1622,7 @@ class PostgresClassifierRepository:
                 (SELECT_ANALYTICS_TOP_COUNTRIES_SQL, params, False),
                 (SELECT_ANALYTICS_PROTOCOL_BREAKDOWN_SQL, params, False),
                 (SELECT_ANALYTICS_AVG_DWELL_SQL, params, True),
+                (SELECT_ANALYTICS_CLASSIFICATION_COVERAGE_SQL, params, True),
             ],
         )
 
@@ -1578,6 +1642,8 @@ class PostgresClassifierRepository:
             top_countries=[{"country": str(row["key"]), "count": int(row["count"])} for row in country_rows],
             protocol_breakdown=[{"protocol": str(row["key"]), "count": int(row["count"])} for row in protocol_rows],
             avg_dwell_seconds=float(avg_dwell) if avg_dwell is not None else None,
+            classified_sessions=int((coverage_row or {}).get("classified_sessions") or 0),
+            unclassified_sessions=int((coverage_row or {}).get("unclassified_sessions") or 0),
         )
 
     def aggregate_classifier_runs_by_actor_and_technique(self) -> list[dict[str, Any]]:
@@ -2157,21 +2223,34 @@ def _pivot_risk_trend(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return list(buckets.values())
 
 
+# Sentinel for the Sessions "Unclassified" filter -- matches runs with no
+# actor label rather than a stored label of that name.
+UNCLASSIFIED_ACTOR_FILTER = "unclassified"
+
+
 def classifier_run_list_query(
     *,
     session_id: UUID | None = None,
     risk_level: str | None = None,
     actor_label: str | None = None,
     persona_id: str | None = None,
+    issue_id: UUID | None = None,
     from_ts: float | None = None,
     to_ts: float | None = None,
     limit: int = 100,
+    offset: int = 0,
 ) -> tuple[str, dict[str, Any]]:
-    """Return SQL and parameters for listing stored classifier runs."""
+    """Return SQL and parameters for listing stored classifier runs.
+
+    offset skips that many of the newest matches, so a caller can page past
+    the limit (the dashboard's "Load older sessions").
+    """
     # Validate and clamp limit
     if not isinstance(limit, int) or limit < 1:
         raise ValueError(f"limit must be a positive integer, got {limit}")
     limit = min(limit, MAX_LIMIT)
+    if not isinstance(offset, int) or offset < 0:
+        raise ValueError(f"offset must be a non-negative integer, got {offset}")
 
     filters: list[str] = []
     params: dict[str, Any] = {"limit": limit}
@@ -2181,12 +2260,20 @@ def classifier_run_list_query(
     if risk_level is not None:
         filters.append("classifier_runs.risk_level = %(risk_level)s")
         params["risk_level"] = risk_level
-    if actor_label is not None:
+    if actor_label == UNCLASSIFIED_ACTOR_FILTER:
+        filters.append("classifier_runs.actor_label IS NULL")
+    elif actor_label is not None:
         filters.append("classifier_runs.actor_label = %(actor_label)s")
         params["actor_label"] = actor_label
     if persona_id is not None:
         filters.append("sessions.persona_id = %(persona_id)s")
         params["persona_id"] = persona_id
+    if issue_id is not None:
+        filters.append(
+            "classifier_runs.session_id IN "
+            "(SELECT session_id FROM issue_sessions WHERE issue_id = %(issue_id)s)"
+        )
+        params["issue_id"] = issue_id
     if from_ts is not None:
         filters.append("sessions.started_at >= %(from_ts)s")
         params["from_ts"] = from_ts
@@ -2194,12 +2281,16 @@ def classifier_run_list_query(
         filters.append("sessions.started_at <= %(to_ts)s")
         params["to_ts"] = to_ts
 
-    return _list_query(
+    sql, params = _list_query(
         SELECT_CLASSIFIER_RUN_BASE_SQL,
         filters,
         "sessions.started_at DESC, classifier_runs.id DESC",
         params,
     )
+    if offset:
+        sql += "\nOFFSET %(offset)s"
+        params["offset"] = offset
+    return sql, params
 
 
 def manual_label_list_query(
@@ -2235,8 +2326,14 @@ def issue_list_query(
     *,
     status: str | None = None,
     limit: int = 100,
+    from_ts: float | None = None,
+    to_ts: float | None = None,
 ) -> tuple[str, dict[str, Any]]:
-    """Return SQL and parameters for listing stored issues."""
+    """Return SQL and parameters for listing stored issues.
+
+    With from_ts/to_ts, counts cover only sessions that started in that
+    range and issues with no sessions in it are left out.
+    """
     # Validate and clamp limit
     if not isinstance(limit, int) or limit < 1:
         raise ValueError(f"limit must be a positive integer, got {limit}")
@@ -2248,8 +2345,21 @@ def issue_list_query(
         filters.append("status = %(status)s")
         params["status"] = status
 
+    base_sql = SELECT_ISSUE_BASE_SQL
+    range_filters: list[str] = []
+    if from_ts is not None:
+        range_filters.append("sessions.started_at >= %(from_ts)s")
+        params["from_ts"] = from_ts
+    if to_ts is not None:
+        range_filters.append("sessions.started_at <= %(to_ts)s")
+        params["to_ts"] = to_ts
+    if range_filters:
+        base_sql = SELECT_ISSUE_IN_RANGE_BASE_SQL.format(
+            range_filters="\n      AND ".join(range_filters)
+        )
+
     return _list_query(
-        SELECT_ISSUE_BASE_SQL,
+        base_sql,
         filters,
         "session_count DESC, created_at DESC",
         params,

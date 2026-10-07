@@ -19,7 +19,7 @@ def _session():
         {"cmd": "ls", "timestamp": started_at + 6.0},
         {"cmd": "cat /etc/passwd", "timestamp": started_at + 9.0},
     ]
-    return SessionRecord.parse_obj(
+    return SessionRecord.model_validate(
         {
             "schema_version": 1,
             "session_id": str(uuid.uuid4()),
@@ -72,11 +72,11 @@ def _persona_config(*, validate=True, **overrides):
     values.update(overrides)
     if not validate:
         # PersonaConfigRecord now requires slack_webhook/contact_email to
-        # match alert_routing_level at save time -- .construct() bypasses
+        # match alert_routing_level at save time -- .model_construct() bypasses
         # that to simulate a row saved before this validation existed
         # (eg. its webhook was cleared out-of-band), so _maybe_send_alert's
         # own per-channel defense-in-depth check is still exercised.
-        return PersonaConfigRecord.construct(**values)
+        return PersonaConfigRecord.model_construct(**values)
     return PersonaConfigRecord(**values)
 
 

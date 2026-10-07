@@ -56,7 +56,7 @@ def classify_session(
             "live classification from an active session; the result may change "
             "when more activity is observed"
         )
-        return summary.copy(
+        return summary.model_copy(
             update={
                 "classification_status": "partial",
                 "insufficient_data_reason": reason,
