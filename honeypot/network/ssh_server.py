@@ -183,7 +183,10 @@ async def handle_shell(process: asyncssh.SSHServerProcess) -> None:
                         timeout=READ_TIMEOUT,
                     )
                 except asyncio.TimeoutError:
-                    process.stdout.write("Session timed out.\n")
+                    # bash's own TMOUT wording
+                    process.stdout.write(
+                        "\ntimed out waiting for input: auto-logout\n"
+                    )
                     end_reason = "timeout"
                     break
 
@@ -194,9 +197,9 @@ async def handle_shell(process: asyncssh.SSHServerProcess) -> None:
                 response = engine.process(line.rstrip("\r\n"), session)
 
                 if response == "__CLOSE__":
-                    process.stdout.write(
-                        "logout\nConnection closed by remote host.\n"
-                    )
+                    # Only "logout" comes from the server; the "Connection
+                    # to ... closed." line is printed by the client itself.
+                    process.stdout.write("logout\n")
                     end_reason = "logout"
                     break
 
