@@ -51,6 +51,11 @@ Issues = "https://github.com/Qyleron/EchidraOSS/issues"
 [project.scripts]
 echidra = "echidra.cli:main"
 
+[tool.pytest.ini_options]
+# benchmarks/flood_test.py matches pytest's *_test.py pattern but is a load
+# generator (needs aiohttp), not a test.
+testpaths = ["tests"]
+
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
