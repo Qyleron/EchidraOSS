@@ -4,6 +4,17 @@ All notable changes to Echidra are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+- `echidra start` and `deploy/systemd/echidra-api.service` now bind the
+  dashboard to `127.0.0.1` by default, matching Docker Compose. Use
+  `--api-host` to override.
+
+### Fixed
+- `echidra start` reports busy ports up front, and `echidra start`/`stop`
+  point to `systemctl` when Echidra is running as a systemd service.
+
 ## [0.2.0] - 2026-10-06
 
 ### Added

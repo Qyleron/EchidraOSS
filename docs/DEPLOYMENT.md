@@ -219,9 +219,10 @@ sudo systemctl status echidra-honeypot echidra-api
 sudo journalctl -u echidra-honeypot -u echidra-api -f
 ```
 
-`echidra-api.service` binds `0.0.0.0:8000` like the four honeypot ports —
-unlike Compose's loopback binding, systemd relies entirely on the firewall
-below for port 8000 access control, so don't skip it:
+`echidra-api.service` binds the dashboard to `127.0.0.1:8000`, like
+Compose — reach it over an SSH tunnel (`ssh -L 8000:127.0.0.1:8000 ...`).
+`echidra start` does the same by default (`--api-host` overrides it). Keep
+the firewall below anyway, so only the decoy ports are reachable:
 
 ```bash
 # ufw

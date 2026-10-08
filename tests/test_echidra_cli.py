@@ -7,6 +7,20 @@ import pytest
 
 from echidra import cli
 
+_real_ports_in_use = cli._ports_in_use
+_real_active_systemd_units = cli._active_systemd_units
+
+
+@pytest.fixture(autouse=True)
+def _skip_real_port_preflight(monkeypatch):
+    # 'echidra start' probes the real listener ports before spawning
+    # anything; the start tests below fake the processes, so they mustn't
+    # depend on whether those ports happen to be free on this machine.
+    monkeypatch.setattr(cli, "_ports_in_use", lambda *args, **kwargs: [])
+    # Likewise for 'systemctl is-active' -- a dev machine may really have the
+    # deploy/systemd units installed.
+    monkeypatch.setattr(cli, "_active_systemd_units", lambda: [])
+
 
 def test_echidra_cli_no_command_prints_help(capsys):
     exit_code = cli.main([])
@@ -350,6 +364,81 @@ def test_cmd_start_refuses_to_start_over_a_still_running_previous_instance(monke
     assert popen_calls == []
     # The still-running instance's pidfile is left alone, not clobbered.
     assert pid_path.read_text(encoding="utf-8").strip() == str(proc.pid)
+
+
+def test_cmd_start_refuses_when_a_port_is_already_in_use(monkeypatch, tmp_path, capsys):
+    monkeypatch.setattr(cli, "PID_PATH", tmp_path / "echidra.pid")
+    monkeypatch.setattr(cli, "_ports_in_use", lambda *args, **kwargs: [("SSH-style shell", 2222)])
+    popen_calls = []
+    monkeypatch.setattr(cli.subprocess, "Popen", lambda cmd, **kw: popen_calls.append(cmd))
+
+    exit_code = cli._cmd_start(cli._build_parser().parse_args(["start", "--api-port", "8123"]))
+
+    captured = capsys.readouterr()
+    assert exit_code == 1
+    assert "Port 2222 (SSH-style shell) is already in use." in captured.out
+    assert "docker compose ps" in captured.out
+    assert popen_calls == []
+
+
+def test_ports_in_use_detects_a_port_held_by_another_listener():
+    import socket
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as holder:
+        holder.bind(("127.0.0.1", 0))
+        holder.listen()
+        taken_port = holder.getsockname()[1]
+
+        busy = _real_ports_in_use("127.0.0.1", taken_port)
+
+    assert ("API/dashboard", taken_port) in busy
+
+
+def test_cmd_start_names_the_systemd_service_holding_the_ports(monkeypatch, tmp_path, capsys):
+    monkeypatch.setattr(cli, "PID_PATH", tmp_path / "echidra.pid")
+    monkeypatch.setattr(cli, "_ports_in_use", lambda *args, **kwargs: [("SSH-style shell", 2222)])
+    monkeypatch.setattr(cli, "_active_systemd_units", lambda: ["echidra-api", "echidra-honeypot"])
+    monkeypatch.setattr(cli.subprocess, "Popen", lambda cmd, **kw: pytest.fail("should not spawn"))
+
+    exit_code = cli._cmd_start(cli._build_parser().parse_args(["start"]))
+
+    captured = capsys.readouterr()
+    assert exit_code == 1
+    assert "sudo systemctl disable --now echidra-api echidra-honeypot" in captured.out
+
+
+def test_stop_points_at_systemd_when_echidra_runs_as_a_service(monkeypatch, tmp_path, capsys):
+    monkeypatch.setattr(cli, "PID_PATH", tmp_path / "echidra.pid")
+    monkeypatch.setattr(cli, "_active_systemd_units", lambda: ["echidra-honeypot"])
+
+    exit_code = cli._cmd_stop(cli._build_parser().parse_args(["stop"]))
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert "sudo systemctl stop echidra-honeypot" in captured.out
+
+
+def test_active_systemd_units_reads_systemctl_is_active(monkeypatch):
+    class Result:
+        stdout = "active\ninactive\n"
+
+    monkeypatch.setattr(cli.subprocess, "run", lambda *args, **kwargs: Result())
+
+    assert cli.SYSTEMD_UNITS == ("echidra-api", "echidra-honeypot")
+    assert _real_active_systemd_units() == ["echidra-api"]
+
+
+def test_active_systemd_units_is_empty_without_systemctl(monkeypatch):
+    def missing(*args, **kwargs):
+        raise FileNotFoundError("systemctl")
+
+    monkeypatch.setattr(cli.subprocess, "run", missing)
+
+    assert _real_active_systemd_units() == []
+
+
+def test_start_binds_the_dashboard_to_loopback_by_default():
+    assert cli._build_parser().parse_args(["start"]).api_host == "127.0.0.1"
 
 
 def test_cmd_start_clears_a_stale_pidfile_before_starting(monkeypatch, tmp_path):

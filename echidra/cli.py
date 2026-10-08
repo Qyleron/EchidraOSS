@@ -9,6 +9,7 @@ to know four separate module invocations up front.
 from __future__ import annotations
 
 import argparse
+import errno
 import os
 import secrets
 import signal
@@ -80,7 +81,12 @@ def _build_parser() -> argparse.ArgumentParser:
         "start",
         help="run the honeypot listeners and the API/dashboard together until Ctrl+C",
     )
-    start_parser.add_argument("--api-host", default="0.0.0.0", help="API/dashboard bind host (default: 0.0.0.0)")
+    start_parser.add_argument(
+        "--api-host",
+        default="127.0.0.1",
+        help="API/dashboard bind host (default: 127.0.0.1 -- the dashboard is for you, not the internet; "
+        "reach it remotely over an SSH tunnel)",
+    )
     start_parser.add_argument("--api-port", type=int, default=8000, help="API/dashboard bind port (default: 8000)")
 
     classify_parser = subparsers.add_parser(
@@ -193,6 +199,21 @@ def _cmd_start(args: argparse.Namespace) -> int:
         return 1
     PID_PATH.unlink(missing_ok=True)  # clears a stale pidfile left by a process that's already gone
 
+    busy = _ports_in_use(args.api_host, args.api_port)
+    if busy:
+        for name, port in busy:
+            print(f"Port {port} ({name}) is already in use.")
+        units = _active_systemd_units()
+        if units:
+            print(f"Echidra is already running as a systemd service ({', '.join(units)}). "
+                  f"Stop it with: sudo systemctl disable --now {' '.join(units)}")
+            return 1
+        print("Something else is already listening there -- usually the Docker Compose stack "
+              "(check 'docker compose ps', stop it with 'docker compose down') or an Echidra "
+              "started some other way. To see what holds a port: "
+              f"ss -ltnp | grep ':{busy[0][1]} '")
+        return 1
+
     procs: list[subprocess.Popen] = []
     try:
         honeypot_proc = subprocess.Popen([sys.executable, "-m", "honeypot.main"])
@@ -276,6 +297,40 @@ def _cmd_start(args: argparse.Namespace) -> int:
     return max(max(proc.returncode or 0, 0) for proc in procs)
 
 
+def _ports_in_use(api_host: str, api_port: int) -> list[tuple[str, int]]:
+    """Return the (name, port) pairs 'echidra start' would fail to bind.
+
+    Checked up front so a port conflict is one clear message, not a
+    traceback per listener after the processes have already started. Only
+    "address already in use" counts -- any other bind error (eg. a port
+    below 1024 without privileges) is left for the real listener to report.
+    """
+    from honeypot.network.config import FTP_PORT, HOST, HTTP_PORT, PORT, TELNET_PORT
+
+    wanted = [
+        ("SSH-style shell", HOST, PORT),
+        ("HTTP", HOST, HTTP_PORT),
+        ("FTP", HOST, FTP_PORT),
+        ("Telnet", HOST, TELNET_PORT),
+        ("API/dashboard", api_host, api_port),
+    ]
+    busy = []
+    for name, host, port in wanted:
+        if not port:
+            continue
+        try:
+            family = socket.AF_INET6 if ":" in host else socket.AF_INET
+            with socket.socket(family, socket.SOCK_STREAM) as probe:
+                # Same as the real listeners (asyncio sets SO_REUSEADDR), so
+                # a port only in TIME_WAIT isn't reported as taken.
+                probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                probe.bind((host, port))
+        except OSError as exc:
+            if exc.errno == errno.EADDRINUSE:
+                busy.append((name, port))
+    return busy
+
+
 def _write_pid_file(pids) -> None:
     PID_PATH.parent.mkdir(parents=True, exist_ok=True)
     PID_PATH.write_text("\n".join(str(pid) for pid in pids) + "\n", encoding="utf-8")
@@ -323,6 +378,7 @@ def _cmd_stop(args: argparse.Namespace) -> int:
     pids = _read_pid_file()
     if not pids:
         print(f"No PID file at {PID_PATH} -- 'echidra start' doesn't appear to be running.")
+        _print_systemd_hint()
         return 0
 
     signaled = []
@@ -372,9 +428,40 @@ def _cmd_stop(args: argparse.Namespace) -> int:
     PID_PATH.unlink(missing_ok=True)
     if not found_running:
         print(f"Echidra was not running -- removed stale PID file {PID_PATH}.")
+        _print_systemd_hint()
         return 0
     print("Stopped.")
     return 0
+
+
+SYSTEMD_UNITS = ("echidra-api", "echidra-honeypot")
+
+
+def _active_systemd_units() -> list[str]:
+    """Return the deploy/systemd units that are currently active, if any.
+
+    'echidra stop' only knows about processes 'echidra start' launched (its
+    PID file); a systemd install holds the same ports but is managed by
+    systemctl, so both commands name it instead of failing confusingly.
+    """
+    try:
+        result = subprocess.run(
+            ["systemctl", "is-active", *SYSTEMD_UNITS],
+            capture_output=True, text=True, timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return []
+    states = result.stdout.split()
+    return [unit for unit, state in zip(SYSTEMD_UNITS, states) if state == "active"]
+
+
+def _print_systemd_hint() -> None:
+    units = _active_systemd_units()
+    if units:
+        print(f"Echidra is running as a systemd service ({', '.join(units)}) -- "
+              f"'echidra stop' doesn't manage that. Stop it with: "
+              f"sudo systemctl stop {' '.join(units)}  (add 'disable --now' instead of 'stop' "
+              "to keep it off after reboot)")
 
 
 def _pid_is_alive(pid: int) -> bool:
