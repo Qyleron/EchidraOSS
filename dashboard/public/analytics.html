@@ -82,6 +82,7 @@
             </div>
             <button id="exportCsvButton" class="text-button" type="button">Export Full Report (CSV)</button>
             <button id="exportXlsxButton" class="text-button" type="button">Export Full Report (XLSX)</button>
+            <button id="exportBlocklistButton" class="text-button" type="button" title="Public attacker IPs in this range, one per line, for a firewall, fail2ban or Cloudflare">Export Blocklist (TXT)</button>
           </div>
         </div>
         <div id="analyticsLoading" class="panel-loader" hidden>
@@ -399,6 +400,9 @@
     }
 
     let currentSummary = null;
+    // The range currentSummary was loaded for -- what the page is showing,
+    // which can differ from the picker if it was edited but not applied.
+    let currentRange = null;
 
     function escHtml(str) {
       return String(str == null ? "" : str)
@@ -425,6 +429,26 @@
       if (!from && !to) return "all-time";
       if (from === to) return from;
       return `${from || "start"}_to_${to || "now"}`;
+    }
+
+    // In-page notice (bottom-right), used instead of the browser's alert().
+    var noticeTimer = null;
+    function showNotice(message, options) {
+      var notice = document.getElementById("dashboardNotice");
+      if (!notice) {
+        notice = document.createElement("div");
+        notice.id = "dashboardNotice";
+        notice.className = "dashboard-notice";
+        notice.setAttribute("role", "status");
+        notice.setAttribute("aria-live", "polite");
+        document.body.appendChild(notice);
+        void notice.offsetWidth; // let the fade-in transition run on first use
+      }
+      notice.textContent = message;
+      notice.classList.toggle("notice-error", Boolean(options && options.error));
+      notice.classList.add("visible");
+      clearTimeout(noticeTimer);
+      noticeTimer = setTimeout(function() { notice.classList.remove("visible"); }, 4000);
     }
 
     function rowsToCsvString(rows) {
@@ -743,11 +767,13 @@
         );
         if (requestId !== analyticsRequestId) return; // superseded by a newer range/tick -- discard
         currentSummary = summary;
+        currentRange = { from, to };
         renderAnalytics(summary);
       } catch (error) {
         if (requestId !== analyticsRequestId) return;
         console.error(error);
         currentSummary = null;
+        currentRange = null;
         renderAnalytics({
           intent_counts: {},
           attacks_by_hour: Object.fromEntries(Array.from({ length: 24 }, (_, h) => [String(h).padStart(2, "0"), 0])),
@@ -868,7 +894,7 @@
         window.location.assign("/auth");
       } catch (error) {
         console.error(error);
-        alert("Logout failed: " + error.message);
+        showNotice("Logout failed: " + error.message, { error: true });
         logoutButton.disabled = false;
         logoutButton.focus();
       } finally {
@@ -945,7 +971,7 @@
     document.getElementById("exportCsvButton").addEventListener("click", async () => {
       if (!currentSummary) return;
       if (!window.JSZip) {
-        alert("Export failed: the ZIP library didn't load. Check your connection (or an ad-blocker/content blocker) and try again.");
+        showNotice("Export failed: the ZIP library didn't load. Check your connection (or an ad-blocker/content blocker) and try again.", { error: true });
         return;
       }
       // One CSV file per section, bundled into a single ZIP -- each file is
@@ -978,10 +1004,44 @@
       URL.revokeObjectURL(url);
     });
 
+    // Built server-side (GET /analytics/blocklist) rather than from
+    // currentSummary, which only carries top-N aggregates, not every IP.
+    // Plain text, one IP per line, is what firewalls, fail2ban, ipset and
+    // Cloudflare IP lists import directly.
+    document.getElementById("exportBlocklistButton").addEventListener("click", async () => {
+      if (!currentRange) return;
+      const { from, to } = currentRange;
+      let text;
+      try {
+        const response = await fetch(
+          `/analytics/blocklist?from_ts=${from.getTime() / 1000}&to_ts=${to.getTime() / 1000}`
+        );
+        if (!response.ok) throw new Error(`Request failed (${response.status})`);
+        text = await response.text();
+      } catch (error) {
+        console.error(error);
+        showNotice("Export failed: couldn't load the blocklist. Try again.", { error: true });
+        return;
+      }
+      if (!text) {
+        showNotice("No public attacker IPs in this range, so there's nothing to export. Try a wider range.");
+        return;
+      }
+      const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `echidra-blocklist_${dateRangeSuffix()}.txt`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    });
+
     document.getElementById("exportXlsxButton").addEventListener("click", () => {
       if (!currentSummary) return;
       if (!window.XLSX) {
-        alert("Export failed: the XLSX library didn't load. Check your connection (or an ad-blocker/content blocker) and try again.");
+        showNotice("Export failed: the XLSX library didn't load. Check your connection (or an ad-blocker/content blocker) and try again.", { error: true });
         return;
       }
       const sections = buildAnalyticsSections(currentSummary);

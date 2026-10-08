@@ -206,6 +206,16 @@
       color: var(--subtle);
     }
 
+    /* Browser autofill keeps the dark field instead of painting it blue/yellow. */
+    input:-webkit-autofill,
+    input:-webkit-autofill:hover,
+    input:-webkit-autofill:focus {
+      -webkit-text-fill-color: var(--text);
+      -webkit-box-shadow: 0 0 0 1000px var(--panel-strong) inset;
+      caret-color: var(--text);
+      transition: background-color 9999s ease-out 0s;
+    }
+
     .password-field-wrapper {
       position: relative;
     }
@@ -366,7 +376,7 @@
 
       <div id="authMessage" class="message" role="status"></div>
 
-      <form id="loginForm" class="auth-form">
+      <form id="loginForm" class="auth-form" novalidate>
         <div class="form-group">
           <label for="loginEmail">Email Address</label>
           <input type="email" id="loginEmail" placeholder="analyst@example.com" autocomplete="email" maxlength="254" required />
@@ -381,7 +391,7 @@
         <button type="submit" class="btn" id="loginButton">Login</button>
       </form>
 
-      <form id="signupForm" class="auth-form hidden">
+      <form id="signupForm" class="auth-form hidden" novalidate>
         <div class="form-group">
           <label for="signupEmail">Email Address</label>
           <input type="email" id="signupEmail" placeholder="analyst@example.com" autocomplete="email" maxlength="254" required />

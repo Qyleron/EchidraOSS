@@ -160,6 +160,26 @@
   <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js" integrity="sha384-OUW9euuUyxyHcAhTqbhI+Iyb8LMssXt/cpz0yXhs9UWG2/R/uaWdakx/4cfww7Vb" crossorigin="anonymous"></script>
   <script src="/custom-select.js"></script>
   <script>
+    // In-page notice (bottom-right), used instead of the browser's alert().
+    var noticeTimer = null;
+    function showNotice(message, options) {
+      var notice = document.getElementById("dashboardNotice");
+      if (!notice) {
+        notice = document.createElement("div");
+        notice.id = "dashboardNotice";
+        notice.className = "dashboard-notice";
+        notice.setAttribute("role", "status");
+        notice.setAttribute("aria-live", "polite");
+        document.body.appendChild(notice);
+        void notice.offsetWidth; // let the fade-in transition run on first use
+      }
+      notice.textContent = message;
+      notice.classList.toggle("notice-error", Boolean(options && options.error));
+      notice.classList.add("visible");
+      clearTimeout(noticeTimer);
+      noticeTimer = setTimeout(function() { notice.classList.remove("visible"); }, 4000);
+    }
+
     let allSessions = [];
     let visibleSessions = [];
     let sessionsLoadFailed = false;
@@ -464,7 +484,7 @@
           ? "Could not load sessions. Is the database configured?"
           : filtersActive
             ? "No sessions match the current filters in this range."
-            : "No sessions in this range.";
+            : "No sessions in this range. New sessions appear here as soon as someone connects to a decoy.";
         tableBody.innerHTML = `<tr><td colspan="8" class="empty-state" style="text-align: center;">${message}</td></tr>`;
         renderPagination(0);
         return;
@@ -846,7 +866,7 @@
 
     document.getElementById("downloadVisibleXlsxButton").addEventListener("click", () => {
       if (!window.XLSX) {
-        alert("Export failed: the XLSX library didn't load. Check your connection (or an ad-blocker/content blocker) and try again.");
+        showNotice("Export failed: the XLSX library didn't load. Check your connection (or an ad-blocker/content blocker) and try again.", { error: true });
         return;
       }
       const rows = buildSessionRows();
@@ -1203,7 +1223,7 @@
         window.location.assign("/auth");
       } catch (error) {
         console.error(error);
-        alert("Logout failed: " + error.message);
+        showNotice("Logout failed: " + error.message, { error: true });
         logoutButton.disabled = false;
         logoutButton.focus();
       } finally {

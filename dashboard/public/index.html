@@ -99,6 +99,26 @@
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js" integrity="sha384-cxOPjt7s7Iz04uaHJceBmS+qpjv2JkIHNVcuOrM+YHwZOmJGBXI00mdUXEq65HTH" crossorigin="anonymous"></script>
   <script>
+    // In-page notice (bottom-right), used instead of the browser's alert().
+    var noticeTimer = null;
+    function showNotice(message, options) {
+      var notice = document.getElementById("dashboardNotice");
+      if (!notice) {
+        notice = document.createElement("div");
+        notice.id = "dashboardNotice";
+        notice.className = "dashboard-notice";
+        notice.setAttribute("role", "status");
+        notice.setAttribute("aria-live", "polite");
+        document.body.appendChild(notice);
+        void notice.offsetWidth; // let the fade-in transition run on first use
+      }
+      notice.textContent = message;
+      notice.classList.toggle("notice-error", Boolean(options && options.error));
+      notice.classList.add("visible");
+      clearTimeout(noticeTimer);
+      noticeTimer = setTimeout(function() { notice.classList.remove("visible"); }, 4000);
+    }
+
     const ACTOR_LABELS = {
       automated_scanner: "Automated scanner",
       brute_force_bot: "Brute-force bot",
@@ -182,7 +202,7 @@
       const eventList = document.getElementById("eventList");
       const runs = dedupeByIp(allRuns);
       if (runs.length === 0) {
-        eventList.innerHTML = `<div class="empty-state">No classifier runs recorded yet.</div>`;
+        eventList.innerHTML = `<div class="empty-state">No attacker activity yet. Sessions appear here as soon as someone connects to a decoy; run <code>echidra status</code> to check the decoys are listening.</div>`;
         return;
       }
       eventList.innerHTML = runs.map((run) => `
@@ -366,7 +386,7 @@
         window.location.assign("/auth");
       } catch (error) {
         console.error(error);
-        alert("Logout failed: " + error.message);
+        showNotice("Logout failed: " + error.message, { error: true });
         logoutButton.disabled = false;
         logoutButton.focus();
       } finally {

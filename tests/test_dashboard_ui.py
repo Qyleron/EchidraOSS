@@ -160,6 +160,67 @@ def test_sessions_and_analytics_csv_export_neutralizes_formula_injection():
         assert "sanitizeCsvCell(value).replaceAll" in html, page
 
 
+def test_analytics_blocklist_export_uses_the_applied_range():
+    html = (DASHBOARD_PUBLIC_PATH / "analytics.html").read_text(encoding="utf-8")
+
+    assert 'id="exportBlocklistButton"' in html
+    assert "/analytics/blocklist?from_ts=" in html
+    # The range the page is showing, not unapplied picker edits.
+    assert "const { from, to } = currentRange;" in html
+    assert "currentRange = { from, to };" in html
+    assert "echidra-blocklist_${dateRangeSuffix()}.txt" in html
+    assert "No public attacker IPs in this range" in html
+
+
+def test_dashboard_pages_use_in_page_notices_not_browser_popups():
+    css = (DASHBOARD_PUBLIC_PATH / "dashboard.css").read_text(encoding="utf-8")
+    assert ".dashboard-notice {" in css
+    assert ".dashboard-notice.notice-error {" in css
+
+    for page in (
+        "index.html",
+        "sessions.html",
+        "analytics.html",
+        "intelligence.html",
+        "personas.html",
+        "alerts.html",
+    ):
+        html = (DASHBOARD_PUBLIC_PATH / page).read_text(encoding="utf-8")
+        assert "function showNotice(message, options)" in html, page
+        assert 'notice.setAttribute("aria-live", "polite");' in html, page
+        assert "alert(" not in html.replace("browser's alert()", ""), page
+
+
+def test_forms_use_dashboard_validation_not_browser_bubbles():
+    auth_html = (DASHBOARD_PUBLIC_PATH / "auth.html").read_text(encoding="utf-8")
+    assert '<form id="loginForm" class="auth-form" novalidate>' in auth_html
+    assert '<form id="signupForm" class="auth-form hidden" novalidate>' in auth_html
+
+    personas_html = (DASHBOARD_PUBLIC_PATH / "personas.html").read_text(encoding="utf-8")
+    assert personas_html.count('autocomplete="off" novalidate>') == 2
+    assert 'statusEl.textContent = "Display Name is required.";' in personas_html
+
+
+def test_empty_states_tell_a_new_user_what_happens_next():
+    index_html = (DASHBOARD_PUBLIC_PATH / "index.html").read_text(encoding="utf-8")
+    assert "No attacker activity yet." in index_html
+    assert "<code>echidra status</code>" in index_html
+
+    sessions_html = (DASHBOARD_PUBLIC_PATH / "sessions.html").read_text(encoding="utf-8")
+    assert "New sessions appear here as soon as someone connects to a decoy." in sessions_html
+
+    intelligence_html = (DASHBOARD_PUBLIC_PATH / "intelligence.html").read_text(encoding="utf-8")
+    assert "No findings yet. Attacker sessions are grouped into findings" in intelligence_html
+
+
+def test_dashboard_css_replaces_native_scrollbars_spinners_and_autofill():
+    css = (DASHBOARD_PUBLIC_PATH / "dashboard.css").read_text(encoding="utf-8")
+    assert "scrollbar-width: thin;" in css
+    assert "*::-webkit-scrollbar-thumb {" in css
+    assert 'input[type="number"]::-webkit-inner-spin-button' in css
+    assert "input:-webkit-autofill" in css
+
+
 def test_analytics_page_is_backed_by_live_api_calls():
     html = (DASHBOARD_PUBLIC_PATH / "analytics.html").read_text(encoding="utf-8")
 

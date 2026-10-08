@@ -15,9 +15,10 @@ from uuid import UUID
 
 from fastapi import FastAPI, HTTPException, Query, Request, Response
 from fastapi import Path as PathParam
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse, PlainTextResponse, RedirectResponse
 from pydantic import BaseModel, ConfigDict, field_validator
 
+from classifier.blocklist import blocklist_ips
 from classifier.pipeline import classify_session
 from classifier.schemas.session import SessionRecord
 from classifier.scoring.session import ClassificationSummary
@@ -617,6 +618,35 @@ def create_app() -> FastAPI:
                 exc,
             )
             raise HTTPException(status_code=500, detail="Internal server error")
+
+    @api.get(
+        "/analytics/blocklist",
+        response_class=PlainTextResponse,
+        tags=["reports"],
+    )
+    def analytics_blocklist_endpoint(
+        request: Request,
+        from_ts: float = Query(..., description="Range start, Unix seconds"),
+        to_ts: float = Query(..., description="Range end, Unix seconds"),
+    ) -> PlainTextResponse:
+        """Return public attacker IPs seen in one date range, one per line.
+
+        Same rules as `echidra blocklist`: private/reserved addresses are
+        left out, highest-risk and most active IPs first.
+        """
+        _require_dashboard_auth(request)
+        try:
+            repository = PostgresClassifierRepository()
+            rows = repository.list_attacker_ips(since_ts=from_ts, until_ts=to_ts)
+        except (DatabaseDriverMissingError, DatabaseNotConfiguredError) as exc:
+            raise HTTPException(status_code=503, detail=_user_facing_error_detail(exc))
+        except Exception as exc:
+            logger.exception(
+                "Unhandled exception in analytics_blocklist_endpoint: %s",
+                exc,
+            )
+            raise HTTPException(status_code=500, detail="Internal server error")
+        return PlainTextResponse("".join(f"{ip}\n" for ip in blocklist_ips(rows)))
 
     @api.get(
         "/classifier/runs",

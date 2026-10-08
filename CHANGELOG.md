@@ -6,12 +6,34 @@ All notable changes to Echidra are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- `echidra blocklist`: export attacker IPs seen in a time window, as plain
+  text or CSV, filtered by minimum risk and session count, for use in a
+  firewall, fail2ban, or Cloudflare. Private addresses and `--exclude`
+  ranges are left out.
+- "Export Blocklist (TXT)" on the Analytics page, and
+  `GET /analytics/blocklist`: the same list for the applied date range.
+- GitHub Actions: tests on Python 3.11–3.13, CodeQL, and OpenSSF Scorecard; Dependabot for pip,
+  Docker, and Actions.
+
 ### Changed
 - `echidra start` and `deploy/systemd/echidra-api.service` now bind the
   dashboard to `127.0.0.1` by default, matching Docker Compose. Use
   `--api-host` to override.
 
+- Python 3.12 and 3.13 support (`PyYAML` 6.0.2).
+- Smaller Docker build context: local data and development files are
+  excluded.
+- `SECURITY.md` rewritten to describe Echidra's security model.
+- `echidra start` prints a short summary: decoy ports, dashboard URL, an
+  SSH-tunnel hint, and how to stop.
+- Dashboard: messages appear as in-page notices instead of browser popups;
+  the sign-in and persona forms show their own validation messages; dark
+  scrollbars and autofill styling; empty pages explain what happens next.
+
 ### Fixed
+- The `test` extra includes `httpx`, and the project URLs point at the
+  right repository.
 - `echidra start` reports busy ports up front, and `echidra start`/`stop`
   point to `systemctl` when Echidra is running as a systemd service.
 
@@ -28,11 +50,9 @@ All notable changes to Echidra are documented here. The format follows
 - Real-socket tests for the global connection limit in `ProtocolServer`.
 
 ### Fixed
-- Slack webhook URLs are now validated by exact hostname when a persona is
-  saved, matching the check at send time. Previously a prefix match let
-  URLs like `https://hooks.slack.com.evil.example/` save successfully; they
-  were only rejected when an alert was sent. URLs with credentials or a
-  non-default port are also rejected.
+- Slack webhook URLs are validated by exact hostname when a persona is
+  saved, the same check used when an alert is sent. URLs with credentials
+  or a non-default port are rejected.
 - The Analytics date range now survives a page reload. The applied range is
   kept in the URL (`?from=&from_hour=&to=&to_hour=`), so it can also be
   bookmarked or shared.

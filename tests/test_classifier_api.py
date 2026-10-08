@@ -214,6 +214,7 @@ def test_dashboard_page_route_sets_no_store_cache_headers():
     [
         "/reports/summary",
         "/analytics/summary?from_ts=0&to_ts=1",
+        "/analytics/blocklist?from_ts=0&to_ts=1",
         "/classifier/runs",
         "/issues",
         "/manual-labels",
@@ -1183,6 +1184,38 @@ def test_analytics_summary_endpoint_returns_aggregates(monkeypatch):
 
     assert response == summary
     assert route.response_model is AnalyticsSummary
+
+
+def test_analytics_blocklist_endpoint_returns_public_ips_one_per_line(monkeypatch):
+    route = route_for("/analytics/blocklist", "GET")
+    calls = []
+
+    class FakeRepository(_SessionVersionMixin):
+        def list_attacker_ips(self, **kwargs):
+            calls.append(kwargs)
+            return [
+                {"peer_ip": "45.155.205.7"},
+                {"peer_ip": "10.0.0.5"},
+                {"peer_ip": "not-an-ip"},
+                {"peer_ip": "185.220.101.9"},
+            ]
+
+    monkeypatch.setattr(app_module, "PostgresClassifierRepository", FakeRepository)
+
+    response = route.endpoint(dashboard_request(), from_ts=1000.0, to_ts=2000.0)
+
+    assert calls == [{"since_ts": 1000.0, "until_ts": 2000.0}]
+    assert response.body == b"45.155.205.7\n185.220.101.9\n"
+    assert response.media_type == "text/plain"
+
+
+def test_analytics_blocklist_endpoint_requires_dashboard_session():
+    route = route_for("/analytics/blocklist", "GET")
+
+    with pytest.raises(HTTPException) as exc_info:
+        route.endpoint(dashboard_request(authenticated=False), from_ts=1000.0, to_ts=2000.0)
+
+    assert exc_info.value.status_code == 401
 
 
 def test_analytics_summary_endpoint_requires_dashboard_session():

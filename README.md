@@ -19,6 +19,25 @@ web dashboard — without ever executing real commands or exposing real data.
 
 ---
 
+## Why Echidra
+
+Nobody legitimate touches a decoy, so an Echidra alert is worth reading.
+Instead of raw logs, you get **findings**: attacker sessions grouped by
+behavior, mapped to MITRE ATT&CK, each with a recommended fix. Every
+classification traces back to a YAML rule you can read and change. It's one
+install, light enough for a small VPS, and it exports attacker IPs straight
+into your firewall.
+
+| | Echidra | T-Pot | Cowrie | Thinkst Canary |
+|---|---|---|---|---|
+| What you get | Findings with ATT&CK techniques and fixes | Kibana dashboards and attack map over many honeypots | Very realistic SSH/Telnet session logs | Polished alerting on many decoy services |
+| Protocols | SSH, HTTP, FTP, Telnet | 20+ honeypots | SSH, Telnet | Many services |
+| Footprint | ~50 MB RAM at idle for decoys + dashboard, PostgreSQL separate ([measured](#benchmarks)) | Elastic stack, several GB of RAM | Light | Hardware, VM or cloud decoys with a hosted console |
+| Detection logic | Readable YAML rules | Per-honeypot tools | Log output for your own tooling | Closed |
+| Price | Free, open source (AGPL) | Free, open source | Free, open source | Commercial |
+
+---
+
 ## What Is Echidra?
 
 Echidra pretends to be a Linux server. Attackers connect over SSH-style TCP,
@@ -36,6 +55,7 @@ if PostgreSQL isn't configured — for review in the dashboard.
 - **Classification** — deterministic YAML rules turn session features into an actor label, risk score, behavior stage, intent, and MITRE ATT&CK tags, plus a knowledge-base of recommended fixes
 - **Storage & API** — PostgreSQL schema for sessions/events/classifier runs, always mirrored to `logs/sessions.jsonl`; FastAPI backend serves the classifier endpoints and dashboard
 - **Dashboard** — Intelligence (recurring issues + fixes), Sessions, Analytics, Personas, and Alerts (email/Slack)
+- **Blocklist export** — `echidra blocklist` or Analytics → Export Blocklist lists attacker IPs for your firewall, fail2ban, or Cloudflare
 
 See the [Console guide](https://qyleron.com/console-guide/) for a full field-by-field reference.
 
@@ -73,7 +93,7 @@ Echidra never runs attacker input on the host. Shell commands, HTTP requests,
 and FTP/Telnet credentials are parsed and answered with fake, persona-scoped
 data only, reconstructed from an in-memory persona, never the real
 filesystem. Echidra never itself blocks IPs, changes firewalls, or touches
-production systems.
+production systems; `echidra blocklist` only exports a list for you to apply.
 
 ## Benchmarks
 

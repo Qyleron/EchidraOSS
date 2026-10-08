@@ -32,6 +32,52 @@ html {
   background: var(--bg);
 }
 
+/* Thin dark scrollbars everywhere instead of the bright OS default. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  border-radius: 4px;
+  background: var(--border-strong);
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--subtle);
+}
+
+/* Number fields (SMTP port) without the native up/down spinner. */
+input[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+/* Browser autofill keeps the dark field instead of painting it blue/yellow. */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus {
+  -webkit-text-fill-color: var(--text);
+  -webkit-box-shadow: 0 0 0 1000px var(--surface-strong) inset;
+  caret-color: var(--text);
+  transition: background-color 9999s ease-out 0s;
+}
+
 body {
   min-width: 320px;
   margin: 0;
@@ -963,6 +1009,15 @@ a {
   color: var(--muted);
   text-align: center;
   font-size: 14px;
+}
+
+.empty-state code {
+  padding: 1px 6px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  color: var(--text);
+  background: var(--surface-strong);
+  font-size: 12px;
 }
 
 .analytics-grid {
@@ -2665,4 +2720,42 @@ button.custom-date-cell:hover,
   color: var(--subtle);
   opacity: 0.4;
   cursor: not-allowed;
+}
+
+/* In-page notice for export results, used instead of the browser's
+   native alert() popup. */
+.dashboard-notice {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 3000;
+  max-width: 360px;
+  padding: 12px 16px;
+  border: 1px solid var(--border-strong);
+  border-left: 3px solid var(--muted);
+  border-radius: 8px;
+  color: var(--text);
+  background: var(--surface-strong);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
+  font-size: 13px;
+  line-height: 1.45;
+  opacity: 0;
+  transform: translateY(8px);
+  pointer-events: none;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.dashboard-notice.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.dashboard-notice.notice-error {
+  border-left-color: var(--critical);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dashboard-notice {
+    transition: none;
+  }
 }

@@ -250,3 +250,29 @@ API responds to `/health`, whether the database is reachable, and how many
 sessions have been classified so far. Run this after any deploy before
 declaring it done — a listening honeypot with an unreachable database will
 still accept connections and log to JSONL, but the dashboard will be empty.
+
+## Exporting attacker IPs to a blocklist
+
+Echidra doesn't block anything itself. `echidra blocklist` reads captured
+sessions from the database and prints one source IP per line, ready for a
+firewall, fail2ban, or a Cloudflare IP list:
+
+```bash
+echidra blocklist                                   # IPs seen in the last 7 days
+echidra blocklist --since 24h --min-risk high       # only high/critical sessions
+echidra blocklist --format csv -o attackers.csv     # with session counts, first/last seen, max risk
+echidra blocklist --exclude 192.0.2.10/32           # never list your own scanner
+```
+
+Private, loopback, and link-local addresses are left out by default so an
+internal decoy can't put your own network into a firewall rule; pass
+`--include-private` to keep them. With Docker Compose, run it inside the
+`api` container: `docker compose exec api echidra blocklist`.
+
+The dashboard has the same export: **Analytics → Export Blocklist (TXT)**
+downloads the public IPs for the date range currently applied on the page.
+
+Review the list before applying it. A decoy hit is a strong signal, but
+legitimate scanners (your own, or a security vendor's) can touch a decoy
+too; add them with `--exclude`.
+

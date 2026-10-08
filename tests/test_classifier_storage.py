@@ -1446,3 +1446,35 @@ def test_create_persona_config_translates_unique_violation_to_conflict_error(mon
 
     with pytest.raises(PersonaConfigAlreadyExistsError):
         repository.create_persona_config("generic_linux", PersonaConfigInput(name="Generic Linux"))
+
+
+def test_list_attacker_ips_passes_window_and_thresholds(monkeypatch):
+    from classifier.storage.repository import (
+        SELECT_ATTACKER_IPS_SQL,
+        PostgresClassifierRepository,
+    )
+
+    captured = {}
+    rows = [{"peer_ip": "45.155.205.7", "session_count": 2, "first_seen": 1.0,
+             "last_seen": 2.0, "max_risk_rank": 3}]
+
+    def fake_fetch_all(database_url, sql, params):
+        captured.update(sql=sql, params=params)
+        return rows
+
+    monkeypatch.setattr("classifier.storage.repository._fetch_all", fake_fetch_all)
+    repository = PostgresClassifierRepository("postgresql://example/echidra")
+
+    result = repository.list_attacker_ips(since_ts=100.0, min_risk_rank=2, min_sessions=3)
+
+    assert result == rows
+    assert captured["sql"] is SELECT_ATTACKER_IPS_SQL
+    assert captured["params"] == {
+        "since_ts": 100.0, "until_ts": None, "min_risk_rank": 2, "min_sessions": 3,
+    }
+
+    repository.list_attacker_ips(since_ts=100.0, until_ts=200.0)
+
+    assert captured["params"] == {
+        "since_ts": 100.0, "until_ts": 200.0, "min_risk_rank": 0, "min_sessions": 1,
+    }

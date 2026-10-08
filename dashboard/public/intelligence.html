@@ -110,7 +110,27 @@
 
   <script src="/custom-select.js"></script>
   <script>
-    const SEVERITY_LABELS = { high: "High", medium: "Medium", low: "Low" };
+    // In-page notice (bottom-right), used instead of the browser's alert().
+    var noticeTimer = null;
+    function showNotice(message, options) {
+      var notice = document.getElementById("dashboardNotice");
+      if (!notice) {
+        notice = document.createElement("div");
+        notice.id = "dashboardNotice";
+        notice.className = "dashboard-notice";
+        notice.setAttribute("role", "status");
+        notice.setAttribute("aria-live", "polite");
+        document.body.appendChild(notice);
+        void notice.offsetWidth; // let the fade-in transition run on first use
+      }
+      notice.textContent = message;
+      notice.classList.toggle("notice-error", Boolean(options && options.error));
+      notice.classList.add("visible");
+      clearTimeout(noticeTimer);
+      noticeTimer = setTimeout(function() { notice.classList.remove("visible"); }, 4000);
+    }
+
+    const SEVERITY_LABELS ={ high: "High", medium: "Medium", low: "Low" };
     const SEVERITY_RANK = { high: 0, medium: 1, low: 2 };
     const severityRank = (issue) => SEVERITY_RANK[issue.severity] ?? 3;
 
@@ -246,7 +266,9 @@
       if (issues.length === 0) {
         const message = allIssues.length
           ? "No findings match these filters in this range."
-          : rangeFilter.value === "all" ? "No findings yet." : "No findings in this range.";
+          : rangeFilter.value === "all"
+            ? "No findings yet. Attacker sessions are grouped into findings, each with ATT&amp;CK techniques and a recommended fix, as they're classified."
+            : "No findings in this range.";
         tableBody.innerHTML = `<tr><td colspan="6" class="empty-state" style="text-align: center;">${message}</td></tr>`;
         renderIssuesPagination(1);
         return;
@@ -609,7 +631,7 @@
         window.location.assign("/auth");
       } catch (error) {
         console.error(error);
-        alert("Logout failed: " + error.message);
+        showNotice("Logout failed: " + error.message, { error: true });
         logoutButton.disabled = false;
         logoutButton.focus();
       } finally {

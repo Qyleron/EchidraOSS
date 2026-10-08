@@ -1,4 +1,4 @@
-"""Operator-facing `echidra` command: init, start, stop, classify, status.
+"""Operator-facing `echidra` command: init, start, stop, classify, status, blocklist.
 
 This is a thin wrapper around existing entry points (honeypot.main,
 classifier.cli, classifier.storage.cli, uvicorn) -- it exists so a fresh
@@ -9,8 +9,11 @@ to know four separate module invocations up front.
 from __future__ import annotations
 
 import argparse
+import csv
 import errno
+import ipaddress
 import os
+import re
 import secrets
 import signal
 import socket
@@ -52,6 +55,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_status(args)
     if args.command == "stop":
         return _cmd_stop(args)
+    if args.command == "blocklist":
+        return _cmd_blocklist(args)
     if args.command == "help":
         parser.print_help()
         return 0
@@ -117,6 +122,55 @@ def _build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser(
         "stop",
         help="stop a running 'echidra start' from another terminal (reads PIDs from logs/echidra.pid)",
+    )
+
+    blocklist_parser = subparsers.add_parser(
+        "blocklist",
+        help="export captured attacker IPs for a firewall, fail2ban or Cloudflare (needs the database)",
+    )
+    blocklist_parser.add_argument(
+        "--since",
+        default="7d",
+        type=_parse_duration,
+        help="only IPs seen within this window, eg. 24h, 7d, 30d (default: 7d)",
+    )
+    blocklist_parser.add_argument(
+        "--min-risk",
+        choices=_RISK_RANKS,
+        default=None,
+        help="only IPs with at least one session at this risk level or above (default: any session)",
+    )
+    blocklist_parser.add_argument(
+        "--min-sessions",
+        type=int,
+        default=1,
+        help="only IPs with at least this many sessions in the window (default: 1)",
+    )
+    blocklist_parser.add_argument(
+        "--format",
+        choices=("plain", "csv"),
+        default="plain",
+        help="plain: one IP per line; csv: ip, sessions, first/last seen, max risk (default: plain)",
+    )
+    blocklist_parser.add_argument(
+        "--exclude",
+        action="append",
+        default=[],
+        metavar="CIDR",
+        help="never list addresses in this IP or CIDR range, eg. your own scanner; repeatable",
+    )
+    blocklist_parser.add_argument(
+        "--include-private",
+        action="store_true",
+        help="also list private, loopback and link-local addresses (left out by default so an "
+        "internal decoy can't push your own network into a firewall blocklist)",
+    )
+    blocklist_parser.add_argument(
+        "-o",
+        "--output",
+        dest="output_path",
+        default=None,
+        help="write to this file instead of stdout",
     )
 
     subparsers.add_parser(
@@ -251,9 +305,7 @@ def _cmd_start(args: argparse.Namespace) -> int:
             proc.terminate()
         raise
     _write_pid_file(proc.pid for proc in procs)
-    print(f"Honeypot listeners: PID {honeypot_proc.pid}")
-    print(f"API/dashboard:      PID {api_proc.pid} (http://{args.api_host}:{args.api_port})")
-    print("Press Ctrl+C to stop both, or run 'echidra stop' from another terminal.")
+    _print_start_summary(args.api_host, args.api_port, honeypot_proc.pid, api_proc.pid)
 
     # Ctrl+C sends SIGINT to this whole foreground process group, so both
     # children already receive it directly -- explicitly forwarding SIGINT
@@ -295,6 +347,25 @@ def _cmd_start(args: argparse.Namespace) -> int:
     # own SIGINT/SIGTERM forwarding, or the terminate() above) -- that's a
     # clean shutdown, not a failure, so only positive exit codes propagate.
     return max(max(proc.returncode or 0, 0) for proc in procs)
+
+
+def _print_start_summary(api_host: str, api_port: int, honeypot_pid: int, api_pid: int) -> None:
+    """One short block telling the operator what's exposed and where to look."""
+    from honeypot.network.config import FTP_PORT, HOST, HTTP_PORT, PORT, TELNET_PORT
+
+    decoys = [
+        f"{name} {port}"
+        for name, port in (("SSH", PORT), ("HTTP", HTTP_PORT), ("FTP", FTP_PORT), ("Telnet", TELNET_PORT))
+        if port
+    ]
+    print("Echidra is running.")
+    print(f"  Decoys:     {', '.join(decoys) or 'none enabled'} (listening on {HOST})")
+    print(f"  Dashboard:  http://{api_host}:{api_port}")
+    if api_host in ("127.0.0.1", "localhost", "::1"):
+        print(f"              on a remote server, open it through an SSH tunnel: "
+              f"ssh -L {api_port}:127.0.0.1:{api_port} <user>@<server>")
+    print(f"  PIDs:       decoys {honeypot_pid}, dashboard {api_pid}")
+    print("  Stop:       Ctrl+C here, or 'echidra stop' from another terminal")
 
 
 def _ports_in_use(api_host: str, api_port: int) -> list[tuple[str, int]]:
@@ -658,6 +729,95 @@ def _check_database() -> None:
     print(f"    Sessions classified: {summary.total_runs}")
     print(f"    Elevated-risk runs:  {summary.elevated_runs}")
     print(f"    Distinct personas:   {summary.distinct_personas}")
+
+
+# ---------------------------------------------------------------------------
+# blocklist
+# ---------------------------------------------------------------------------
+
+# Same 0-4 scale as the stored-run risk aggregates in classifier.storage.
+_RISK_RANKS = {"low": 1, "medium": 2, "high": 3, "critical": 4}
+_RISK_NAMES = {rank: name for name, rank in _RISK_RANKS.items()}
+_DURATION_UNITS = {"m": 60, "h": 3_600, "d": 86_400}
+
+
+def _parse_duration(value: str) -> int:
+    match = re.fullmatch(r"(\d+)([mhd])", value.strip().lower())
+    if not match or int(match.group(1)) == 0:
+        raise argparse.ArgumentTypeError(
+            f"invalid duration {value!r}: use a number followed by m, h or d, eg. 24h or 7d"
+        )
+    return int(match.group(1)) * _DURATION_UNITS[match.group(2)]
+
+
+def _cmd_blocklist(args: argparse.Namespace) -> int:
+    from classifier.blocklist import is_blocklistable
+    from classifier.storage import (
+        DatabaseDriverMissingError,
+        DatabaseNotConfiguredError,
+        PostgresClassifierRepository,
+    )
+
+    if args.min_sessions < 1:
+        print("echidra blocklist: --min-sessions must be at least 1", file=sys.stderr)
+        return 2
+    try:
+        excluded = [ipaddress.ip_network(cidr, strict=False) for cidr in args.exclude]
+    except ValueError as exc:
+        print(f"echidra blocklist: invalid --exclude: {exc}", file=sys.stderr)
+        return 2
+
+    try:
+        repository = PostgresClassifierRepository()
+        rows = repository.list_attacker_ips(
+            since_ts=time.time() - args.since,
+            min_risk_rank=_RISK_RANKS.get(args.min_risk, 0),
+            min_sessions=args.min_sessions,
+        )
+    except DatabaseNotConfiguredError:
+        print("echidra blocklist: no database configured (set ECHIDRA_DATABASE_URL in .env)", file=sys.stderr)
+        return 1
+    except DatabaseDriverMissingError as exc:
+        print(f"echidra blocklist: {exc}", file=sys.stderr)
+        return 1
+    except Exception as exc:
+        print(f"echidra blocklist: database unreachable ({type(exc).__name__})", file=sys.stderr)
+        return 1
+
+    rows = [
+        row for row in rows
+        if is_blocklistable(row["peer_ip"], excluded, include_private=args.include_private)
+    ]
+
+    if args.output_path:
+        with open(args.output_path, "w", newline="", encoding="utf-8") as handle:
+            _write_blocklist(rows, args.format, handle)
+        print(f"Wrote {len(rows)} IPs to {args.output_path}", file=sys.stderr)
+    else:
+        _write_blocklist(rows, args.format, sys.stdout)
+    return 0
+
+
+def _write_blocklist(rows: list[dict], fmt: str, handle) -> None:
+    if fmt == "plain":
+        for row in rows:
+            handle.write(f"{row['peer_ip']}\n")
+        return
+
+    writer = csv.writer(handle)
+    writer.writerow(["ip", "sessions", "first_seen_utc", "last_seen_utc", "max_risk"])
+    for row in rows:
+        writer.writerow([
+            row["peer_ip"],
+            int(row["session_count"]),
+            _utc_iso(row["first_seen"]),
+            _utc_iso(row["last_seen"]),
+            _RISK_NAMES.get(int(row["max_risk_rank"]), "unclassified"),
+        ])
+
+
+def _utc_iso(timestamp: float) -> str:
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(float(timestamp)))
 
 
 if __name__ == "__main__":

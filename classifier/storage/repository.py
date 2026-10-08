@@ -934,6 +934,45 @@ WHERE peer_ip = %(peer_ip)s
   AND started_at >= EXTRACT(EPOCH FROM now()) - %(window_seconds)s
 """
 
+# One row per source IP for `echidra blocklist`. A session's risk is the
+# highest of its classifier runs (live partial runs plus the final one);
+# a session with no run yet ranks 0, so it only appears when no minimum
+# risk is asked for.
+SELECT_ATTACKER_IPS_SQL = """
+WITH session_risk AS (
+    SELECT
+        sessions.id,
+        sessions.peer_ip,
+        sessions.started_at,
+        COALESCE(MAX(
+            CASE classifier_runs.risk_level
+                WHEN 'critical' THEN 4
+                WHEN 'high' THEN 3
+                WHEN 'medium' THEN 2
+                WHEN 'low' THEN 1
+                ELSE 0
+            END
+        ), 0) AS risk_rank
+    FROM sessions
+    LEFT JOIN classifier_runs ON classifier_runs.session_id = sessions.id
+    WHERE sessions.peer_ip IS NOT NULL
+      AND sessions.started_at >= %(since_ts)s
+      AND (%(until_ts)s IS NULL OR sessions.started_at <= %(until_ts)s)
+    GROUP BY sessions.id, sessions.peer_ip, sessions.started_at
+)
+SELECT
+    peer_ip,
+    COUNT(*) AS session_count,
+    MIN(started_at) AS first_seen,
+    MAX(started_at) AS last_seen,
+    MAX(risk_rank) AS max_risk_rank
+FROM session_risk
+GROUP BY peer_ip
+HAVING COUNT(*) >= %(min_sessions)s
+   AND MAX(risk_rank) >= %(min_risk_rank)s
+ORDER BY MAX(risk_rank) DESC, COUNT(*) DESC, peer_ip
+"""
+
 UPSERT_ALERT_CONFIG_SQL = """
 INSERT INTO alert_config (
     id, enabled, smtp_host, smtp_port, smtp_username, smtp_password,
@@ -1706,6 +1745,31 @@ class PostgresClassifierRepository:
             {"peer_ip": peer_ip, "window_seconds": window_seconds},
         )
         return int(row["cnt"]) if row else 0
+
+    def list_attacker_ips(
+        self,
+        *,
+        since_ts: float,
+        until_ts: float | None = None,
+        min_risk_rank: int = 0,
+        min_sessions: int = 1,
+    ) -> list[dict[str, Any]]:
+        """Source IPs seen between since_ts and until_ts (open-ended if None),
+        highest risk and most sessions first.
+
+        min_risk_rank uses the same 0-4 scale as the issue aggregates
+        (0 = unclassified, 1 = low ... 4 = critical).
+        """
+        return _fetch_all(
+            self.database_url,
+            SELECT_ATTACKER_IPS_SQL,
+            {
+                "since_ts": since_ts,
+                "until_ts": until_ts,
+                "min_risk_rank": min_risk_rank,
+                "min_sessions": min_sessions,
+            },
+        )
 
     def record_session_and_count_from_ip(
         self,

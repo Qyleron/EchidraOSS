@@ -214,6 +214,26 @@
 
   <script src="/custom-select.js"></script>
   <script>
+    // In-page notice (bottom-right), used instead of the browser's alert().
+    var noticeTimer = null;
+    function showNotice(message, options) {
+      var notice = document.getElementById("dashboardNotice");
+      if (!notice) {
+        notice = document.createElement("div");
+        notice.id = "dashboardNotice";
+        notice.className = "dashboard-notice";
+        notice.setAttribute("role", "status");
+        notice.setAttribute("aria-live", "polite");
+        document.body.appendChild(notice);
+        void notice.offsetWidth; // let the fade-in transition run on first use
+      }
+      notice.textContent = message;
+      notice.classList.toggle("notice-error", Boolean(options && options.error));
+      notice.classList.add("visible");
+      clearTimeout(noticeTimer);
+      noticeTimer = setTimeout(function() { notice.classList.remove("visible"); }, 4000);
+    }
+
     // ── State ──────────────────────────────────────────────────────────────────
     var allPresets = [];
     var allConfigs = {};
@@ -611,7 +631,7 @@
       // get silently replaced by the preset value (and then re-saved as such).
       var identitySource = isNew ? preset : config;
 
-      var html = '<form class="persona-config-form" id="form_' + escAttr(personaId) + '" autocomplete="off">'
+      var html = '<form class="persona-config-form" id="form_' + escAttr(personaId) + '" autocomplete="off" novalidate>'
         + '<div class="config-form-sections">'
 
         + '<div class="config-section">'
@@ -696,7 +716,7 @@
       expandedPersonaId = _CREATE_SENTINEL;
       modalTitle.textContent = "Create New Persona";
 
-      var html = '<form class="persona-config-form" id="form_' + _CREATE_SENTINEL + '" autocomplete="off">'
+      var html = '<form class="persona-config-form" id="form_' + _CREATE_SENTINEL + '" autocomplete="off" novalidate>'
         + '<div class="config-form-sections">'
 
         + '<div class="config-section">'
@@ -841,6 +861,14 @@
         slack_webhook: fv("slack_webhook").trim() || null,
       };
 
+      // The forms are novalidate (no browser bubbles), so required fields are
+      // checked here and reported in the form's own status line.
+      if (!payload.name) {
+        statusEl.textContent = "Display Name is required.";
+        statusEl.style.color = "var(--critical)";
+        return;
+      }
+
       // In create mode the slug comes from the form, not the sentinel personaId.
       var targetId = personaId;
       if (isNew && personaId === _CREATE_SENTINEL) {
@@ -966,7 +994,7 @@
         document.getElementById("createPersonaBtn").focus();
       } catch (err) {
         closeDeleteConfirm();
-        alert("Delete failed: " + err.message);
+        showNotice("Delete failed: " + err.message, { error: true });
       } finally {
         clearTimeout(timeoutId);
         deleteInFlight = false;
@@ -1435,7 +1463,7 @@
         window.location.assign("/auth");
       } catch (error) {
         console.error(error);
-        alert("Logout failed: " + error.message);
+        showNotice("Logout failed: " + error.message, { error: true });
         logoutButton.disabled = false;
         logoutButton.focus();
       } finally {

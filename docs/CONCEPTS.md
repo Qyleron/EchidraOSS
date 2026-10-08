@@ -23,18 +23,18 @@ no database is configured).
 
 The dashboard's `PersonaConfigInput` is a narrower, analyst-editable subset
 of a persona — banners, hostname, users, processes, `http_server_type`,
-decoy files, plus alert settings (see [Alerts](#alerts) below). Real login
-identity, SUID binaries, and credentials stay fixed at the DB persona's
-defaults, since the config schema doesn't capture them yet.
+decoy files, plus alert settings (see [Alerts](#alerts) below). Login
+identity, SUID binaries, and credentials use the built-in persona defaults.
 
 - `honeypot/core/persona.py` — `Persona`, `PRESET_PERSONAS`, `get_persona()`
 - `honeypot/network/config.py` — `get_active_persona()`,
   `_load_persona_from_db()`, `_persona_from_config_record()`
 - `classifier/storage/models.py` — `PersonaConfigInput`
 
-Echidra runs **one active persona at a time** per running instance — see
-"One persona at a time" in the [README](../README.md) for how to capture
-multiple persona profiles in parallel.
+Each running instance serves one active persona. To run several personas in
+parallel, start one instance per persona (each with its own
+`ECHIDRA_PERSONA` and ports) against the same database; the dashboard shows
+them all together.
 
 ---
 

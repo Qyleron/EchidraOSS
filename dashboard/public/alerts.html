@@ -217,6 +217,26 @@
 
   <script src="/custom-select.js"></script>
   <script>
+    // In-page notice (bottom-right), used instead of the browser's alert().
+    var noticeTimer = null;
+    function showNotice(message, options) {
+      var notice = document.getElementById("dashboardNotice");
+      if (!notice) {
+        notice = document.createElement("div");
+        notice.id = "dashboardNotice";
+        notice.className = "dashboard-notice";
+        notice.setAttribute("role", "status");
+        notice.setAttribute("aria-live", "polite");
+        document.body.appendChild(notice);
+        void notice.offsetWidth; // let the fade-in transition run on first use
+      }
+      notice.textContent = message;
+      notice.classList.toggle("notice-error", Boolean(options && options.error));
+      notice.classList.add("visible");
+      clearTimeout(noticeTimer);
+      noticeTimer = setTimeout(function() { notice.classList.remove("visible"); }, 4000);
+    }
+
     // ── Tab control ────────────────────────────────────────────────────────────
     var emailView = document.getElementById("emailView");
     var slackView = document.getElementById("slackView");
@@ -591,7 +611,7 @@
         window.location.assign("/auth");
       } catch (err) {
         console.error(err);
-        alert("Logout failed: " + err.message);
+        showNotice("Logout failed: " + err.message, { error: true });
         logoutButton.disabled = false;
         logoutButton.focus();
       } finally {

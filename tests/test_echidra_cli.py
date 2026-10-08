@@ -35,7 +35,7 @@ def test_echidra_cli_help_lists_all_subcommands(capsys):
         cli.main(["--help"])
 
     captured = capsys.readouterr()
-    for subcommand in ("init", "start", "stop", "classify", "status", "help"):
+    for subcommand in ("init", "start", "stop", "classify", "status", "blocklist", "help"):
         assert subcommand in captured.out
 
 
@@ -441,6 +441,39 @@ def test_start_binds_the_dashboard_to_loopback_by_default():
     assert cli._build_parser().parse_args(["start"]).api_host == "127.0.0.1"
 
 
+def _set_listener_ports(monkeypatch, ssh=2222, http=8080, ftp=2121, telnet=2323):
+    monkeypatch.setattr("honeypot.network.config.HOST", "0.0.0.0")
+    monkeypatch.setattr("honeypot.network.config.PORT", ssh)
+    monkeypatch.setattr("honeypot.network.config.HTTP_PORT", http)
+    monkeypatch.setattr("honeypot.network.config.FTP_PORT", ftp)
+    monkeypatch.setattr("honeypot.network.config.TELNET_PORT", telnet)
+
+
+def test_start_summary_lists_decoys_dashboard_and_tunnel_hint(monkeypatch, capsys):
+    _set_listener_ports(monkeypatch)
+
+    cli._print_start_summary("127.0.0.1", 8000, 100, 200)
+
+    out = capsys.readouterr().out
+    assert "Echidra is running." in out
+    assert "Decoys:     SSH 2222, HTTP 8080, FTP 2121, Telnet 2323 (listening on 0.0.0.0)" in out
+    assert "Dashboard:  http://127.0.0.1:8000" in out
+    assert "ssh -L 8000:127.0.0.1:8000 <user>@<server>" in out
+    assert "PIDs:       decoys 100, dashboard 200" in out
+    assert "'echidra stop'" in out
+
+
+def test_start_summary_skips_disabled_decoys_and_tunnel_hint_off_loopback(monkeypatch, capsys):
+    _set_listener_ports(monkeypatch, http=0, telnet=0)
+
+    cli._print_start_summary("0.0.0.0", 9000, 100, 200)
+
+    out = capsys.readouterr().out
+    assert "Decoys:     SSH 2222, FTP 2121 (listening on 0.0.0.0)" in out
+    assert "Dashboard:  http://0.0.0.0:9000" in out
+    assert "ssh -L" not in out
+
+
 def test_cmd_start_clears_a_stale_pidfile_before_starting(monkeypatch, tmp_path):
     pid_path = tmp_path / "echidra.pid"
     monkeypatch.setattr(cli, "PID_PATH", pid_path)
@@ -547,3 +580,154 @@ def test_stop_leaves_pidfile_when_permission_denied(monkeypatch, tmp_path, capsy
     assert "Not fully stopped" in captured.out
     # Left in place so a retry (e.g. with sudo) can find the PID again.
     assert pid_path.exists()
+
+
+# ---------------------------------------------------------------------------
+# blocklist
+# ---------------------------------------------------------------------------
+
+
+def _attacker_row(ip, sessions=1, risk_rank=3, first=1_700_000_000.0, last=1_700_000_600.0):
+    return {
+        "peer_ip": ip,
+        "session_count": sessions,
+        "first_seen": first,
+        "last_seen": last,
+        "max_risk_rank": risk_rank,
+    }
+
+
+def _fake_blocklist_repository(monkeypatch, rows):
+    calls = []
+
+    class FakeRepository:
+        def list_attacker_ips(self, **kwargs):
+            calls.append(kwargs)
+            return rows
+
+    import classifier.storage as storage_module
+    monkeypatch.setattr(storage_module, "PostgresClassifierRepository", FakeRepository)
+    return calls
+
+
+def test_blocklist_prints_one_public_ip_per_line_and_drops_private(monkeypatch, capsys):
+    _fake_blocklist_repository(monkeypatch, [
+        _attacker_row("45.155.205.7"),
+        _attacker_row("10.0.0.5"),
+        _attacker_row("127.0.0.1"),
+        _attacker_row("2001:db8::1"),
+        _attacker_row("not-an-ip"),
+        _attacker_row("185.220.101.9"),
+    ])
+
+    exit_code = cli.main(["blocklist"])
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    # 2001:db8::/32 is documentation space, which ipaddress treats as private.
+    assert captured.out.splitlines() == ["45.155.205.7", "185.220.101.9"]
+
+
+def test_blocklist_include_private_keeps_internal_addresses(monkeypatch, capsys):
+    _fake_blocklist_repository(monkeypatch, [_attacker_row("10.0.0.5"), _attacker_row("not-an-ip")])
+
+    assert cli.main(["blocklist", "--include-private"]) == 0
+
+    assert capsys.readouterr().out.splitlines() == ["10.0.0.5"]
+
+
+def test_blocklist_exclude_drops_matching_ranges(monkeypatch, capsys):
+    _fake_blocklist_repository(monkeypatch, [
+        _attacker_row("45.155.205.7"),
+        _attacker_row("45.155.205.200"),
+        _attacker_row("185.220.101.9"),
+    ])
+
+    assert cli.main(["blocklist", "--exclude", "45.155.205.0/24", "--exclude", "2001:db8::/32"]) == 0
+
+    assert capsys.readouterr().out.splitlines() == ["185.220.101.9"]
+
+
+def test_blocklist_passes_window_and_thresholds_to_repository(monkeypatch):
+    calls = _fake_blocklist_repository(monkeypatch, [])
+    monkeypatch.setattr(cli.time, "time", lambda: 1_000_000.0)
+
+    assert cli.main(["blocklist", "--since", "24h", "--min-risk", "high", "--min-sessions", "3"]) == 0
+
+    assert calls == [{"since_ts": 1_000_000.0 - 86_400, "min_risk_rank": 3, "min_sessions": 3}]
+
+
+def test_blocklist_defaults_to_seven_days_any_risk(monkeypatch):
+    calls = _fake_blocklist_repository(monkeypatch, [])
+    monkeypatch.setattr(cli.time, "time", lambda: 1_000_000.0)
+
+    assert cli.main(["blocklist"]) == 0
+
+    assert calls == [{"since_ts": 1_000_000.0 - 7 * 86_400, "min_risk_rank": 0, "min_sessions": 1}]
+
+
+def test_blocklist_csv_includes_counts_times_and_risk(monkeypatch, capsys):
+    _fake_blocklist_repository(monkeypatch, [
+        _attacker_row("45.155.205.7", sessions=4, risk_rank=4, first=0.0, last=60.0),
+        _attacker_row("185.220.101.9", sessions=1, risk_rank=0, first=0.0, last=0.0),
+    ])
+
+    assert cli.main(["blocklist", "--format", "csv"]) == 0
+
+    assert capsys.readouterr().out.splitlines() == [
+        "ip,sessions,first_seen_utc,last_seen_utc,max_risk",
+        "45.155.205.7,4,1970-01-01T00:00:00Z,1970-01-01T00:01:00Z,critical",
+        "185.220.101.9,1,1970-01-01T00:00:00Z,1970-01-01T00:00:00Z,unclassified",
+    ]
+
+
+def test_blocklist_writes_output_file(monkeypatch, tmp_path, capsys):
+    _fake_blocklist_repository(monkeypatch, [_attacker_row("45.155.205.7")])
+    output = tmp_path / "blocklist.txt"
+
+    assert cli.main(["blocklist", "-o", str(output)]) == 0
+
+    assert output.read_text() == "45.155.205.7\n"
+    assert "Wrote 1 IPs" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("value", ["7", "0d", "1w", "abc", "1.5d"])
+def test_blocklist_rejects_bad_since(value, capsys):
+    with pytest.raises(SystemExit):
+        cli.main(["blocklist", "--since", value])
+
+    assert "invalid duration" in capsys.readouterr().err
+
+
+def test_blocklist_rejects_bad_exclude(monkeypatch, capsys):
+    calls = _fake_blocklist_repository(monkeypatch, [])
+
+    assert cli.main(["blocklist", "--exclude", "not-a-cidr"]) == 2
+
+    assert "invalid --exclude" in capsys.readouterr().err
+    assert calls == []
+
+
+def test_blocklist_rejects_zero_min_sessions(monkeypatch, capsys):
+    calls = _fake_blocklist_repository(monkeypatch, [])
+
+    assert cli.main(["blocklist", "--min-sessions", "0"]) == 2
+
+    assert calls == []
+
+
+def test_blocklist_reports_missing_database(monkeypatch, capsys):
+    from classifier.storage import DatabaseNotConfiguredError
+
+    class FakeRepository:
+        def __init__(self):
+            raise DatabaseNotConfiguredError("ECHIDRA_DATABASE_URL must be set")
+
+    import classifier.storage as storage_module
+    monkeypatch.setattr(storage_module, "PostgresClassifierRepository", FakeRepository)
+
+    assert cli.main(["blocklist"]) == 1
+
+    captured = capsys.readouterr()
+    assert "no database configured" in captured.err
+    assert captured.out == ""

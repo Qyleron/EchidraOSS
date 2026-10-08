@@ -2,75 +2,58 @@
 
 ## Reporting a vulnerability
 
-If you find a security issue in Echidra itself, please email
+If you find a security issue in Echidra, please email
 security@qyleron.com rather than opening a public GitHub issue.
-We will respond within 72 hours.
+We respond within 72 hours.
 
-## Known dependency vulnerabilities
-
-Found via `pip-audit -r requirements.txt`, cross-checked with `safety check
--r requirements.txt`, run in an isolated environment (never installed
-alongside the app's own dependencies — see the remediation plan below for
-why that distinction matters).
-
-`python-dotenv` (1 arbitrary-file-overwrite-via-symlink CVE, PYSEC-2026-2270)
-is remediated in this release — bumped to `python-dotenv==1.2.2`, verified
-against the full test suite before release.
-
-The `pydantic` `EmailStr` ReDoS advisory (CVE-2024-3772 / PVE-2023-61416,
-https://github.com/pydantic/pydantic/pull/7360) no longer applies: the
-project has migrated off Pydantic v1 entirely (see below), and Pydantic v2's
-`EmailStr` uses the `email-validator` package rather than the vulnerable
-regex.
-
-### Starlette CVEs (fixed)
-
-The five CVEs previously tracked against `starlette==0.50.0` are fixed as of
-this release. The project migrated every Pydantic v1-style validator
-(`@validator`, `@root_validator`, `class Config`) across
-`classifier/schemas/`, `classifier/storage/models.py`, and
-`classifier/api/app.py` to Pydantic v2 syntax, which unblocked upgrading to
-`fastapi==0.141.1` and `starlette==1.6.0`, `pydantic==2.13.5`. All five are
-covered by the pinned versions:
-
-| CVE | Advisory | Issue | Fixed in | Status |
-|---|---|---|---|---|
-| CVE-2026-48818 | PYSEC-2026-2281 | SSRF via UNC path handling in `StaticFiles.lookup_path()` (Windows) | 1.1.0 | Fixed (1.6.0) |
-| CVE-2026-48817 | PYSEC-2026-2280 | Arbitrary method execution via unrestricted `getattr` dispatch in `HTTPEndpoint` | 1.1.0 | Fixed (1.6.0) |
-| CVE-2026-54282 | PYSEC-2026-248 | Host/URL confusion via unvalidated path concatenation in `request.url` | 1.3.0 | Fixed (1.6.0) |
-| CVE-2026-54283 | PYSEC-2026-249 | Denial of service via unbounded `request.form()` field count/size | 1.3.1 | Fixed (1.6.0) |
-| CVE-2026-48710 | PYSEC-2026-161 | HTTP request smuggling via unvalidated `Host` header reconstruction | 1.0.1 | Fixed (1.6.0) |
-
-We still recommend firewalling port 8000 from external access as
-defense-in-depth — see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for the
-recommended configuration. Under Docker Compose it's bound to `127.0.0.1`
-only (`docker-compose.yml`'s `127.0.0.1:8000:8000`); under systemd,
-`echidra-api.service` binds `0.0.0.0:8000` like the four honeypot listener
-ports (2222 SSH-style, 8080 HTTP, 2121 FTP, 2323 Telnet — none of which use
-FastAPI/Starlette), so access control there depends on the `ufw deny 8000`
-rule from [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) actually being applied
-and verified active (`sudo ufw status verbose`).
-
-### CodeQL findings (fixed)
-
-A CodeQL scan flagged three issues, all fixed:
-
-- **SSRF in the Slack alert webhook** (`classifier/alerts.py`): the
-  `slack_webhook` scheme/host check used `str.startswith()`, which a
-  crafted URL (e.g. `https://hooks.slack.com.evil.example/`) could pass
-  while still routing the outbound request to an attacker-controlled host.
-  Fixed by parsing the URL and checking `parsed.hostname` exactly, then
-  rebuilding the outbound request URL from a hardcoded
-  `https://hooks.slack.com` scheme/host rather than reusing the
-  user-supplied string, so the value reaching `Request()` is provably not
-  attacker-controlled.
-- **HTML attribute injection** in `dashboard/public/{index,analytics,
-  personas,sessions}.html`.
-- **Missing script integrity** (no Subresource Integrity hash) on an
-  externally-loaded script in the dashboard.
+Please include the affected version or commit, steps to reproduce, and the
+impact you observed. We'll keep you updated while we work on a fix and
+credit you in the release notes unless you'd rather stay anonymous.
 
 ## Supported versions
 
 | Version | Supported |
 |---------|-----------|
 | Latest  | ✅        |
+
+## How Echidra is built to be safe
+
+**Attacker input is never executed.** Shell commands, HTTP requests, and
+FTP/Telnet logins are parsed and answered from an in-memory fake persona.
+Nothing an attacker sends runs on the host or reads the real filesystem.
+
+**The dashboard isn't exposed to the internet.** `echidra start`, Docker
+Compose, and the systemd unit all bind the dashboard/API to `127.0.0.1` by
+default; reach it remotely over an SSH tunnel. Only the decoy ports face
+the internet. See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+
+**Dashboard access**
+- Passwords stored as salted PBKDF2-SHA256 hashes.
+- Signed, `HttpOnly`, `SameSite=Lax` session cookies; sessions can be
+  revoked server-side.
+- Login rate limiting; only the first account can sign up unless
+  `ECHIDRA_ALLOW_SIGNUPS` is set.
+- Dashboard API responses are sent with `Cache-Control: no-store`.
+
+**Data at rest**
+- Alert SMTP passwords are encrypted in the database.
+- Session logs, which can contain captured credentials, are written with
+  owner-only (`0600`) permissions.
+
+**Least privilege**
+- Docker containers run as a non-root user with all capabilities dropped
+  and `no-new-privileges`.
+- systemd units run as a dedicated `echidra` user with `NoNewPrivileges`
+  and `ProtectSystem=strict`.
+
+**Safe exports and alerts**
+- CSV/XLSX exports neutralize spreadsheet formula injection from
+  attacker-typed input.
+- Slack webhooks are restricted to `hooks.slack.com` by exact hostname.
+
+## Dependencies and code scanning
+
+Dependencies are pinned. Every change runs the test suite and CodeQL code
+scanning, Dependabot tracks dependency and base-image updates, and the
+project is checked by the OpenSSF Scorecard. Security fixes are listed in
+the [CHANGELOG](CHANGELOG.md).
