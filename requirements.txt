@@ -15,4 +15,4 @@ starlette==1.6.0
 uvicorn==0.21.0
 geoip2fast==1.2.2
 cryptography>=42.0.0,<50.0.0
-asyncssh==2.24.0
+asyncssh==2.24.1
