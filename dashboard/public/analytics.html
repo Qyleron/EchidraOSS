@@ -1016,6 +1016,10 @@
         const response = await fetch(
           `/analytics/blocklist?from_ts=${from.getTime() / 1000}&to_ts=${to.getTime() / 1000}`
         );
+        if (response.status === 400) {
+          showNotice("Export failed: the range starts after it ends. Pick a valid range and apply it.", { error: true });
+          return;
+        }
         if (!response.ok) throw new Error(`Request failed (${response.status})`);
         text = await response.text();
       } catch (error) {

@@ -1209,6 +1209,25 @@ def test_analytics_blocklist_endpoint_returns_public_ips_one_per_line(monkeypatc
     assert response.media_type == "text/plain"
 
 
+def test_analytics_blocklist_endpoint_rejects_an_inverted_range(monkeypatch):
+    route = route_for("/analytics/blocklist", "GET")
+    calls = []
+
+    class FakeRepository(_SessionVersionMixin):
+        def list_attacker_ips(self, **kwargs):
+            calls.append(kwargs)
+            return []
+
+    monkeypatch.setattr(app_module, "PostgresClassifierRepository", FakeRepository)
+
+    with pytest.raises(HTTPException) as exc_info:
+        route.endpoint(dashboard_request(), from_ts=2000.0, to_ts=1000.0)
+
+    assert exc_info.value.status_code == 400
+    assert exc_info.value.detail == "from_ts must not be after to_ts"
+    assert calls == []
+
+
 def test_analytics_blocklist_endpoint_requires_dashboard_session():
     route = route_for("/analytics/blocklist", "GET")
 

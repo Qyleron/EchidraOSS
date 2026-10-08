@@ -635,6 +635,8 @@ def create_app() -> FastAPI:
         left out, highest-risk and most active IPs first.
         """
         _require_dashboard_auth(request)
+        if from_ts > to_ts:
+            raise HTTPException(status_code=400, detail="from_ts must not be after to_ts")
         try:
             repository = PostgresClassifierRepository()
             rows = repository.list_attacker_ips(since_ts=from_ts, until_ts=to_ts)
