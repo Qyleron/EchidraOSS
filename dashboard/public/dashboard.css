@@ -18,7 +18,10 @@
   --medium: #ffa726;
   --low: #51cf66;
   --shadow: none;
-  font-family: "SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  /* system-ui and the Linux desktop fonts come before the generic fallback,
+     so Linux doesn't drop to DejaVu/Liberation (which look heavy and
+     cramped at button sizes). */
+  font-family: "SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, Roboto, Ubuntu, Cantarell, "Noto Sans", sans-serif;
 }
 
 * {
@@ -127,7 +130,7 @@ a {
   background: var(--surface-hover);
   cursor: pointer;
   font-size: 13px;
-  font-weight: 560;
+  font-weight: 500;
   text-decoration: none;
   /* "Come out towards the user" -- a raised, tactile look instead of a flat
      fill, with the shadow shrinking on press so it reads as pushed in. */
@@ -287,7 +290,7 @@ a {
   background: var(--surface-hover);
   cursor: pointer;
   font-size: 14px;
-  font-weight: 560;
+  font-weight: 500;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.06);
   transition: border-color 0.3s ease, background 0.3s ease, box-shadow 0.1s ease, transform 0.1s ease;
 }
@@ -677,7 +680,14 @@ a {
 .data-table tbody tr[data-session-row].selected,
 .data-table tbody tr[data-issue-row]:hover,
 .data-table tbody tr[data-issue-row].selected {
-  background: var(--surface-hover);
+  /* Clearly lighter than the header row (--surface-strong), so a hovered
+     row doesn't look like a second header. */
+  background: #1c1c1c;
+}
+
+.data-table tbody tr[data-session-row].selected,
+.data-table tbody tr[data-issue-row].selected {
+  box-shadow: inset 3px 0 0 var(--text);
 }
 
 /* Session Inspector: the Intelligence findings a session belongs to. */
@@ -1270,7 +1280,7 @@ a {
 
 .rank-row span:last-child {
   color: var(--muted);
-  font-weight: 560;
+  font-weight: 500;
 }
 
 .rank-track {
@@ -1664,7 +1674,7 @@ a {
 
 .config-section {
   display: grid;
-  gap: 12px;
+  gap: 20px;
 }
 
 .config-section-title {
@@ -1681,7 +1691,9 @@ a {
 .config-fields-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 14px;
+  /* Taller row gap so a hint under one field reads as part of that field,
+     not as a caption for the field below it. */
+  gap: 24px 16px;
 }
 
 .config-form-actions {
@@ -2349,23 +2361,23 @@ a {
   margin-bottom: 16px;
 }
 
-/* ── Larger text inside the "Create New Persona" modal only ── */
-#form___new__ .config-section-title {
+/* ── Larger text in the persona modals (create, configure and edit) ── */
+.persona-config-form .config-section-title {
   font-size: 17px;
 }
 
-#form___new__ .form-label {
+.persona-config-form .form-label {
   font-size: 14px;
 }
 
-#form___new__ .form-input,
-#form___new__ .form-select,
-#form___new__ .form-textarea {
+.persona-config-form .form-input,
+.persona-config-form .form-select,
+.persona-config-form .form-textarea {
   font-size: 15px;
 }
 
-#form___new__ .save-persona-btn,
-#form___new__ .cancel-persona-btn {
+.persona-config-form .save-persona-btn,
+.persona-config-form .cancel-persona-btn {
   font-size: 14px;
 }
 
@@ -2391,33 +2403,33 @@ a {
   cursor: pointer;
 }
 
-/* ── Create New Persona modal: decoy buttons, labels, and Create button ── */
-#form___new__ .remove-row-btn {
+/* ── Persona modals: decoy buttons, labels, and the primary Save/Create button ── */
+.persona-config-form .remove-row-btn {
   border-color: #ff3b3b;
   color: #ff3b3b;
 }
 
-#form___new__ .remove-row-btn:hover {
+.persona-config-form .remove-row-btn:hover {
   border-color: #ff3b3b;
   color: #ff3b3b;
 }
 
-#form___new__ .form-label {
+.persona-config-form .form-label {
   color: var(--text);
 }
 
-#form___new__ .config-section-title {
+.persona-config-form .config-section-title {
   color: var(--text);
 }
 
-#form___new__ .save-persona-btn {
+.persona-config-form .save-persona-btn {
   background: #ffffff;
   color: #000000;
   border-color: #ffffff;
 }
 
-#form___new__ .save-persona-btn:hover,
-#form___new__ .save-persona-btn:focus-visible {
+.persona-config-form .save-persona-btn:hover,
+.persona-config-form .save-persona-btn:focus-visible {
   background: #e6e6e6;
   color: #000000;
   border-color: #e6e6e6;
@@ -2435,8 +2447,8 @@ a {
 }
 
 /* ── Placeholder color fix (stronger override) ── */
-#form___new__ .form-input::placeholder,
-#form___new__ .form-textarea::placeholder {
+.persona-config-form .form-input::placeholder,
+.persona-config-form .form-textarea::placeholder {
   color: var(--placeholder) !important;
   opacity: 1;
 }

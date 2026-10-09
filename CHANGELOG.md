@@ -31,7 +31,10 @@ All notable changes to Echidra are documented here. The format follows
   loading spinner until their data arrives; brighter form labels, hints and
   placeholders; larger notices; save and test results on the Alerts page
   appear as notices, with a lasting "App password saved" indicator under
-  the password field; smoother scrolling in the persona editor.
+  the password field; smoother scrolling in the persona editor; creating
+  and editing a persona use the same form style, with required fields
+  marked; more space between form fields; hovered table rows stand apart
+  from the header row; better default fonts on Linux.
 - Logging in now returns you to the dashboard page you were sent to the
   login page from (eg. an alert's session link) instead of the Overview.
 - Clearer sign-in, sign-up, alert test, error and notice messages that say

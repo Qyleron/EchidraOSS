@@ -504,7 +504,7 @@ def test_standard_buttons_use_the_dark_scheme_with_a_raised_shadow():
     # .text-button) that happens to currently match it -- assert on it by
     # name too, or a future regression/divergence there would pass silently.
     assert ".logout-button {" in css
-    assert "color: var(--text);\n  background: var(--surface-hover);\n  cursor: pointer;\n  font-size: 14px;\n  font-weight: 560;\n  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.45)" in css
+    assert "color: var(--text);\n  background: var(--surface-hover);\n  cursor: pointer;\n  font-size: 14px;\n  font-weight: 500;\n  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.45)" in css
     assert ".logout-button:active {" in css
 
 

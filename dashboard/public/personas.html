@@ -790,7 +790,7 @@
 
     function formInput(personaId, name, label, type, value, required) {
       return '<div class="form-row">'
-        + '<label class="form-label">' + escHtml(label) + '</label>'
+        + '<label class="form-label">' + escHtml(label) + (required ? ' <span style="color:var(--critical)">*</span>' : '') + '</label>'
         + '<input class="form-input" name="' + escAttr(name) + '" type="' + type + '" value="' + escAttr(value) + '"' + (required ? " required" : "") + ' />'
         + '</div>';
     }
