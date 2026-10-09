@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>EchidraOSS Auth | Qyleron</title>
+  <title>Log in - Echidra OSS | Qyleron</title>
   <link rel="icon" href="/assets/qyleron_logo.png" type="image/png" />
   <style>
     * {
@@ -282,16 +282,17 @@
       overflow: hidden;
       border-radius: 6px;
       text-align: center;
-      font-size: 14px;
+      font-size: 15px;
       opacity: 0;
       transform: translateY(-8px);
       transition: all 0.25s ease;
     }
 
     .message.show {
-      min-height: 44px;
-      max-height: 90px;
-      padding: 10px 12px;
+      min-height: 50px;
+      max-height: 110px;
+      margin-bottom: 18px;
+      padding: 14px 16px;
       opacity: 1;
       transform: translateY(0);
     }
@@ -365,13 +366,13 @@
   <main class="auth-shell">
     <section class="auth-container" aria-label="Dashboard authentication">
       <div class="form-heading">
-        <h1 id="formTitle">Login</h1>
-        <p id="formSubtitle">Access the EchidraOSS dashboard.</p>
+        <h1 id="formTitle">Log in</h1>
+        <p id="formSubtitle">Log in to the Echidra OSS dashboard.</p>
       </div>
 
       <div class="tabs" role="tablist" aria-label="Authentication mode">
-        <button id="loginTab" class="tab-button active" type="button">Login</button>
-        <button id="signupTab" class="tab-button" type="button">Signup</button>
+        <button id="loginTab" class="tab-button active" type="button">Log in</button>
+        <button id="signupTab" class="tab-button" type="button">Sign up</button>
       </div>
 
       <div id="authMessage" class="message" role="status"></div>
@@ -388,7 +389,7 @@
             <button type="button" class="password-toggle-btn" id="loginPasswordToggle" aria-label="Show password" aria-pressed="false"></button>
           </div>
         </div>
-        <button type="submit" class="btn" id="loginButton">Login</button>
+        <button type="submit" class="btn" id="loginButton">Log in</button>
       </form>
 
       <form id="signupForm" class="auth-form hidden" novalidate>
@@ -402,7 +403,7 @@
             <input type="password" id="signupPassword" placeholder="Create password" autocomplete="new-password" minlength="8" maxlength="128" required />
             <button type="button" class="password-toggle-btn" id="signupPasswordToggle" aria-label="Show password" aria-pressed="false"></button>
           </div>
-          <div class="help-text">Use 8-128 characters with a letter and a number, without spaces.</div>
+          <div class="help-text">Use 8–128 characters, including a letter and a number, with no spaces.</div>
         </div>
         <div class="form-group">
           <label for="confirmPassword">Confirm Password</label>
@@ -411,7 +412,7 @@
             <button type="button" class="password-toggle-btn" id="confirmPasswordToggle" aria-label="Show password" aria-pressed="false"></button>
           </div>
         </div>
-        <button type="submit" class="btn" id="signupButton">Signup</button>
+        <button type="submit" class="btn" id="signupButton">Sign up</button>
       </form>
     </section>
   </main>
@@ -465,7 +466,12 @@
       if (!validateCredentials(email, password)) {
         return;
       }
-      await submitAuth("/auth/login", { email, password }, "loginButton", "Login");
+      await submitAuth("/auth/login", { email, password }, "loginButton", {
+        idleText: "Log in",
+        busyText: "Logging in…",
+        successText: "Logged in. Opening the dashboard…",
+        failureText: "Couldn't log in. Try again.",
+      });
     });
 
     signupForm.addEventListener("submit", async (event) => {
@@ -477,10 +483,15 @@
         return;
       }
       if (password !== confirmPassword) {
-        showMessage("Passwords do not match.");
+        showMessage("Passwords don't match.");
         return;
       }
-      await submitAuth("/auth/signup", { email, password }, "signupButton", "Signup");
+      await submitAuth("/auth/signup", { email, password }, "signupButton", {
+        idleText: "Sign up",
+        busyText: "Signing up…",
+        successText: "Account created. Opening the dashboard…",
+        failureText: "Couldn't sign up. Try again.",
+      });
     });
 
     function setMode(mode) {
@@ -489,10 +500,10 @@
       signupTab.classList.toggle("active", !isLogin);
       loginForm.classList.toggle("hidden", !isLogin);
       signupForm.classList.toggle("hidden", isLogin);
-      formTitle.textContent = isLogin ? "Login" : "Signup";
+      formTitle.textContent = isLogin ? "Log in" : "Sign up";
       formSubtitle.textContent = isLogin
-        ? "Access the EchidraOSS dashboard."
-        : "Create a dashboard user.";
+        ? "Log in to the Echidra OSS dashboard."
+        : "Create your Echidra OSS dashboard account.";
       clearMessage();
       setTimeout(() => {
         document.getElementById(isLogin ? "loginEmail" : "signupEmail").focus();
@@ -517,7 +528,7 @@
         return false;
       }
       if (!/[A-Za-z]/.test(password) || !/\d/.test(password)) {
-        showMessage("Password must include a letter and a number.");
+        showMessage("Password must contain a letter and a number.");
         return false;
       }
       return true;
@@ -537,10 +548,10 @@
       ));
     }
 
-    async function submitAuth(url, payload, buttonId, idleText) {
+    async function submitAuth(url, payload, buttonId, text) {
       const button = document.getElementById(buttonId);
       button.disabled = true;
-      button.textContent = "Please wait...";
+      button.textContent = text.busyText;
       clearMessage();
       try {
         const response = await fetch(url, {
@@ -553,17 +564,29 @@
           const detail = Array.isArray(body.detail)
             ? body.detail[0]?.msg
             : body.detail;
-          showMessage(detail || "Authentication failed.");
+          // Pydantic prefixes validator messages with "Value error, ".
+          const message = typeof detail === "string" ? detail.replace(/^Value error, /, "") : "";
+          showMessage(message || text.failureText);
           return;
         }
-        showMessage("Access granted. Redirecting...", "success");
-        setTimeout(() => window.location.assign("/dashboard"), 700);
+        showMessage(text.successText, "success");
+        setTimeout(() => window.location.assign(safeNextPath()), 700);
       } catch (error) {
-        showMessage("Unable to reach the server. Please try again.");
+        showMessage("Can't reach the server. Check that Echidra is running, then try again.");
       } finally {
         button.disabled = false;
-        button.textContent = idleText;
+        button.textContent = text.idleText;
       }
+    }
+
+    // Where to go after logging in: the dashboard page the visitor asked for
+    // before being sent here (?next=, set by the server's login redirect),
+    // or the Overview. Only same-site /dashboard paths are followed, so a
+    // crafted link can't use this page to send someone to another site.
+    function safeNextPath() {
+      const next = new URLSearchParams(window.location.search).get("next") || "";
+      const isDashboardPath = next === "/dashboard" || next.startsWith("/dashboard/") || next.startsWith("/dashboard?");
+      return isDashboardPath && !next.includes("\\") && !next.includes("//") ? next : "/dashboard";
     }
 
     function showMessage(message, type = "error") {

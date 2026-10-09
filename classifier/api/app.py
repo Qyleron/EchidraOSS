@@ -10,6 +10,7 @@ import os
 import re
 import secrets
 import time
+import urllib.parse
 from pathlib import Path
 from uuid import UUID
 
@@ -19,6 +20,11 @@ from fastapi.responses import FileResponse, PlainTextResponse, RedirectResponse
 from pydantic import BaseModel, ConfigDict, field_validator
 
 from classifier.blocklist import blocklist_ips
+from classifier.passwords import (
+    hash_password as _hash_password,
+    validate_password_format as _validate_password_format,
+    verify_password as _verify_password,
+)
 from classifier.pipeline import classify_session
 from classifier.schemas.session import SessionRecord
 from classifier.scoring.session import ClassificationSummary
@@ -125,13 +131,12 @@ INGEST_API_KEY_ENV = "ECHIDRA_INGEST_API_KEY"
 INGEST_API_KEY_HEADER = "x-api-key"
 ALLOW_SIGNUPS_ENV = "ECHIDRA_ALLOW_SIGNUPS"
 SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 7
-PASSWORD_HASH_ITERATIONS = 390_000
 MAX_EMAIL_LENGTH = 254
-MAX_PASSWORD_LENGTH = 128
 _FALLBACK_SESSION_SECRET_PATH = (
     Path(__file__).resolve().parents[2] / "logs" / ".dashboard_session_secret"
 )
 _fallback_session_secret: str | None = None
+_cookie_secure_warning_logged = False
 LOGIN_RATE_LIMIT_MAX_ATTEMPTS = 5
 LOGIN_RATE_LIMIT_WINDOW_SECONDS = 15 * 60
 
@@ -232,12 +237,15 @@ def create_app() -> FastAPI:
         description="Post-session behavioral classification for Echidra logs.",
     )
 
-    if not _dashboard_cookie_secure():
+    # Once per process: uvicorn --factory imports this module (which builds
+    # the module-level app) and then calls create_app() again.
+    global _cookie_secure_warning_logged
+    if not _dashboard_cookie_secure() and not _cookie_secure_warning_logged:
+        _cookie_secure_warning_logged = True
         logger.warning(
-            "%s is not set -- the dashboard session cookie will be sent over "
-            "plain HTTP. Set %s=1 once the dashboard sits behind TLS "
-            "(directly or via a reverse proxy), or the session cookie can be "
-            "sniffed on the network.",
+            "%s is not set, so the dashboard session cookie also works over "
+            "plain HTTP. That's fine on 127.0.0.1 or through an SSH tunnel. If "
+            "you serve the dashboard over the network behind TLS, set %s=1.",
             DASHBOARD_COOKIE_SECURE_ENV,
             DASHBOARD_COOKIE_SECURE_ENV,
         )
@@ -341,10 +349,10 @@ def create_app() -> FastAPI:
             # it documented in README.md/docs/DEPLOYMENT.md.
             raise HTTPException(
                 status_code=403,
-                detail="Signups are currently unavailable.",
+                detail="Sign-up is closed because this dashboard already has an account. Log in instead.",
             )
         except DashboardEmailAlreadyRegisteredError:
-            raise HTTPException(status_code=409, detail="Email already registered")
+            raise HTTPException(status_code=409, detail="An account with this email already exists.")
         except (DatabaseDriverMissingError, DatabaseNotConfiguredError) as exc:
             raise HTTPException(status_code=503, detail=_user_facing_error_detail(exc))
         except Exception as exc:
@@ -376,7 +384,7 @@ def create_app() -> FastAPI:
 
         if user is None or not _verify_password(payload.password, user.password_hash):
             _record_login_failure(rate_limit_key, repository)
-            raise HTTPException(status_code=401, detail="Invalid email or password")
+            raise HTTPException(status_code=401, detail="Incorrect email or password.")
 
         _clear_login_failures(rate_limit_key, repository)
         _set_dashboard_session_cookie(response, user)
@@ -399,10 +407,10 @@ def create_app() -> FastAPI:
                 repository.rotate_dashboard_user_session(user_id)
             except (DatabaseDriverMissingError, DatabaseNotConfiguredError) as exc:
                 logger.warning("Could not rotate session_version during logout: %s", exc)
-                raise HTTPException(status_code=503, detail="Could not revoke dashboard session")
+                raise HTTPException(status_code=503, detail="Couldn't log out because the database is unavailable. Try again.")
             except Exception:
                 logger.exception("Could not rotate session_version during logout")
-                raise HTTPException(status_code=503, detail="Could not revoke dashboard session")
+                raise HTTPException(status_code=503, detail="Couldn't log out because the database is unavailable. Try again.")
         response.delete_cookie(DASHBOARD_AUTH_COOKIE)
         return {"authenticated": False}
 
@@ -410,7 +418,7 @@ def create_app() -> FastAPI:
     def dashboard(request: Request) -> Response:
         """Serve the local analyst dashboard shell."""
         if not _dashboard_request_is_authenticated(request):
-            return RedirectResponse("/auth", status_code=303)
+            return _login_redirect(request)
         if not DASHBOARD_INDEX_PATH.exists():
             raise HTTPException(status_code=404, detail="Dashboard not found")
         return FileResponse(
@@ -467,7 +475,7 @@ def create_app() -> FastAPI:
     def dashboard_page(page_name: str, request: Request) -> Response:
         """Serve whitelisted dashboard pages behind the same auth guard."""
         if not _dashboard_request_is_authenticated(request):
-            return RedirectResponse("/auth", status_code=303)
+            return _login_redirect(request)
         page_path = DASHBOARD_PAGE_FILES.get(page_name)
         if page_path is None or not page_path.exists():
             raise HTTPException(status_code=404, detail="Dashboard page not found")
@@ -1080,13 +1088,13 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=500, detail="Internal server error")
 
         if config is None or not config.enabled:
-            raise HTTPException(status_code=400, detail="Alerts are not enabled")
+            raise HTTPException(status_code=400, detail="Turn on alerts and save the settings first.")
         if not config.smtp_host or not config.smtp_from_email:
-            raise HTTPException(status_code=400, detail="SMTP host and from email are required")
+            raise HTTPException(status_code=400, detail="Enter the SMTP host and From email, then save.")
 
         err = _dispatch_test_email(config)
         if err:
-            raise HTTPException(status_code=502, detail=f"SMTP error: {err}")
+            raise HTTPException(status_code=502, detail=f"Couldn't send the test email. {err}")
         return {"status": "sent"}
 
     @api.post(
@@ -1107,10 +1115,10 @@ def create_app() -> FastAPI:
         _require_dashboard_auth(request)
         err = _slack_post(
             payload.slack_webhook,
-            "[Echidra] Slack alert test — this webhook is configured correctly.",
+            "*[Echidra] Test message*\nThis Slack webhook works, so alerts for this persona will be posted here.",
         )
         if err:
-            raise HTTPException(status_code=502, detail=f"Slack error: {err}")
+            raise HTTPException(status_code=502, detail=f"Couldn't send to Slack. {err}")
         return {"status": "sent"}
 
     @api.get(
@@ -1184,9 +1192,12 @@ def _dispatch_test_email(config: AlertConfigRecord) -> str | None:
     """Send a test email using the current alert config. Returns error or None."""
     recipient = config.smtp_from_email or ""
     if not recipient:
-        return "SMTP from email must be set to receive the test email"
-    subject = "[Echidra] SMTP alert test"
-    body = "This is a test alert from your Echidra OSS honeypot. SMTP is configured correctly."
+        return "Set the From email address first. The test email is sent to that address."
+    subject = "[Echidra] Test email"
+    body = (
+        "Test email from Echidra OSS.\n\n"
+        "Your SMTP settings work, so Echidra can deliver alerts by email."
+    )
     return _smtp_send(config, recipient, subject, body)
 
 
@@ -1275,7 +1286,10 @@ def _check_login_rate_limit(key: str, repository: PostgresClassifierRepository) 
     """
     recent = repository.count_recent_login_failures(key, LOGIN_RATE_LIMIT_WINDOW_SECONDS)
     if recent >= LOGIN_RATE_LIMIT_MAX_ATTEMPTS:
-        raise HTTPException(status_code=429, detail="Too many login attempts — try again later")
+        raise HTTPException(
+            status_code=429,
+            detail="Too many failed login attempts. Try again in 15 minutes.",
+        )
 
 
 def _record_login_failure(key: str, repository: PostgresClassifierRepository) -> None:
@@ -1322,55 +1336,29 @@ def _validate_email_format(value: str) -> str:
         or normalized.startswith(".")
         or ".." in normalized
     ):
-        raise ValueError("Valid email address required")
+        raise ValueError("Enter a valid email address.")
     local_part, domain = normalized.rsplit("@", 1)
     if (
         len(local_part) > 64
         or local_part.endswith(".")
         or any(label.startswith("-") or label.endswith("-") for label in domain.split("."))
     ):
-        raise ValueError("Valid email address required")
+        raise ValueError("Enter a valid email address.")
     return normalized
 
 
-def _validate_password_format(value: str) -> None:
-    if len(value) < 8:
-        raise ValueError("Password must be at least 8 characters")
-    if len(value) > MAX_PASSWORD_LENGTH:
-        raise ValueError(f"Password must be at most {MAX_PASSWORD_LENGTH} characters")
-    if any(character.isspace() for character in value):
-        raise ValueError("Password must not contain whitespace")
-    if not re.search(r"[A-Za-z]", value):
-        raise ValueError("Password must contain a letter")
-    if not re.search(r"\d", value):
-        raise ValueError("Password must contain a number")
+def _login_redirect(request: Request) -> RedirectResponse:
+    """Send a logged-out visitor to /auth, remembering which dashboard page
+    they asked for (eg. an alert's session link) so login can return there.
 
-
-def _hash_password(password: str) -> str:
-    salt = secrets.token_hex(16)
-    digest = hashlib.pbkdf2_hmac(
-        "sha256",
-        password.encode("utf-8"),
-        salt.encode("utf-8"),
-        PASSWORD_HASH_ITERATIONS,
-    ).hex()
-    return f"pbkdf2_sha256${PASSWORD_HASH_ITERATIONS}${salt}${digest}"
-
-
-def _verify_password(password: str, password_hash: str) -> bool:
-    try:
-        algorithm, iterations, salt, digest = password_hash.split("$", 3)
-        if algorithm != "pbkdf2_sha256":
-            return False
-        candidate = hashlib.pbkdf2_hmac(
-            "sha256",
-            password.encode("utf-8"),
-            salt.encode("utf-8"),
-            int(iterations),
-        ).hex()
-    except (TypeError, ValueError):
-        return False
-    return hmac.compare_digest(candidate, digest)
+    Only called from the /dashboard routes, so `next` is always a same-site
+    /dashboard path; auth.html validates it again before following it.
+    """
+    url = getattr(request, "url", None)
+    if url is None or (url.path == "/dashboard" and not url.query):
+        return RedirectResponse("/auth", status_code=303)
+    next_path = url.path + (f"?{url.query}" if url.query else "")
+    return RedirectResponse(f"/auth?{urllib.parse.urlencode({'next': next_path})}", status_code=303)
 
 
 def _dashboard_session_secret() -> str:

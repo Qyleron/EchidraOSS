@@ -175,6 +175,34 @@ def test_dashboard_route_redirects_to_auth_without_session_cookie():
     assert response.headers["location"] == "/auth"
 
 
+class _FakeURL:
+    def __init__(self, path, query=""):
+        self.path = path
+        self.query = query
+
+
+def test_dashboard_page_redirect_remembers_the_requested_page():
+    route = route_for("/dashboard/{page_name}", "GET")
+    request = dashboard_request(authenticated=False)
+    request.url = _FakeURL("/dashboard/sessions", "session=3f2a-1")
+
+    response = route.endpoint("sessions", request)
+
+    assert isinstance(response, RedirectResponse)
+    assert response.status_code == 303
+    assert response.headers["location"] == "/auth?next=%2Fdashboard%2Fsessions%3Fsession%3D3f2a-1"
+
+
+def test_dashboard_root_redirect_needs_no_next_parameter():
+    route = route_for("/dashboard", "GET")
+    request = dashboard_request(authenticated=False)
+    request.url = _FakeURL("/dashboard")
+
+    response = route.endpoint(request)
+
+    assert response.headers["location"] == "/auth"
+
+
 def test_dashboard_route_accepts_valid_session_cookie():
     route = route_for("/dashboard", "GET")
 
@@ -334,7 +362,7 @@ def test_signup_dashboard_user_rejects_duplicate_email(monkeypatch):
         route.endpoint(payload, Response())
 
     assert exc_info.value.status_code == 409
-    assert exc_info.value.detail == "Email already registered"
+    assert exc_info.value.detail == "An account with this email already exists."
 
 
 def test_signup_dashboard_user_blocked_once_an_account_exists(monkeypatch):
@@ -355,7 +383,7 @@ def test_signup_dashboard_user_blocked_once_an_account_exists(monkeypatch):
         route.endpoint(payload, Response())
 
     assert exc_info.value.status_code == 403
-    assert exc_info.value.detail == "Signups are currently unavailable."
+    assert exc_info.value.detail == "Sign-up is closed because this dashboard already has an account. Log in instead."
 
 
 def test_signup_dashboard_user_allowed_when_env_override_set(monkeypatch):
@@ -439,7 +467,7 @@ def test_login_dashboard_user_rejects_invalid_credentials(monkeypatch):
         route.endpoint(payload, FakeRequest(), Response())
 
     assert exc_info.value.status_code == 401
-    assert exc_info.value.detail == "Invalid email or password"
+    assert exc_info.value.detail == "Incorrect email or password."
 
 
 def test_login_dashboard_user_locks_out_after_repeated_failures(monkeypatch):
@@ -496,7 +524,7 @@ def test_dashboard_password_validation_requires_length_letter_and_number():
         app_module.DashboardSignupInput(email="a@example.com", password="12345678")
     with pytest.raises(ValidationError, match="number"):
         app_module.DashboardSignupInput(email="a@example.com", password="password")
-    with pytest.raises(ValidationError, match="whitespace"):
+    with pytest.raises(ValidationError, match="spaces"):
         app_module.DashboardSignupInput(email="a@example.com", password="password 1")
     with pytest.raises(ValidationError, match="at most 128"):
         app_module.DashboardSignupInput(
@@ -520,7 +548,7 @@ def test_dashboard_email_validation_rejects_invalid_format():
     ]
 
     for email in invalid_emails:
-        with pytest.raises(ValidationError, match="Valid email address required"):
+        with pytest.raises(ValidationError, match="Enter a valid email address"):
             app_module.DashboardSignupInput(email=email, password="password1")
 
 
@@ -645,6 +673,19 @@ def test_dashboard_cookie_secure_flag_reads_environment(monkeypatch):
     monkeypatch.setenv("ECHIDRA_COOKIE_SECURE", "true")
 
     assert app_module._dashboard_cookie_secure()
+
+
+def test_cookie_secure_warning_is_logged_once_per_process(monkeypatch, caplog):
+    monkeypatch.delenv("ECHIDRA_COOKIE_SECURE", raising=False)
+    monkeypatch.setattr(app_module, "_cookie_secure_warning_logged", False)
+
+    with caplog.at_level("WARNING", logger=app_module.logger.name):
+        app_module.create_app()
+        app_module.create_app()
+
+    warnings = [record for record in caplog.records if "ECHIDRA_COOKIE_SECURE" in record.getMessage()]
+    assert len(warnings) == 1
+    assert "127.0.0.1 or through an SSH tunnel" in warnings[0].getMessage()
 
 
 def test_fallback_session_secret_persists_and_reuses_same_value(tmp_path, monkeypatch):
