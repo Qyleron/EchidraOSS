@@ -204,9 +204,9 @@ def test_forms_use_dashboard_validation_not_browser_bubbles():
 def test_auth_page_wording_and_server_messages_are_shown_cleanly():
     html = (DASHBOARD_PUBLIC_PATH / "auth.html").read_text(encoding="utf-8")
 
-    # "Log in"/"Sign up" are verbs; "Login"/"Signup" aren't used as labels.
-    assert '<button type="submit" class="btn" id="loginButton">Log in</button>' in html
-    assert '<button type="submit" class="btn" id="signupButton">Sign up</button>' in html
+    # "Log In"/"Sign Up" are verbs; "Login"/"Signup" are nouns, not button labels.
+    assert '<button type="submit" class="btn" id="loginButton">Log In</button>' in html
+    assert '<button type="submit" class="btn" id="signupButton">Sign Up</button>' in html
     assert ">Login<" not in html and ">Signup<" not in html
     assert "Please " not in html
     # Pydantic's "Value error, " prefix never reaches the user.

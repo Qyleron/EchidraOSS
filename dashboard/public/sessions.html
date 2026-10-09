@@ -25,7 +25,7 @@
           <a class="nav-link" href="/dashboard/personas">Personas</a>
           <a class="nav-link" href="/dashboard/alerts">Alerts</a>
         </div>
-        <button id="logoutButton" class="logout-button" type="button">Logout</button>
+        <button id="logoutButton" class="logout-button" type="button">Log Out</button>
       </nav>
     </header>
 
@@ -151,7 +151,7 @@
         <div id="sessionsPagination" class="table-pagination"></div>
         <div id="loadOlderBar" class="load-older-bar" hidden>
           <span id="loadOlderText"></span>
-          <button type="button" class="text-button" id="loadOlderButton">Load older sessions</button>
+          <button type="button" class="text-button" id="loadOlderButton">Load Older Sessions</button>
         </div>
       </section>
     </main>
@@ -1284,7 +1284,7 @@
         console.error(error);
       } finally {
         loadOlderButton.disabled = false;
-        loadOlderButton.textContent = "Load older sessions";
+        loadOlderButton.textContent = "Load Older Sessions";
       }
     });
 

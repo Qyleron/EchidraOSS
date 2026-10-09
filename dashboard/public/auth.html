@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Log in - Echidra OSS | Qyleron</title>
+  <title>Log In - Echidra OSS | Qyleron</title>
   <link rel="icon" href="/assets/qyleron_logo.png" type="image/png" />
   <style>
     * {
@@ -366,13 +366,13 @@
   <main class="auth-shell">
     <section class="auth-container" aria-label="Dashboard authentication">
       <div class="form-heading">
-        <h1 id="formTitle">Log in</h1>
+        <h1 id="formTitle">Log In</h1>
         <p id="formSubtitle">Log in to the Echidra OSS dashboard.</p>
       </div>
 
       <div class="tabs" role="tablist" aria-label="Authentication mode">
-        <button id="loginTab" class="tab-button active" type="button">Log in</button>
-        <button id="signupTab" class="tab-button" type="button">Sign up</button>
+        <button id="loginTab" class="tab-button active" type="button">Log In</button>
+        <button id="signupTab" class="tab-button" type="button">Sign Up</button>
       </div>
 
       <div id="authMessage" class="message" role="status"></div>
@@ -389,7 +389,7 @@
             <button type="button" class="password-toggle-btn" id="loginPasswordToggle" aria-label="Show password" aria-pressed="false"></button>
           </div>
         </div>
-        <button type="submit" class="btn" id="loginButton">Log in</button>
+        <button type="submit" class="btn" id="loginButton">Log In</button>
       </form>
 
       <form id="signupForm" class="auth-form hidden" novalidate>
@@ -412,7 +412,7 @@
             <button type="button" class="password-toggle-btn" id="confirmPasswordToggle" aria-label="Show password" aria-pressed="false"></button>
           </div>
         </div>
-        <button type="submit" class="btn" id="signupButton">Sign up</button>
+        <button type="submit" class="btn" id="signupButton">Sign Up</button>
       </form>
     </section>
   </main>
@@ -467,7 +467,7 @@
         return;
       }
       await submitAuth("/auth/login", { email, password }, "loginButton", {
-        idleText: "Log in",
+        idleText: "Log In",
         busyText: "Logging in…",
         successText: "Logged in. Opening the dashboard…",
         failureText: "Couldn't log in. Try again.",
@@ -487,7 +487,7 @@
         return;
       }
       await submitAuth("/auth/signup", { email, password }, "signupButton", {
-        idleText: "Sign up",
+        idleText: "Sign Up",
         busyText: "Signing up…",
         successText: "Account created. Opening the dashboard…",
         failureText: "Couldn't sign up. Try again.",
@@ -500,7 +500,7 @@
       signupTab.classList.toggle("active", !isLogin);
       loginForm.classList.toggle("hidden", !isLogin);
       signupForm.classList.toggle("hidden", isLogin);
-      formTitle.textContent = isLogin ? "Log in" : "Sign up";
+      formTitle.textContent = isLogin ? "Log In" : "Sign Up";
       formSubtitle.textContent = isLogin
         ? "Log in to the Echidra OSS dashboard."
         : "Create your Echidra OSS dashboard account.";
