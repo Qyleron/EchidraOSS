@@ -1,4 +1,4 @@
-"""Operator-facing `echidra` command: init, start, stop, classify, status, blocklist.
+"""Operator-facing `echidra` command: init, start, stop, classify, status, blocklist, reset-password.
 
 This is a thin wrapper around existing entry points (honeypot.main,
 classifier.cli, classifier.storage.cli, uvicorn) -- it exists so a fresh
@@ -57,6 +57,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_stop(args)
     if args.command == "blocklist":
         return _cmd_blocklist(args)
+    if args.command == "reset-password":
+        return _cmd_reset_password(args)
     if args.command == "help":
         parser.print_help()
         return 0
@@ -172,6 +174,12 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="write to this file instead of stdout",
     )
+
+    reset_parser = subparsers.add_parser(
+        "reset-password",
+        help="set a new password for a dashboard user (prompts for it), logging out their existing sessions",
+    )
+    reset_parser.add_argument("email", help="the dashboard user's email address")
 
     subparsers.add_parser(
         "help",
@@ -818,6 +826,57 @@ def _write_blocklist(rows: list[dict], fmt: str, handle) -> None:
 
 def _utc_iso(timestamp: float) -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(float(timestamp)))
+
+
+# ---------------------------------------------------------------------------
+# reset-password
+# ---------------------------------------------------------------------------
+
+
+def _cmd_reset_password(args: argparse.Namespace) -> int:
+    import getpass
+
+    from classifier.passwords import hash_password, validate_password_format
+    from classifier.storage import (
+        DatabaseDriverMissingError,
+        DatabaseNotConfiguredError,
+        PostgresClassifierRepository,
+    )
+
+    email = args.email.strip().lower()  # stored normalized, same as signup
+    try:
+        password = getpass.getpass("New password: ")
+        try:
+            validate_password_format(password)
+        except ValueError as exc:
+            print(f"echidra reset-password: {exc}", file=sys.stderr)
+            return 2
+        if getpass.getpass("Confirm new password: ") != password:
+            print("echidra reset-password: passwords do not match.", file=sys.stderr)
+            return 2
+    except (EOFError, KeyboardInterrupt):
+        print("\nCancelled.", file=sys.stderr)
+        return 1
+
+    try:
+        repository = PostgresClassifierRepository()
+        found = repository.reset_dashboard_user_password(email, hash_password(password))
+    except DatabaseNotConfiguredError:
+        print("echidra reset-password: no database configured (set ECHIDRA_DATABASE_URL in .env)", file=sys.stderr)
+        return 1
+    except DatabaseDriverMissingError as exc:
+        print(f"echidra reset-password: {exc}", file=sys.stderr)
+        return 1
+    except Exception as exc:
+        print(f"echidra reset-password: database unreachable ({type(exc).__name__})", file=sys.stderr)
+        return 1
+
+    if not found:
+        print(f"echidra reset-password: no dashboard user with email {email}.", file=sys.stderr)
+        return 1
+    print(f"Password updated for {email}. Existing dashboard sessions were logged out "
+          "and any login lockout was cleared.")
+    return 0
 
 
 if __name__ == "__main__":

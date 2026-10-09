@@ -1478,3 +1478,32 @@ def test_list_attacker_ips_passes_window_and_thresholds(monkeypatch):
     assert captured["params"] == {
         "since_ts": 100.0, "until_ts": 200.0, "min_risk_rank": 0, "min_sessions": 1,
     }
+
+
+@pytest.mark.parametrize("row, expected", [({"id": "some-id"}, True), (None, False)])
+def test_reset_dashboard_user_password_sets_hash_and_clears_that_users_lockout(monkeypatch, row, expected):
+    from classifier.storage.repository import (
+        RESET_DASHBOARD_USER_PASSWORD_SQL,
+        PostgresClassifierRepository,
+    )
+
+    captured = {}
+
+    def fake_fetch_one(database_url, sql, params):
+        captured.update(sql=sql, params=params)
+        return row
+
+    monkeypatch.setattr("classifier.storage.repository._fetch_one", fake_fetch_one)
+    repository = PostgresClassifierRepository("postgresql://example/echidra")
+
+    assert repository.reset_dashboard_user_password("admin@example.com", "hash") is expected
+    assert captured["sql"] is RESET_DASHBOARD_USER_PASSWORD_SQL
+    assert captured["params"] == {
+        "email": "admin@example.com",
+        "password_hash": "hash",
+        "key_suffix": ":admin@example.com",
+    }
+    # Logs out existing sessions and only clears this user's lockout.
+    assert "session_version = session_version + 1" in RESET_DASHBOARD_USER_PASSWORD_SQL
+    assert "DELETE FROM login_failures" in RESET_DASHBOARD_USER_PASSWORD_SQL
+    assert "LIKE" not in RESET_DASHBOARD_USER_PASSWORD_SQL

@@ -35,7 +35,7 @@ def test_echidra_cli_help_lists_all_subcommands(capsys):
         cli.main(["--help"])
 
     captured = capsys.readouterr()
-    for subcommand in ("init", "start", "stop", "classify", "status", "blocklist", "help"):
+    for subcommand in ("init", "start", "stop", "classify", "status", "blocklist", "reset-password", "help"):
         assert subcommand in captured.out
 
 
@@ -731,3 +731,92 @@ def test_blocklist_reports_missing_database(monkeypatch, capsys):
     captured = capsys.readouterr()
     assert "no database configured" in captured.err
     assert captured.out == ""
+
+
+# ---------------------------------------------------------------------------
+# reset-password
+# ---------------------------------------------------------------------------
+
+
+def _fake_password_prompts(monkeypatch, *answers):
+    import getpass
+
+    replies = iter(answers)
+    monkeypatch.setattr(getpass, "getpass", lambda prompt="": next(replies))
+
+
+def _fake_reset_repository(monkeypatch, found=True):
+    calls = []
+
+    class FakeRepository:
+        def reset_dashboard_user_password(self, email, password_hash):
+            calls.append((email, password_hash))
+            return found
+
+    import classifier.storage as storage_module
+    monkeypatch.setattr(storage_module, "PostgresClassifierRepository", FakeRepository)
+    return calls
+
+
+def test_reset_password_stores_a_verifiable_hash_for_the_normalized_email(monkeypatch, capsys):
+    from classifier.passwords import verify_password
+
+    _fake_password_prompts(monkeypatch, "NewPass123", "NewPass123")
+    calls = _fake_reset_repository(monkeypatch)
+
+    assert cli.main(["reset-password", "  Admin@Example.COM "]) == 0
+
+    assert len(calls) == 1
+    email, password_hash = calls[0]
+    assert email == "admin@example.com"
+    assert password_hash != "NewPass123"
+    assert verify_password("NewPass123", password_hash)
+    out = capsys.readouterr().out
+    assert "Password updated for admin@example.com" in out
+    assert "logged out" in out
+
+
+def test_reset_password_rejects_a_weak_password_without_touching_the_database(monkeypatch, capsys):
+    _fake_password_prompts(monkeypatch, "short")
+    calls = _fake_reset_repository(monkeypatch)
+
+    assert cli.main(["reset-password", "admin@example.com"]) == 2
+
+    assert calls == []
+    assert "at least 8 characters" in capsys.readouterr().err
+
+
+def test_reset_password_rejects_mismatched_confirmation(monkeypatch, capsys):
+    _fake_password_prompts(monkeypatch, "NewPass123", "NewPass124")
+    calls = _fake_reset_repository(monkeypatch)
+
+    assert cli.main(["reset-password", "admin@example.com"]) == 2
+
+    assert calls == []
+    assert "do not match" in capsys.readouterr().err
+
+
+def test_reset_password_reports_an_unknown_email(monkeypatch, capsys):
+    _fake_password_prompts(monkeypatch, "NewPass123", "NewPass123")
+    _fake_reset_repository(monkeypatch, found=False)
+
+    assert cli.main(["reset-password", "nobody@example.com"]) == 1
+
+    assert "no dashboard user with email nobody@example.com" in capsys.readouterr().err
+
+
+def test_reset_password_reports_missing_database(monkeypatch, capsys):
+    from classifier.storage import DatabaseNotConfiguredError
+
+    _fake_password_prompts(monkeypatch, "NewPass123", "NewPass123")
+
+    class FakeRepository:
+        def __init__(self):
+            raise DatabaseNotConfiguredError("ECHIDRA_DATABASE_URL must be set")
+
+    import classifier.storage as storage_module
+    monkeypatch.setattr(storage_module, "PostgresClassifierRepository", FakeRepository)
+
+    assert cli.main(["reset-password", "admin@example.com"]) == 1
+
+    assert "no database configured" in capsys.readouterr().err

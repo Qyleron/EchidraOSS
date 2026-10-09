@@ -336,6 +336,25 @@ SELECT_DASHBOARD_USER_SESSION_VERSION_SQL = """
 SELECT session_version FROM dashboard_users WHERE id = %(id)s
 """
 
+# One statement, so the new hash, the session_version bump (logs out every
+# existing cookie) and the cleared lockout land together or not at all.
+# Rate-limit keys are "<client-ip>:<email>"; matching on the ":<email>"
+# suffix with right() rather than LIKE, since "_" and "%" are valid in emails.
+RESET_DASHBOARD_USER_PASSWORD_SQL = """
+WITH updated AS (
+    UPDATE dashboard_users
+    SET password_hash = %(password_hash)s,
+        session_version = session_version + 1
+    WHERE email = %(email)s
+    RETURNING id
+), cleared AS (
+    DELETE FROM login_failures
+    WHERE right(rate_limit_key, length(%(key_suffix)s)) = %(key_suffix)s
+      AND EXISTS (SELECT 1 FROM updated)
+)
+SELECT id FROM updated
+"""
+
 INCREMENT_DASHBOARD_USER_SESSION_VERSION_SQL = """
 UPDATE dashboard_users SET session_version = session_version + 1 WHERE id = %(id)s
 """
@@ -1351,6 +1370,16 @@ class PostgresClassifierRepository:
                 (INSERT_LOGIN_FAILURE_SQL, {"key": key}),
             ],
         )
+
+    def reset_dashboard_user_password(self, email: str, password_hash: str) -> bool:
+        """Set a dashboard user's password hash, log out their existing
+        sessions, and clear their login lockout. False if no such user."""
+        row = _fetch_one(
+            self.database_url,
+            RESET_DASHBOARD_USER_PASSWORD_SQL,
+            {"email": email, "password_hash": password_hash, "key_suffix": f":{email}"},
+        )
+        return row is not None
 
     def clear_login_failures(self, key: str) -> None:
         """Clear one rate-limit key's failure history after a successful login."""
