@@ -107,7 +107,7 @@
                   <th>Action</th>
                 </tr>
               </thead>
-              <tbody id="personaTableBody"></tbody>
+              <tbody id="personaTableBody"><tr><td colspan="5" class="table-loader-cell"><div class="spinner" role="status" aria-label="Loading personas"></div></td></tr></tbody>
             </table>
           </div>
         </div>
@@ -725,7 +725,7 @@
         + '<div class="form-row">'
         + '<label class="form-label">Persona ID (slug) <span style="color:var(--critical)">*</span></label>'
         + '<input class="form-input" name="new_persona_id" type="text" required pattern="[a-z0-9_]+" placeholder="e.g. ubuntu_web_server" />'
-        + '<span style="font-size:12px;color:var(--muted);margin-top:4px;display:block;">(Lowercase letters, digits, and underscores only. Cannot be changed after creation.)</span>'
+        + '<span class="form-hint">Lowercase letters, digits and underscores only. Can\'t be changed after creation.</span>'
         + '</div>'
         + formInput(_CREATE_SENTINEL, "name", "Display Name", "text", "", true)
         + formInput(_CREATE_SENTINEL, "hostname", "Hostname", "text", "")
@@ -864,7 +864,7 @@
       // The forms are novalidate (no browser bubbles), so required fields are
       // checked here and reported in the form's own status line.
       if (!payload.name) {
-        statusEl.textContent = "Display Name is required.";
+        statusEl.textContent = "Enter a display name.";
         statusEl.style.color = "var(--critical)";
         return;
       }
@@ -906,7 +906,7 @@
         // analyst hasn't already switched to another persona mid-save.
         if (!modalBackdrop.hidden && expandedPersonaId === personaId) closeModal();
       } catch (err) {
-        statusEl.textContent = "Error: " + err.message;
+        statusEl.textContent = "Couldn't save: " + err.message;
         statusEl.style.color = "var(--critical)";
       } finally {
         saveBtn.disabled = false;
@@ -994,7 +994,7 @@
         document.getElementById("createPersonaBtn").focus();
       } catch (err) {
         closeDeleteConfirm();
-        showNotice("Delete failed: " + err.message, { error: true });
+        showNotice("Couldn't delete the persona: " + err.message, { error: true });
       } finally {
         clearTimeout(timeoutId);
         deleteInFlight = false;
@@ -1186,7 +1186,7 @@
         loading.hidden = true;
         content.hidden = true;
         empty.hidden = false;
-        empty.textContent = "Could not load analytics: " + err.message;
+        empty.textContent = "Couldn't load analytics: " + err.message;
       }
     }
 
@@ -1463,7 +1463,7 @@
         window.location.assign("/auth");
       } catch (error) {
         console.error(error);
-        showNotice("Logout failed: " + error.message, { error: true });
+        showNotice("Couldn't log out. Check that Echidra is running, then try again.", { error: true });
         logoutButton.disabled = false;
         logoutButton.focus();
       } finally {

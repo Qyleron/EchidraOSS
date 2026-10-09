@@ -127,7 +127,7 @@
           </div>
         </div>
 
-        <p id="personaFilterWarning" style="display:none;padding:0 22px 12px;font-size:12px;color:var(--muted);" role="alert">
+        <p id="personaFilterWarning" class="form-hint" style="display:none;padding:0 22px 12px;" role="alert">
           Persona filter list may be incomplete — some personas failed to load. Reload the page to retry.
         </p>
 
@@ -145,7 +145,7 @@
                 <th>Intent</th>
               </tr>
             </thead>
-            <tbody id="sessionsTableBody"></tbody>
+            <tbody id="sessionsTableBody"><tr><td colspan="8" class="table-loader-cell"><div class="spinner" role="status" aria-label="Loading sessions"></div></td></tr></tbody>
           </table>
         </div>
         <div id="sessionsPagination" class="table-pagination"></div>
@@ -866,7 +866,7 @@
 
     document.getElementById("downloadVisibleXlsxButton").addEventListener("click", () => {
       if (!window.XLSX) {
-        showNotice("Export failed: the XLSX library didn't load. Check your connection (or an ad-blocker/content blocker) and try again.", { error: true });
+        showNotice("Couldn't export: the XLSX library didn't load. Check your connection or ad blocker, then try again.", { error: true });
         return;
       }
       const rows = buildSessionRows();
@@ -1223,7 +1223,7 @@
         window.location.assign("/auth");
       } catch (error) {
         console.error(error);
-        showNotice("Logout failed: " + error.message, { error: true });
+        showNotice("Couldn't log out. Check that Echidra is running, then try again.", { error: true });
         logoutButton.disabled = false;
         logoutButton.focus();
       } finally {

@@ -75,6 +75,9 @@
             </div>
             <div class="map-frame">
               <div id="attackOriginMap"></div>
+              <div id="mapLoader" class="panel-loader map-loader">
+                <div class="spinner" role="status" aria-label="Loading map"></div>
+              </div>
             </div>
             <div class="map-legend" aria-label="Map legend">
               <span><i class="legend-dot high-risk"></i>High Risk</span>
@@ -90,7 +93,9 @@
               <h2>Recent Security Events</h2>
               <p>Latest threats and activities</p>
             </div>
-            <div id="eventList" class="event-list"></div>
+            <div id="eventList" class="event-list">
+              <div class="panel-loader"><div class="spinner" role="status" aria-label="Loading recent events"></div></div>
+            </div>
           </div>
         </aside>
       </section>
@@ -242,7 +247,7 @@
     function renderMap(runs) {
       const container = document.getElementById("attackOriginMap");
       if (!window.L) {
-        container.innerHTML = '<div class="map-fallback">Map library unavailable.</div>';
+        container.innerHTML = '<div class="map-fallback">Couldn\'t load the map. Check your connection or ad blocker.</div>';
         return;
       }
 
@@ -335,6 +340,8 @@
         document.getElementById("eventList").innerHTML =
           `<div class="empty-state">Could not load recent activity. Is the database configured?</div>`;
         renderMap([]);
+      } finally {
+        document.getElementById("mapLoader").hidden = true;
       }
     }
 
@@ -386,7 +393,7 @@
         window.location.assign("/auth");
       } catch (error) {
         console.error(error);
-        showNotice("Logout failed: " + error.message, { error: true });
+        showNotice("Couldn't log out. Check that Echidra is running, then try again.", { error: true });
         logoutButton.disabled = false;
         logoutButton.focus();
       } finally {

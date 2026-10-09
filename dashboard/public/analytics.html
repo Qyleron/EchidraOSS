@@ -85,7 +85,7 @@
             <button id="exportBlocklistButton" class="text-button" type="button" title="Public attacker IPs in this range, one per line, for a firewall, fail2ban or Cloudflare">Export Blocklist (TXT)</button>
           </div>
         </div>
-        <div id="analyticsLoading" class="panel-loader" hidden>
+        <div id="analyticsLoading" class="panel-loader">
           <div class="spinner" role="status" aria-label="Loading analytics"></div>
         </div>
         <div class="chart-body">
@@ -894,7 +894,7 @@
         window.location.assign("/auth");
       } catch (error) {
         console.error(error);
-        showNotice("Logout failed: " + error.message, { error: true });
+        showNotice("Couldn't log out. Check that Echidra is running, then try again.", { error: true });
         logoutButton.disabled = false;
         logoutButton.focus();
       } finally {
@@ -971,7 +971,7 @@
     document.getElementById("exportCsvButton").addEventListener("click", async () => {
       if (!currentSummary) return;
       if (!window.JSZip) {
-        showNotice("Export failed: the ZIP library didn't load. Check your connection (or an ad-blocker/content blocker) and try again.", { error: true });
+        showNotice("Couldn't export: the ZIP library didn't load. Check your connection or ad blocker, then try again.", { error: true });
         return;
       }
       // One CSV file per section, bundled into a single ZIP -- each file is
@@ -1017,14 +1017,14 @@
           `/analytics/blocklist?from_ts=${from.getTime() / 1000}&to_ts=${to.getTime() / 1000}`
         );
         if (response.status === 400) {
-          showNotice("Export failed: the range starts after it ends. Pick a valid range and apply it.", { error: true });
+          showNotice("Couldn't export: the range starts after it ends. Choose a valid range and apply it.", { error: true });
           return;
         }
         if (!response.ok) throw new Error(`Request failed (${response.status})`);
         text = await response.text();
       } catch (error) {
         console.error(error);
-        showNotice("Export failed: couldn't load the blocklist. Try again.", { error: true });
+        showNotice("Couldn't load the blocklist. Try again.", { error: true });
         return;
       }
       if (!text) {
@@ -1045,7 +1045,7 @@
     document.getElementById("exportXlsxButton").addEventListener("click", () => {
       if (!currentSummary) return;
       if (!window.XLSX) {
-        showNotice("Export failed: the XLSX library didn't load. Check your connection (or an ad-blocker/content blocker) and try again.", { error: true });
+        showNotice("Couldn't export: the XLSX library didn't load. Check your connection or ad blocker, then try again.", { error: true });
         return;
       }
       const sections = buildAnalyticsSections(currentSummary);

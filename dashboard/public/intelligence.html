@@ -100,7 +100,7 @@
                 <th>Status</th>
               </tr>
             </thead>
-            <tbody id="issueTableBody"></tbody>
+            <tbody id="issueTableBody"><tr><td colspan="6" class="table-loader-cell"><div class="spinner" role="status" aria-label="Loading issues"></div></td></tr></tbody>
           </table>
         </div>
         <div id="issuesPagination" class="table-pagination"></div>
@@ -631,7 +631,7 @@
         window.location.assign("/auth");
       } catch (error) {
         console.error(error);
-        showNotice("Logout failed: " + error.message, { error: true });
+        showNotice("Couldn't log out. Check that Echidra is running, then try again.", { error: true });
         logoutButton.disabled = false;
         logoutButton.focus();
       } finally {

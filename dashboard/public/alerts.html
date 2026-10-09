@@ -95,6 +95,7 @@
                   <input class="form-input" id="smtpPassword" type="password" placeholder="leave blank to keep existing" autocomplete="new-password" />
                   <button type="button" class="password-toggle-btn" id="smtpPasswordToggle" aria-label="Show password" aria-pressed="false"></button>
                 </div>
+                <span id="pwConfigured" class="secret-state"></span>
               </div>
               <div class="form-row">
                 <label class="form-label">From Email</label>
@@ -119,26 +120,24 @@
                   <option value="medium">Medium</option>
                   <option value="low">Low</option>
                 </select>
-                <span style="font-size:12px;color:var(--muted);">Per-persona overrides are set on the Personas page.</span>
+                <span class="form-hint">Per-persona overrides are set on the Personas page.</span>
               </div>
 
               <!-- Excluded IPs -->
               <div class="form-row" style="grid-column:1/-1;padding-top:8px;">
                 <label class="form-label" for="excludedIps">Excluded IPs (never trigger an alert)</label>
                 <textarea class="form-input" id="excludedIps" rows="3" style="resize:vertical;font-family:monospace;padding-top:8px;" placeholder="One IP per line, e.g. 127.0.0.1"></textarea>
-                <span style="font-size:12px;color:var(--muted);">
-                  Some rules (e.g. repeat connections from the same IP) flag a source based on connection frequency,
-                  not that connection's content — so repeated local/dev testing against a stable IP will eventually
-                  trigger a brute-force alert with no real credential activity behind it. List IPs here (such as
-                  <code>127.0.0.1</code> during testing) to silence alerts from them entirely.
+                <span class="form-hint">
+                  Some rules (for example, repeated connections from one IP) flag a source by how often it
+                  connects, not by what it does. Testing against your own decoys from the same IP will
+                  eventually trigger a brute-force alert. List IPs here (such as <code>127.0.0.1</code>
+                  while testing) to never alert on them.
                 </span>
               </div>
 
               <div style="grid-column:1/-1;padding-top:4px;">
                 <button type="submit" class="text-button">Save Configuration</button>
-                <span class="form-status" id="smtpStatus" style="margin-left:12px;"></span>
-                <span id="pwConfigured" style="margin-left:12px;font-size:12px;color:var(--muted);"></span>
-              </div>
+                <span class="form-status" id="smtpStatus" style="margin-left:12px;"></span>              </div>
 
             </div>
           </form>
@@ -206,7 +205,7 @@
                 <th>Status</th>
               </tr>
             </thead>
-            <tbody id="alertEventsBody"></tbody>
+            <tbody id="alertEventsBody"><tr><td colspan="7" class="table-loader-cell"><div class="spinner" role="status" aria-label="Loading alert history"></div></td></tr></tbody>
           </table>
         </div>
         <div id="alertEventsPagination" class="table-pagination"></div>
@@ -232,6 +231,7 @@
       }
       notice.textContent = message;
       notice.classList.toggle("notice-error", Boolean(options && options.error));
+      notice.classList.toggle("notice-success", Boolean(options && options.success));
       notice.classList.add("visible");
       clearTimeout(noticeTimer);
       noticeTimer = setTimeout(function() { notice.classList.remove("visible"); }, 4000);
@@ -273,11 +273,9 @@
           body: JSON.stringify({ slack_webhook: webhook }),
         });
         if (!r.ok) { var e = await r.json().catch(function(){return{};}); throw new Error(extractErrorDetail(e, "HTTP " + r.status)); }
-        statusEl.textContent = "Test message sent.";
-        statusEl.style.color = "var(--low)";
+        showNotice("Test message sent to Slack.", { success: true });
       } catch (err) {
-        statusEl.textContent = "Test failed: " + err.message;
-        statusEl.style.color = "var(--critical)";
+        showNotice("Couldn't send the test message: " + err.message, { error: true });
       } finally {
         btn.disabled = false;
         btn.textContent = "Send Test Message";
@@ -303,11 +301,10 @@
         globalMinRiskLevelEl.value = cfg.global_min_risk_level || "high";
         if (globalMinRiskLevelEl._refreshCustomSelect) globalMinRiskLevelEl._refreshCustomSelect();
         document.getElementById("excludedIps").value = cfg.excluded_ips || "";
-        var pwEl = document.getElementById("pwConfigured");
-        pwEl.textContent = cfg.smtp_password_configured ? "Email App Password saved." : "No password saved.";
+        renderPasswordState(cfg.smtp_password_configured);
         updateSmtpFieldsDisabled();
       } catch (err) {
-        smtpStatus.textContent = "Could not load config: " + err.message;
+        smtpStatus.textContent = "Couldn't load alert settings: " + err.message;
         smtpStatus.style.color = "var(--critical)";
         document.getElementById("alertEnabled").checked = false;
         updateSmtpFieldsDisabled();
@@ -340,9 +337,19 @@
       };
     }
 
+    // Persistent state under the password field (shown for as long as a
+    // password is stored), not a one-off message.
+    function renderPasswordState(configured) {
+      var pwEl = document.getElementById("pwConfigured");
+      pwEl.textContent = configured
+        ? "✓ App password saved. Leave the field blank to keep it."
+        : "No app password saved.";
+      pwEl.classList.toggle("is-set", Boolean(configured));
+    }
+
     async function saveAlertConfig(payload, savedMessage) {
       smtpStatus.textContent = "Saving…";
-      smtpStatus.style.color = "var(--muted)";
+      smtpStatus.style.color = "var(--hint)";
       try {
         var r = await fetch("/alerts/config", {
           method: "PUT",
@@ -351,15 +358,15 @@
         });
         if (!r.ok) { var e = await r.json().catch(function(){return{};}); throw new Error(extractErrorDetail(e, "HTTP " + r.status)); }
         var cfg = await r.json();
-        smtpStatus.textContent = savedMessage;
-        smtpStatus.style.color = "var(--low)";
         document.getElementById("smtpPassword").value = "";
-        document.getElementById("pwConfigured").textContent = cfg.smtp_password_configured ? "Email App Password saved." : "No password saved.";
+        renderPasswordState(cfg.smtp_password_configured);
+        showNotice(savedMessage, { success: true });
         return true;
       } catch (err) {
-        smtpStatus.textContent = "Error: " + err.message;
-        smtpStatus.style.color = "var(--critical)";
+        showNotice("Couldn't save: " + err.message, { error: true });
         return false;
+      } finally {
+        smtpStatus.textContent = "";
       }
     }
 
@@ -399,11 +406,9 @@
       try {
         var r = await fetch("/alerts/test", { method: "POST" });
         if (!r.ok) { var e = await r.json().catch(function(){return{};}); throw new Error(extractErrorDetail(e, "HTTP " + r.status)); }
-        testEmailStatus.textContent = "Test email sent.";
-        testEmailStatus.style.color = "var(--low)";
+        showNotice("Test email sent. Check the From address's inbox.", { success: true });
       } catch (err) {
-        testEmailStatus.textContent = "Test failed: " + err.message;
-        testEmailStatus.style.color = "var(--critical)";
+        showNotice("Couldn't send the test email: " + err.message, { error: true });
       } finally {
         btn.disabled = false;
         btn.textContent = "Send Test Email";
@@ -611,7 +616,7 @@
         window.location.assign("/auth");
       } catch (err) {
         console.error(err);
-        showNotice("Logout failed: " + err.message, { error: true });
+        showNotice("Couldn't log out. Check that Echidra is running, then try again.", { error: true });
         logoutButton.disabled = false;
         logoutButton.focus();
       } finally {

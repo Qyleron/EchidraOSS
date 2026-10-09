@@ -198,7 +198,31 @@ def test_forms_use_dashboard_validation_not_browser_bubbles():
 
     personas_html = (DASHBOARD_PUBLIC_PATH / "personas.html").read_text(encoding="utf-8")
     assert personas_html.count('autocomplete="off" novalidate>') == 2
-    assert 'statusEl.textContent = "Display Name is required.";' in personas_html
+    assert 'statusEl.textContent = "Enter a display name.";' in personas_html
+
+
+def test_auth_page_wording_and_server_messages_are_shown_cleanly():
+    html = (DASHBOARD_PUBLIC_PATH / "auth.html").read_text(encoding="utf-8")
+
+    # "Log in"/"Sign up" are verbs; "Login"/"Signup" aren't used as labels.
+    assert '<button type="submit" class="btn" id="loginButton">Log in</button>' in html
+    assert '<button type="submit" class="btn" id="signupButton">Sign up</button>' in html
+    assert ">Login<" not in html and ">Signup<" not in html
+    assert "Please " not in html
+    # Pydantic's "Value error, " prefix never reaches the user.
+    assert 'detail.replace(/^Value error, /, "")' in html
+
+
+def test_login_returns_only_to_same_site_dashboard_pages():
+    html = (DASHBOARD_PUBLIC_PATH / "auth.html").read_text(encoding="utf-8")
+
+    assert "window.location.assign(safeNextPath())" in html
+    assert 'window.location.assign("/dashboard")' not in html
+    # Open-redirect guards: only /dashboard paths, no protocol-relative or
+    # backslash tricks that browsers treat as another host.
+    assert 'next.startsWith("/dashboard/")' in html
+    assert 'next.includes("//")' in html
+    assert 'next.includes("\\\\")' in html
 
 
 def test_empty_states_tell_a_new_user_what_happens_next():
@@ -333,12 +357,28 @@ def test_high_volume_tables_show_a_loader_inside_their_own_container():
         html = (DASHBOARD_PUBLIC_PATH / page).read_text(encoding="utf-8")
         assert loader_line in html, page
 
-    for page in ["personas.html", "index.html"]:
-        html = (DASHBOARD_PUBLIC_PATH / page).read_text(encoding="utf-8")
-        assert "table-loader-cell" not in html, page
-
     css = (DASHBOARD_PUBLIC_PATH / "dashboard.css").read_text(encoding="utf-8")
     assert ".table-loader-cell {" in css
+
+
+def test_every_data_container_shows_a_spinner_on_first_paint():
+    """After login or a page change, each table/panel shows a spinner in its
+    own box until its first fetch replaces it, instead of sitting blank."""
+    initial_loaders = {
+        "sessions.html": '<tbody id="sessionsTableBody"><tr><td colspan="8" class="table-loader-cell">',
+        "intelligence.html": '<tbody id="issueTableBody"><tr><td colspan="6" class="table-loader-cell">',
+        "personas.html": '<tbody id="personaTableBody"><tr><td colspan="5" class="table-loader-cell">',
+        "alerts.html": '<tbody id="alertEventsBody"><tr><td colspan="7" class="table-loader-cell">',
+        "analytics.html": '<div id="analyticsLoading" class="panel-loader">',
+    }
+    for page, marker in initial_loaders.items():
+        html = (DASHBOARD_PUBLIC_PATH / page).read_text(encoding="utf-8")
+        assert marker in html, page
+
+    index_html = (DASHBOARD_PUBLIC_PATH / "index.html").read_text(encoding="utf-8")
+    assert '<div id="mapLoader" class="panel-loader map-loader">' in index_html
+    assert 'aria-label="Loading recent events"' in index_html
+    assert 'document.getElementById("mapLoader").hidden = true;' in index_html
 
 
 def _setTimeout_delays(html: str, marker: str) -> list[int]:
@@ -380,7 +420,8 @@ def test_slow_loads_get_a_delayed_loader_not_an_immediate_one():
     assert "if (requestId !== personaAnalyticsRequestId) return;" in personas_html
 
     analytics_html = (DASHBOARD_PUBLIC_PATH / "analytics.html").read_text(encoding="utf-8")
-    assert 'id="analyticsLoading" class="panel-loader" hidden' in analytics_html
+    # Visible on first paint (first load); later range changes use the delay.
+    assert 'id="analyticsLoading" class="panel-loader">' in analytics_html
     assert "const loadingTimer = background ? null : setTimeout(" in analytics_html
     assert _setTimeout_delays(analytics_html, "loadingTimer") == [300]
     assert "setInterval(() => applyRange({ background: true }), 30000);" in analytics_html
@@ -396,10 +437,12 @@ def test_slow_loads_get_a_delayed_loader_not_an_immediate_one():
     assert ".panel-loader[hidden] {" in css
 
 
-def test_modal_backdrop_blurs_content_behind_it():
+def test_modal_backdrop_dims_without_blur_so_modal_scrolling_stays_smooth():
     css = (DASHBOARD_PUBLIC_PATH / "dashboard.css").read_text(encoding="utf-8")
+    backdrop = css.split(".modal-backdrop {", 1)[1].split("}", 1)[0]
 
-    assert "backdrop-filter: blur(6px);" in css
+    assert "background: rgba(0, 0, 0, 0.82);" in backdrop
+    assert "backdrop-filter:" not in backdrop.replace("No backdrop-filter", "")
 
 
 def test_every_dashboard_page_styles_the_logout_modal_close_button_as_danger():
