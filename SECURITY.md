@@ -2,8 +2,13 @@
 
 ## Reporting a vulnerability
 
-If you find a security issue in Echidra, please email
-security@qyleron.com rather than opening a public GitHub issue.
+If you find a security issue in Echidra, please report it privately rather
+than opening a public GitHub issue, either:
+
+- through GitHub: **Security → Report a vulnerability** on this repository
+  ([direct link](https://github.com/Qyleron/EchidraOSS/security/advisories/new)), or
+- by email to security@qyleron.com.
+
 We respond within 72 hours.
 
 Please include the affected version or commit, steps to reproduce, and the

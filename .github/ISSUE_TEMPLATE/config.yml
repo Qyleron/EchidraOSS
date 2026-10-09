@@ -1,8 +1,5 @@
 blank_issues_enabled: false
 contact_links:
-  - name: Report a security vulnerability
-    url: https://github.com/Qyleron/EchidraOSS/blob/main/SECURITY.md
-    about: Please don't open a public issue. Follow SECURITY.md to report privately.
   - name: Ask a question
     url: https://github.com/Qyleron/EchidraOSS/discussions
     about: How-to questions and deployment help go to Discussions.
