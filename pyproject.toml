@@ -30,7 +30,7 @@ dependencies = [
     "typing_extensions==4.15.0",
     "fastapi==0.141.1",
     "starlette==1.7.0",
-    "uvicorn==0.21.0",
+    "uvicorn==0.54.0",
     "geoip2fast==1.2.2",
     "cryptography>=42.0.0,<51.0.0",
     "asyncssh==2.24.1",
