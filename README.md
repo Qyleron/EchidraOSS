@@ -154,7 +154,7 @@ Python 3.11 (`asyncio`) · FastAPI · YAML rule engine · Pydantic · PostgreSQL
 ## Get in Touch
 
 Found a bug or have a feature request? See [ISSUES.md](ISSUES.md) for how to
-report it. Otherwise, follow [@qyleron](https://x.com/qyleron) on X, or
+report it. Want to contribute? See [CONTRIBUTING.md](CONTRIBUTING.md). Otherwise, follow [@qyleron](https://x.com/qyleron) on X, or
 [contact us](https://qyleron.com/contact) with questions.
 
 ## License
