@@ -1,11 +1,15 @@
 import email.mime.multipart
 import email.mime.text
+import html
 import json
 import logging
+import os
 import smtplib
 import ssl
 import urllib.parse
 import urllib.request
+from functools import lru_cache
+from pathlib import Path
 
 from classifier.schemas.session import SessionRecord
 from classifier.scoring.session import ClassificationSummary
@@ -153,13 +157,117 @@ def _build_alert_event(
     )
 
 
-def _alert_mitre_str(summary: ClassificationSummary) -> str:
-    return ", ".join(summary.mitre_tags) if summary.mitre_tags else "none"
+_PROTOCOL_NAMES = {"tcp_shell": "SSH", "http": "HTTP", "ftp": "FTP", "telnet": "Telnet"}
 
 
-def _alert_evidence_lines(summary: ClassificationSummary, *, bullet: str) -> str:
-    lines = "\n".join(f"{bullet}{e.text}" for e in summary.evidence)
-    return lines or f"{bullet}(none)"
+def _humanize(value: str | None) -> str:
+    """credential_access -> Credential access."""
+    if not value:
+        return "Unknown"
+    text = value.replace("_", " ")
+    return text[:1].upper() + text[1:]
+
+
+@lru_cache(maxsize=1)
+def _issue_playbook():
+    from classifier.rules.issue_playbook import load_issue_playbook
+
+    return load_issue_playbook(Path(__file__).resolve().parent / "rules" / "issue_playbook.yaml")
+
+
+def _actor_display(actor_label: str | None) -> str:
+    """Singular, readable actor name: brute_force_bot -> Brute-force bot."""
+    if not actor_label:
+        return "Unclassified actor"
+    try:
+        plural = _issue_playbook().actor_label_names.get(actor_label)
+    except Exception:
+        plural = None
+    # Playbook names are plural ("Brute-force bots", "Script kiddies").
+    return plural[:-1] if plural and plural.endswith("s") else _humanize(actor_label)
+
+
+def _technique_display(tag: str) -> str:
+    from classifier.rules.issue_playbook import load_mitre_technique_catalog
+
+    name = load_mitre_technique_catalog().get(tag)
+    return f"{tag} {name}" if name else tag
+
+
+def _recommended_fix(summary: ClassificationSummary) -> str | None:
+    """The same fix text the Intelligence page shows for this actor/technique."""
+    try:
+        from classifier.rules.mitre_playbook import get_playbook_entry
+
+        for tag in summary.mitre_tags:
+            fix = _issue_playbook().fix_for(summary.actor_label or "", tag)
+            if fix:
+                return fix.recommended_fix
+        if summary.mitre_tags:
+            return get_playbook_entry(summary.mitre_tags[0]).recommended_fix
+    except Exception:
+        logger.exception("Could not look up a recommended fix for an alert")
+    if summary.analyst_recommendation is not None:
+        return summary.analyst_recommendation.rationale
+    return None
+
+
+_DEFAULT_DASHBOARD_URL = "http://127.0.0.1:8000"
+
+
+def _session_link(session_id) -> str:
+    """Direct link that opens this session in the dashboard's Sessions page.
+
+    The server can't know the address the operator reaches the dashboard
+    at, so this defaults to the loopback URL -- which also works through the
+    `ssh -L 8000:127.0.0.1:8000` tunnel `echidra start` suggests -- and
+    ECHIDRA_DASHBOARD_URL overrides it for any other setup.
+    """
+    base = os.getenv("ECHIDRA_DASHBOARD_URL", "").strip().rstrip("/")
+    if not base.startswith(("http://", "https://")):
+        base = _DEFAULT_DASHBOARD_URL
+    return f"{base}/dashboard/sessions?session={urllib.parse.quote(str(session_id))}"
+
+
+def _alert_content(session: SessionRecord, summary: ClassificationSummary) -> dict:
+    """Everything an alert says, shared by the email and Slack versions."""
+    from classifier.storage.geolocation import resolve_country
+
+    risk = _humanize(summary.risk_level)
+    actor = _actor_display(summary.actor_label)
+    ip = str(session.peer_ip) if session.peer_ip else None
+    country = resolve_country(ip) if ip else None
+    tags = summary.mitre_tags
+
+    what = actor[:1].lower() + actor[1:] if summary.actor_label else "session"
+    subject = f"[Echidra] {risk}-risk {what}"
+    if ip:
+        subject += f" from {ip}"
+    subject += f" on {session.persona_id}"
+    if tags:
+        subject += f" ({', '.join(tags[:2])})"
+
+    source = ip or "Unknown"
+    if ip and country:
+        source += f" ({country})"
+    fields = [
+        ("Actor", actor),
+        ("Risk", f"{risk} ({summary.risk_score}/100)"),
+        ("Behavior", _humanize(summary.behavior_stage)),
+        ("Intent", _humanize(summary.intent)),
+        ("Source IP", source),
+        ("Decoy", f"{session.persona_id} ({_PROTOCOL_NAMES.get(session.protocol, session.protocol)})"),
+        ("Techniques", ", ".join(_technique_display(tag) for tag in tags) or "None mapped"),
+        ("Session", str(session.session_id)),
+        ("Open", _session_link(session.session_id)),
+    ]
+    return {
+        "subject": subject,
+        "heading": f"Echidra alert: {risk.lower()}-risk session",
+        "fix": _recommended_fix(summary),
+        "fields": fields,
+        "evidence": [item.text for item in summary.evidence],
+    }
 
 
 def _html_escape(value: str) -> str:
@@ -171,16 +279,18 @@ def _html_escape(value: str) -> str:
 
 
 def _alert_html_field_rows(fields: list[tuple[str, str]]) -> str:
+    def cell(label: str, value: str) -> str:
+        if label == "Open":
+            # Built by _session_link, never from attacker input.
+            href = html.escape(value, quote=True)
+            return f'<a href="{href}">Open this session in the dashboard</a>'
+        return _html_escape(value)
+
     return "\n".join(
         f'<tr><td style="padding:4px 12px 4px 0;color:#555;"><b>{_html_escape(label)}</b></td>'
-        f'<td style="padding:4px 0;">{_html_escape(value)}</td></tr>'
+        f'<td style="padding:4px 0;">{cell(label, value)}</td></tr>'
         for label, value in fields
     )
-
-
-def _alert_html_evidence(summary: ClassificationSummary) -> str:
-    items = [e.text for e in summary.evidence] or ["(none)"]
-    return "".join(f"<li>{_html_escape(item)}</li>" for item in items)
 
 
 def _dispatch_alert_email(
@@ -190,36 +300,33 @@ def _dispatch_alert_email(
     session: SessionRecord,
     summary: ClassificationSummary,
 ) -> str | None:
-    from classifier.storage.geolocation import resolve_country
-
-    subject = f"[Echidra Alert] {summary.risk_level.upper()} risk session on {session.persona_id}"
-    fields = [
-        ("Risk Level", summary.risk_level.upper()),
-        ("Risk Score", f"{summary.risk_score}/100"),
-        ("Actor", summary.actor_label or "unknown"),
-        ("Behavior", summary.behavior_stage),
-        ("Intent", summary.intent),
-        ("Persona", session.persona_id),
-        ("Peer IP", str(session.peer_ip) if session.peer_ip else "unknown"),
-        ("Country", resolve_country(str(session.peer_ip)) or "unknown"),
-        ("Session ID", str(session.session_id)),
-        ("MITRE", _alert_mitre_str(summary)),
-    ]
+    content = _alert_content(session, summary)
+    evidence = content["evidence"] or ["None recorded."]
     body = (
-        f"ECHIDRA HONEYPOT ALERT\n"
-        f"{'=' * 40}\n\n"
-        + "\n".join(f"{label}: {value}" for label, value in fields)
-        + f"\n\nEvidence:\n{_alert_evidence_lines(summary, bullet='  - ')}\n"
+        f"{content['heading']}\n\n"
+        + (f"What to do: {content['fix']}\n\n" if content["fix"] else "")
+        + "\n".join(f"{label + ':':<12}{value}" for label, value in content["fields"])
+        + "\n\nEvidence:\n"
+        + "\n".join(f"  - {item}" for item in evidence)
+        + "\n"
+    )
+    fix_html = (
+        '<p style="margin:0 0 16px;padding:10px 12px;background:#f4f6f8;border-left:3px solid #111;">'
+        f"<b>What to do:</b> {_html_escape(content['fix'])}</p>"
+        if content["fix"]
+        else ""
     )
     html_body = (
         '<div style="font-family:sans-serif;font-size:14px;color:#111;">'
-        f'<h2 style="margin:0 0 12px;">Echidra Honeypot Alert</h2>'
-        f'<table cellspacing="0" cellpadding="0">{_alert_html_field_rows(fields)}</table>'
+        f'<h2 style="margin:0 0 12px;">{_html_escape(content["heading"])}</h2>'
+        f"{fix_html}"
+        f'<table cellspacing="0" cellpadding="0">{_alert_html_field_rows(content["fields"])}</table>'
         '<p style="margin:16px 0 4px;"><b>Evidence</b></p>'
-        f'<ul style="margin:4px 0;padding-left:20px;">{_alert_html_evidence(summary)}</ul>'
-        "</div>"
+        '<ul style="margin:4px 0;padding-left:20px;">'
+        + "".join(f"<li>{_html_escape(item)}</li>" for item in evidence)
+        + "</ul></div>"
     )
-    return _smtp_send(config, recipient, subject, body, html_body)
+    return _smtp_send(config, recipient, content["subject"], body, html_body)
 
 
 def _dispatch_alert_slack(
@@ -228,19 +335,17 @@ def _dispatch_alert_slack(
     session: SessionRecord,
     summary: ClassificationSummary,
 ) -> str | None:
-    from classifier.storage.geolocation import resolve_country
-
+    content = _alert_content(session, summary)
+    evidence = content["evidence"] or ["None recorded."]
     text = (
-        f"*[Echidra Alert] {summary.risk_level.upper()} risk session on {session.persona_id}*\n"
-        f"Risk Score: {summary.risk_score}/100\n"
-        f"Actor: {summary.actor_label or 'unknown'}\n"
-        f"Behavior: {summary.behavior_stage}\n"
-        f"Intent: {summary.intent}\n"
-        f"Peer IP: {session.peer_ip or 'unknown'}\n"
-        f"Country: {resolve_country(str(session.peer_ip)) or 'unknown'}\n"
-        f"Session ID: {session.session_id}\n"
-        f"MITRE: {_alert_mitre_str(summary)}\n"
-        f"Evidence:\n{_alert_evidence_lines(summary, bullet='- ')}"
+        f"*{content['subject']}*\n"
+        + (f"*What to do:* {content['fix']}\n" if content["fix"] else "")
+        + "\n".join(
+            f"<{value}|Open this session in the dashboard>" if label == "Open" else f"{label}: {value}"
+            for label, value in content["fields"]
+        )
+        + "\nEvidence:\n"
+        + "\n".join(f"- {item}" for item in evidence)
     )
     return _slack_post(webhook_url, text)
 
@@ -257,7 +362,7 @@ def _slack_post(webhook_url: str, text: str) -> str | None:
     # which takes a webhook URL directly rather than a saved config.
     parsed = urllib.parse.urlsplit(webhook_url)
     if parsed.scheme != "https" or parsed.hostname != "hooks.slack.com":
-        return "slack_webhook must be an https://hooks.slack.com/ URL"
+        return "Slack webhook URLs must start with https://hooks.slack.com/."
     # Rebuild the request URL from a hardcoded scheme/host rather than reusing
     # webhook_url directly, so the value reaching Request() is provably not
     # attacker-controlled (the hostname check above guards a derived value,
@@ -273,7 +378,7 @@ def _slack_post(webhook_url: str, text: str) -> str | None:
     try:
         with urllib.request.urlopen(request, timeout=10) as response:
             if response.status >= 300:
-                return f"slack webhook returned HTTP {response.status}"
+                return f"Slack returned HTTP {response.status}. Check the webhook URL."
         return None
     except Exception as exc:
         return str(exc)
@@ -297,7 +402,7 @@ def _smtp_send(
     one, falling back to the plain-text part only if they can't do HTML.
     """
     if not config.smtp_host:
-        return "smtp_host not configured"
+        return "SMTP host isn't set."
     msg = email.mime.multipart.MIMEMultipart("alternative" if html_body else "mixed")
     msg["From"] = config.smtp_from_email or config.smtp_host
     msg["To"] = recipient
@@ -315,7 +420,7 @@ def _smtp_send(
             repository = PostgresClassifierRepository()
             raw_password = repository.get_alert_smtp_password()
         except (DatabaseDriverMissingError, DatabaseNotConfiguredError) as exc:
-            return f"could not load SMTP credentials: {exc}"
+            return f"Couldn't load SMTP credentials: {exc}"
         except Exception:
             # Unlike the two errors above (curated, safe operator-facing
             # text), an arbitrary exception here could be a raw psycopg
@@ -323,9 +428,9 @@ def _smtp_send(
             # the operator instead of embedding it in a message that
             # reaches the dashboard (test-email response, alert_events log).
             logger.exception("Could not load SMTP credentials for alert dispatch")
-            return "could not load SMTP credentials"
+            return "Couldn't load SMTP credentials."
         if not raw_password:
-            return "smtp_username is set but no SMTP password is configured"
+            return "An SMTP username is set but no SMTP password is saved."
     # Port 465 servers expect TLS from the first byte of the connection
     # (implicit TLS) -- STARTTLS on a plaintext SMTP connection is a
     # different, incompatible protocol and would fail against them.

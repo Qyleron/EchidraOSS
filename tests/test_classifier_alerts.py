@@ -147,7 +147,7 @@ def test_slack_post_rejects_non_https_webhook(monkeypatch):
 
     err = alerts_module._slack_post("http://hooks.slack.com/services/T/B/X", "hello")
 
-    assert err == "slack_webhook must be an https://hooks.slack.com/ URL"
+    assert err == "Slack webhook URLs must start with https://hooks.slack.com/."
     assert called is False
 
 
@@ -166,7 +166,7 @@ def test_slack_post_rejects_non_slack_https_host(monkeypatch):
 
     err = alerts_module._slack_post("https://169.254.169.254/latest/meta-data/", "hello")
 
-    assert err == "slack_webhook must be an https://hooks.slack.com/ URL"
+    assert err == "Slack webhook URLs must start with https://hooks.slack.com/."
     assert called is False
 
 
@@ -175,7 +175,7 @@ def test_slack_post_returns_error_on_non_2xx_status(monkeypatch):
 
     err = alerts_module._slack_post("https://hooks.slack.com/services/T/B/X", "hello")
 
-    assert err == "slack webhook returned HTTP 500"
+    assert err == "Slack returned HTTP 500. Check the webhook URL."
 
 
 def test_slack_post_returns_error_on_network_exception(monkeypatch):
@@ -200,7 +200,7 @@ def test_smtp_send_fails_closed_when_repository_has_no_password(monkeypatch):
         _alert_config(smtp_username="alerts@example.com"), "dest@example.com", "subject", "body"
     )
 
-    assert err == "smtp_username is set but no SMTP password is configured"
+    assert err == "An SMTP username is set but no SMTP password is saved."
 
 
 def test_smtp_send_hides_raw_exception_when_credential_load_fails(monkeypatch, caplog):
@@ -220,7 +220,7 @@ def test_smtp_send_hides_raw_exception_when_credential_load_fails(monkeypatch, c
             _alert_config(smtp_username="alerts@example.com"), "dest@example.com", "subject", "body"
         )
 
-    assert err == "could not load SMTP credentials"
+    assert err == "Couldn't load SMTP credentials."
     assert "10.0.0.5" not in err
     assert "password authentication failed" not in err
     assert any("Could not load SMTP credentials" in record.message for record in caplog.records)
@@ -427,3 +427,111 @@ def test_maybe_send_alert_records_slack_failure(monkeypatch):
     event = repository.inserted_events[0]
     assert event.success is False
     assert event.error_message == "connection refused"
+
+
+# ---------------------------------------------------------------------------
+# alert content
+# ---------------------------------------------------------------------------
+
+
+def _brute_force_summary():
+    session, summary = _session_and_summary()
+    return session, summary.model_copy(
+        update={"actor_label": "brute_force_bot", "mitre_tags": ["T1110"], "risk_level": "high", "risk_score": 82}
+    )
+
+
+@pytest.mark.parametrize(
+    "actor_label, expected",
+    [("brute_force_bot", "Brute-force bot"), ("script_kiddie", "Script kiddie"), (None, "Unclassified actor")],
+)
+def test_actor_display_is_singular_and_readable(actor_label, expected):
+    assert alerts_module._actor_display(actor_label) == expected
+
+
+def test_recommended_fix_matches_the_intelligence_playbook():
+    _, summary = _brute_force_summary()
+
+    fix = alerts_module._recommended_fix(summary)
+
+    assert fix is not None
+    assert fix.startswith("Rate-limit or temporarily block source IPs")
+
+
+def test_alert_email_leads_with_the_fix_and_uses_readable_fields(monkeypatch):
+    monkeypatch.delenv("ECHIDRA_DASHBOARD_URL", raising=False)
+    session, summary = _brute_force_summary()
+    sent = {}
+
+    def fake_smtp_send(config, recipient, subject, body, html_body=None):
+        sent.update(subject=subject, body=body, html=html_body)
+
+    monkeypatch.setattr(alerts_module, "_smtp_send", fake_smtp_send)
+
+    alerts_module._dispatch_alert_email(_alert_config(), "dest@example.com", None, session, summary)
+
+    assert sent["subject"] == "[Echidra] High-risk brute-force bot from 127.0.0.1 on generic_linux (T1110)"
+    body = sent["body"]
+    assert body.startswith("Echidra alert: high-risk session\n\nWhat to do: Rate-limit")
+    assert "Actor:      Brute-force bot" in body
+    assert "Risk:       High (82/100)" in body
+    assert "Decoy:      generic_linux (SSH)" in body
+    assert "Techniques: T1110" in body
+    link = f"http://127.0.0.1:8000/dashboard/sessions?session={session.session_id}"
+    assert f"Open:       {link}" in body
+    assert "HONEYPOT" not in body and "Peer IP" not in body
+    assert "What to do:" in sent["html"]
+    assert f'<a href="{link}">Open this session in the dashboard</a>' in sent["html"]
+
+
+def test_alert_slack_message_matches_the_email(monkeypatch):
+    monkeypatch.delenv("ECHIDRA_DASHBOARD_URL", raising=False)
+    session, summary = _brute_force_summary()
+    posted = {}
+    monkeypatch.setattr(alerts_module, "_slack_post", lambda url, text: posted.setdefault("text", text))
+
+    alerts_module._dispatch_alert_slack("https://hooks.slack.com/services/T/B/X", None, session, summary)
+
+    text = posted["text"]
+    assert text.startswith("*[Echidra] High-risk brute-force bot from 127.0.0.1 on generic_linux (T1110)*\n")
+    assert "*What to do:* Rate-limit" in text
+    assert "Source IP: 127.0.0.1" in text
+    assert (
+        f"<http://127.0.0.1:8000/dashboard/sessions?session={session.session_id}"
+        "|Open this session in the dashboard>"
+    ) in text
+
+
+@pytest.mark.parametrize(
+    "configured, expected_base",
+    [
+        (None, "http://127.0.0.1:8000"),
+        ("https://echidra.example.com/", "https://echidra.example.com"),
+        ("not a url", "http://127.0.0.1:8000"),
+    ],
+)
+def test_session_link_uses_dashboard_url_setting(monkeypatch, configured, expected_base):
+    if configured is None:
+        monkeypatch.delenv("ECHIDRA_DASHBOARD_URL", raising=False)
+    else:
+        monkeypatch.setenv("ECHIDRA_DASHBOARD_URL", configured)
+
+    assert alerts_module._session_link("abc-123") == f"{expected_base}/dashboard/sessions?session=abc-123"
+
+
+def test_alert_html_escapes_attacker_controlled_evidence(monkeypatch):
+    session, summary = _brute_force_summary()
+    summary = summary.model_copy(
+        update={"evidence": [summary.evidence[0].model_copy(update={"text": "<script>x</script>"})]}
+    )
+    sent = {}
+    monkeypatch.setattr(
+        alerts_module,
+        "_smtp_send",
+        lambda config, recipient, subject, body, html_body=None: sent.update(html=html_body),
+    )
+
+    alerts_module._dispatch_alert_email(_alert_config(), "dest@example.com", None, session, summary)
+
+    assert "<script>" not in sent["html"]
+    assert "&lt;script&gt;x&lt;/script&gt;" in sent["html"]
