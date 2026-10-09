@@ -1,0 +1,32 @@
+name: Detection rule suggestion
+description: Attacker behavior Echidra should recognize or classify differently.
+labels: [detection-rule]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Maintainers write and test the rule. Please redact credentials and anything identifying your own systems in example sessions.
+  - type: textarea
+    id: behavior
+    attributes:
+      label: What attacker behavior should be detected?
+    validations:
+      required: true
+  - type: input
+    id: technique
+    attributes:
+      label: MITRE ATT&CK technique
+      placeholder: e.g. T1110 Brute Force
+  - type: textarea
+    id: example
+    attributes:
+      label: Example session
+      description: Commands, requests or login attempts showing the behavior.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: current
+    attributes:
+      label: How does Echidra classify it today?
+      description: Actor label, risk and techniques shown, if you have them.

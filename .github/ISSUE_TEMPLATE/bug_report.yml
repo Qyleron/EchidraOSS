@@ -1,0 +1,53 @@
+name: Bug report
+description: Something in Echidra doesn't work as expected.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Please redact secrets, real credentials, and IPs/hostnames of your own systems before posting.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Exact commands you ran, or the dashboard page and action.
+      placeholder: |
+        1. echidra start
+        2. ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Echidra version or commit
+      placeholder: 0.2.0 or a commit hash
+    validations:
+      required: true
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: How is Echidra deployed?
+      options:
+        - pip install (echidra start)
+        - Docker Compose
+        - systemd
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: OS and Python version
+      placeholder: Ubuntu 24.04, Python 3.11
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs or stack trace
+      description: Redact anything sensitive first.
+      render: text
