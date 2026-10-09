@@ -26,7 +26,7 @@ dependencies = [
     "pydantic==2.13.5",
     "psycopg[binary]==3.2.3",
     "python-dotenv==1.2.4",
-    "PyYAML==6.0.2",
+    "PyYAML==6.0.3",
     "typing_extensions==4.16.0",
     "fastapi==0.141.1",
     "starlette==1.7.0",
