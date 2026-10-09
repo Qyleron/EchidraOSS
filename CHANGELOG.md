@@ -11,6 +11,8 @@ All notable changes to Echidra are documented here. The format follows
   text or CSV, filtered by minimum risk and session count, for use in a
   firewall, fail2ban, or Cloudflare. Private addresses and `--exclude`
   ranges are left out.
+- `echidra reset-password <email>`: set a new dashboard password from the
+  server, logging out existing sessions and clearing any login lockout.
 - "Export Blocklist (TXT)" on the Analytics page, and
   `GET /analytics/blocklist`: the same list for the applied date range.
 - GitHub Actions: tests on Python 3.11–3.13, CodeQL, and OpenSSF Scorecard; Dependabot for pip,
@@ -20,7 +22,20 @@ All notable changes to Echidra are documented here. The format follows
 - `echidra start` and `deploy/systemd/echidra-api.service` now bind the
   dashboard to `127.0.0.1` by default, matching Docker Compose. Use
   `--api-host` to override.
-
+- Alert emails and Slack messages lead with the recommended fix (the same
+  one the Intelligence page shows), put the actor, source IP, decoy and
+  ATT&CK techniques in the subject, use readable values, and link straight
+  to the session in the dashboard (set `ECHIDRA_DASHBOARD_URL` if you don't
+  open it at `http://127.0.0.1:8000`).
+- Dashboard: tables, the Overview map and event list, and Analytics show a
+  loading spinner until their data arrives; brighter form labels, hints and
+  placeholders; larger notices; save and test results on the Alerts page
+  appear as notices, with a lasting "App password saved" indicator under
+  the password field; smoother scrolling in the persona editor.
+- Logging in now returns you to the dashboard page you were sent to the
+  login page from (eg. an alert's session link) instead of the Overview.
+- Clearer sign-in, sign-up, alert test, error and notice messages that say
+  what happened and what to do next.
 - Python 3.12 and 3.13 support (`PyYAML` 6.0.2).
 - Smaller Docker build context: local data and development files are
   excluded.
@@ -32,6 +47,12 @@ All notable changes to Echidra are documented here. The format follows
   scrollbars and autofill styling; empty pages explain what happens next.
 
 ### Fixed
+- The `ECHIDRA_COOKIE_SECURE` startup notice is logged once instead of
+  twice, and says when it applies.
+- Spacing between the sign-in page's message box and the form below it.
+- Server validation messages no longer show a raw "Value error," prefix on
+  the sign-in page.
+- Fields in two-column forms (eg. Persona ID and Display Name) line up.
 - The `test` extra includes `httpx`, and the project URLs point at the
   right repository.
 - `echidra start` reports busy ports up front, and `echidra start`/`stop`

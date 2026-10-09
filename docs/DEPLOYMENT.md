@@ -52,6 +52,12 @@ python -c "import secrets; print(secrets.token_urlsafe(32))"   # ECHIDRA_SESSION
 - `ECHIDRA_COOKIE_SECURE=true` — set this once the dashboard is served over
   HTTPS (it isn't by default; put a reverse proxy like Caddy or nginx in
   front for TLS termination in production).
+- `ECHIDRA_DASHBOARD_URL` (optional) — the address you open the dashboard
+  at, used for the "Open this session" link in alerts. Defaults to
+  `http://127.0.0.1:8000`, which also works through the SSH tunnel; set it
+  if you reach the dashboard some other way (eg. behind a reverse proxy).
+  The link only works where that address is reachable, and only while
+  you're logged in to the dashboard.
 - `ECHIDRA_ALERT_SECRET` — required before SMTP email alerting actually
   works (falls back to `ECHIDRA_SECRET_KEY` if unset). Encrypts the SMTP
   password stored in `alert_config`. Unlike the keys above, omitting it
@@ -250,6 +256,31 @@ API responds to `/health`, whether the database is reachable, and how many
 sessions have been classified so far. Run this after any deploy before
 declaring it done — a listening honeypot with an unreachable database will
 still accept connections and log to JSONL, but the dashboard will be empty.
+
+## Resetting a dashboard password
+
+Forgot the dashboard password, or want to change it? On the server, run:
+
+```bash
+echidra reset-password you@example.com
+```
+
+It prompts for the new password twice (same rules as signup: 8-128
+characters, a letter and a number, no spaces), logs out every existing
+session for that user, and clears any "Too many login attempts" lockout.
+With Docker Compose, run it inside the `api` container:
+`docker compose exec api echidra reset-password you@example.com`.
+
+Don't remember which email you signed up with? List the dashboard accounts:
+
+```bash
+psql "$ECHIDRA_DATABASE_URL" -c "SELECT email FROM dashboard_users;"
+# Docker Compose:
+docker compose exec db psql -U echidra -d echidra -c "SELECT email FROM dashboard_users;"
+```
+
+There's deliberately no "forgot password" link on the login page: only
+someone with access to the server can reset a password.
 
 ## Exporting attacker IPs to a blocklist
 
