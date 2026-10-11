@@ -4,6 +4,7 @@
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](LICENSE.md)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](pyproject.toml)
+[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/15313/badge)](https://www.bestpractices.dev/projects/15313)
 
 Echidra is an open-source deception platform and threat-intelligence engine,
 built around multi-protocol honeypot listeners, that simulates attacker-facing
