@@ -39,6 +39,12 @@ Maintainers triage new issues, label them, and reply. Accepted changes are
 implemented by the maintainers, tested in CI on Python 3.11 to 3.13, and
 listed in the [CHANGELOG](CHANGELOG.md).
 
+**Testing policy:** every new feature and every bug fix is added together
+with automated tests that cover it. The suite lives in [`tests/`](tests/)
+and runs with `python -m pytest`. On every push and pull request, CI
+compiles the code with Python warnings treated as errors and runs the
+suite; a change isn't released until both pass.
+
 ## License
 
 Echidra is licensed under the [AGPL-3.0](LICENSE.md). You're free to fork

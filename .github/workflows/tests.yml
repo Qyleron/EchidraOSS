@@ -24,6 +24,8 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: pip
       - run: python -m pip install -e ".[test]"
+      - name: Compile with warnings as errors
+        run: python -W error -m compileall -q -f classifier honeypot echidra tests
       - name: pytest
         shell: bash
         run: |
