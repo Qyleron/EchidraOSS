@@ -52,7 +52,7 @@ if PostgreSQL isn't configured — for review in the dashboard.
 
 ## Features
 
-- **Honeypot listeners** — SSH-style fake shell, HTTP (fake Apache/nginx/WordPress/phpMyAdmin), FTP, and Telnet, each independently enabled/disabled by port
+- **Honeypot listeners** — SSH-style fake shell, HTTP (fake Apache/nginx/WordPress/phpMyAdmin), and FTP and Telnet login prompts that record every credential tried, each independently enabled/disabled by port
 - **Classification** — deterministic YAML rules turn session features into an actor label, risk score, behavior stage, intent, and MITRE ATT&CK tags, plus a knowledge-base of recommended fixes
 - **Storage & API** — PostgreSQL schema for sessions/events/classifier runs, always mirrored to `logs/sessions.jsonl`; FastAPI backend serves the classifier endpoints and dashboard
 - **Dashboard** — Intelligence (recurring issues + fixes), Sessions, Analytics, Personas, and Alerts (email/Slack)
