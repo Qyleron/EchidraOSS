@@ -75,6 +75,12 @@ fixes:
       title: Commodity bots are adding their own login key to authorized_keys after logging in over SSH.
       recommended_fix: Disable password login over SSH, review every authorized_keys file for keys you don't recognize, and alert on any change to those files.
       impact: Removes a way back in that survives a password change, since a planted key keeps working until someone finds and deletes it.
+    # Worded to hold for any commodity bot carrying T1082, not only the
+    # ssh_system_binary_read rule: the discovery rules use the same tag.
+    T1082:
+      title: Commodity bots are inspecting the system after logging in over SSH, such as reading a program file to learn the CPU type, before choosing what to run.
+      recommended_fix: Disable password login over SSH, and alert when an interactive login prints a program file or runs a burst of system-inspection commands. Treat it as the step before a malware download.
+      impact: Catches an intrusion at the inspection step, before anything has been downloaded or installed.
 
   skilled_human_operator:
     T1059:

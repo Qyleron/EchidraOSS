@@ -409,3 +409,46 @@ def test_fetch_and_run_session_reports_payload_delivery_with_repeat_connections(
     assert summary.actor_label == "commodity_bot"
     assert summary.intent == "payload_delivery"
     assert summary.risk_level == "high"
+
+
+def test_ssh_system_binary_read_is_medium_risk_commodity_bot():
+    """Printing a program file is a loader learning the CPU type: it gets
+    the commodity_bot label even when the address has reconnected often,
+    but stays below a download or a planted key."""
+    session = make_session(
+        "tcp_shell",
+        [("login: root", 0.0), ("password: admin", 0.0), ("cat /bin/echo", 1.0)],
+        duration_seconds=1.5,
+    )
+
+    summary = classify_session(session, connection_count_from_same_ip=9)
+
+    assert "ssh_system_binary_read" in summary.matched_rule_ids
+    assert "repeat_connections_same_ip" in summary.matched_rule_ids
+    assert summary.actor_label == "commodity_bot"
+    assert "T1082" in summary.mitre_tags
+    assert summary.risk_level == "medium"
+
+
+def test_reading_an_ordinary_file_does_not_match_the_system_binary_rule():
+    session = make_session(
+        "tcp_shell",
+        [("login: root", 0.0), ("password: admin", 0.0), ("cat /etc/hostname", 1.0)],
+        duration_seconds=1.5,
+    )
+
+    summary = classify_session(session)
+
+    assert "ssh_system_binary_read" not in summary.matched_rule_ids
+
+
+def test_system_binary_read_over_telnet_does_not_match_the_ssh_rule():
+    session = make_session(
+        "telnet",
+        [("login: root", 0.0), ("password: cat /bin/echo", 0.5)],
+        duration_seconds=1.0,
+    )
+
+    summary = classify_session(session)
+
+    assert "ssh_system_binary_read" not in summary.matched_rule_ids

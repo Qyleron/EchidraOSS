@@ -464,6 +464,7 @@ def test_recommended_fix_matches_the_intelligence_playbook():
         (["T1110", "T1105"], "Block outbound connections from servers"),
         (["T1110", "T1098.004"], "Disable password login over SSH, review every authorized_keys"),
         (["T1110", "T1078.001"], "Treat these hits as an IoT botnet campaign indicator"),
+        (["T1110", "T1082"], "Disable password login over SSH, and alert when an interactive login prints"),
     ],
 )
 def test_recommended_fix_is_for_what_the_session_did_not_the_login(mitre_tags, expected_start):

@@ -107,6 +107,14 @@ _AUTHORIZED_KEYS_WRITE_PATTERN = re.compile(
     r">\s*['\"]?[^\s'\"|;&<>]*authorized_keys2?(?![\w.-])"
     r"|(?<![A-Za-z0-9_-])tee\s+(?:-\S+\s+)*['\"]?[^\s'\"|;&<>]*authorized_keys2?(?![\w.-])"
 )
+# A program file printed with cat ("cat /bin/echo", "/bin/busybox cat
+# /bin/busybox"). Nobody reads a compiled program as text: a malware
+# loader does this to read the file's header and learn the CPU type, so it
+# knows which build to download. Only a file directly inside a system
+# program directory counts -- "cat /bin/../etc/passwd" is a different thing.
+_SYSTEM_BINARY_READ_PATTERN = re.compile(
+    r"(?<![A-Za-z0-9_.-])cat\s+(?:-\S+\s+)*['\"]?/(?:usr/)?s?bin/[a-z0-9_.+-]+(?![\w./-])"
+)
 # Bounds for normalizing average_inter_command_interval_seconds into a 0-1
 # human_timing_score. Below BOT_SPEED, commands are indistinguishable from
 # automation (matches the ftp/telnet automated-credential-burst rules'
@@ -179,6 +187,10 @@ class SessionFeatures(BaseModel):
     # an intruder leaves a key behind to log back in later without the
     # password. A dedicated boolean for the same reason as above.
     authorized_keys_write_attempt: bool = False
+    # True if a command printed a program file from a system directory
+    # (/bin, /sbin, /usr/bin, /usr/sbin) with cat, which is how a malware
+    # loader learns the CPU type. A dedicated boolean for the same reason.
+    system_binary_read_attempt: bool = False
     # Cross-session feature — only populated by the store-time path when the DB
     # is available; None in the stateless /classify/session endpoint by design.
     connection_count_from_same_ip: int | None = None
@@ -208,6 +220,7 @@ def extract_session_features(
     _remote_fetch_seen = False
     _run_fetched_seen = False
     authorized_keys_write_attempt = False
+    system_binary_read_attempt = False
     _pending_telnet_username: str | None = None
     _pending_ssh_username: str | None = None
     _pending_ftp_username: str | None = None
@@ -272,6 +285,8 @@ def extract_session_features(
                 _run_fetched_seen = True
             if _AUTHORIZED_KEYS_WRITE_PATTERN.search(normalized):
                 authorized_keys_write_attempt = True
+            if _SYSTEM_BINARY_READ_PATTERN.search(normalized):
+                system_binary_read_attempt = True
 
         if command_name in DISCOVERY_COMMANDS:
             discovery_command_count += 1
@@ -331,6 +346,7 @@ def extract_session_features(
         http_known_scanner_user_agent=http_known_scanner_user_agent,
         remote_fetch_and_run_attempt=_remote_fetch_seen and _run_fetched_seen,
         authorized_keys_write_attempt=authorized_keys_write_attempt,
+        system_binary_read_attempt=system_binary_read_attempt,
         connection_count_from_same_ip=connection_count_from_same_ip,
     )
 

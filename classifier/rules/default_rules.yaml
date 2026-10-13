@@ -148,6 +148,28 @@ rules:
         operator: equals
         value: true
 
+  # The step before a download: the loader prints a program file to read
+  # its header and learn the CPU type. risk_score is just high enough for
+  # this rule to decide the actor label over the generic login rules; the
+  # session itself lands in "medium" once averaged with them, below a
+  # download or a planted key.
+  - id: ssh_system_binary_read
+    name: System program read to identify the CPU type
+    actor_label: commodity_bot
+    confidence: 0.8
+    risk_score: 65
+    mitre_tags:
+      - T1082
+    evidence:
+      - After logging in, the session printed a program file from a system directory (for example cat /bin/echo), which a malware loader does to learn the CPU type before choosing what to download.
+    conditions:
+      - field: protocol
+        operator: equals
+        value: tcp_shell
+      - field: system_binary_read_attempt
+        operator: equals
+        value: true
+
   - id: scripted_probe_with_clean_exit
     name: Scripted probe with clean exit
     actor_label: script_kiddie

@@ -568,6 +568,45 @@ def test_reading_or_locking_authorized_keys_is_not_flagged():
     assert features.authorized_keys_write_attempt is False
 
 
+def test_printing_a_system_program_is_flagged():
+    session = create_session([
+        ("login: root", 0.0),
+        ("password: admin", 0.0),
+        ("cat /bin/echo", 1.0),
+    ])
+
+    features = extract_session_features(session)
+
+    assert features.system_binary_read_attempt is True
+
+
+def test_printing_a_system_program_through_busybox_is_flagged():
+    session = create_session([("/bin/busybox cat /usr/bin/id; uname -m", 1.0)])
+
+    features = extract_session_features(session)
+
+    assert features.system_binary_read_attempt is True
+
+
+def test_reading_other_files_is_not_flagged_as_a_system_program_read():
+    """Only cat on a file directly inside a system program directory counts.
+    Ordinary files, a path that climbs back out, listing the directory, or
+    a password that happens to contain the text doesn't."""
+    session = create_session([
+        ("login: root", 0.0),
+        ("password: cat /bin/echo", 0.0),
+        ("cat /etc/passwd", 1.0),
+        ("cat /bin/../etc/passwd", 2.0),
+        ("cat /tmp/bin/echo", 3.0),
+        ("ls /bin/echo", 4.0),
+        ("/bin/echo ok", 5.0),
+    ])
+
+    features = extract_session_features(session)
+
+    assert features.system_binary_read_attempt is False
+
+
 def test_handles_malformed_shell_input_as_observed_command():
     """Malformed input should remain measurable without crashing extraction."""
     session = create_session([

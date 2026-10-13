@@ -18,7 +18,8 @@ All notable changes to Echidra are documented here. The format follows
 - Classifier rules for what an SSH session does after logging in:
   downloading and running a program (intent "Payload Delivery") and adding
   a login key to `authorized_keys` (intent "Persistence"). Both are rated
-  high and come with a recommended fix.
+  high and come with a recommended fix. A third rule covers reading a
+  system program to learn the CPU type, rated medium.
 - GitHub Actions: tests on Python 3.11–3.13, CodeQL, and OpenSSF Scorecard; Dependabot for pip,
   Docker, and Actions.
 
