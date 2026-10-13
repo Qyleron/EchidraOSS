@@ -108,6 +108,27 @@ rules:
           - john
           - hashcat
 
+  # The highest-signal thing a shell session can do: bring a program onto
+  # the host and run it. risk_score is set so the session still lands in
+  # "high" once averaged with authentication_attempt (which every logged-in
+  # SSH session also matches) -- see _combined_risk_score.
+  - id: ssh_remote_payload_fetch_and_run
+    name: Remote program fetched and run after login
+    actor_label: commodity_bot
+    confidence: 0.9
+    risk_score: 90
+    mitre_tags:
+      - T1105
+    evidence:
+      - After logging in, the session tried to download a program from a remote host (scp, wget, curl or tftp) and run it.
+    conditions:
+      - field: protocol
+        operator: equals
+        value: tcp_shell
+      - field: remote_fetch_and_run_attempt
+        operator: equals
+        value: true
+
   - id: scripted_probe_with_clean_exit
     name: Scripted probe with clean exit
     actor_label: script_kiddie

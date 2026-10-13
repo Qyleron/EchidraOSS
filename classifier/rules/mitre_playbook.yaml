@@ -30,6 +30,11 @@ T1087:
   recommended_fix: Return uniform responses with no user-existence hints, and rate-limit account-enumeration command bursts.
   impact: Removes the reconnaissance signal scanners use to pick high-value accounts to target next.
 
+T1105:
+  name: Ingress Tool Transfer
+  recommended_fix: Block outbound connections from servers to addresses they have no reason to reach, disable password login over SSH, and alert on download tools (wget, curl, scp, tftp) run by an interactive login.
+  impact: Stops a successful login from turning into installed malware, which is the step that converts a guessed password into a compromised host.
+
 T1110:
   name: Brute Force
   recommended_fix: Rate-limit or temporarily block source IPs that exceed a connection or login-attempt threshold within a short window.

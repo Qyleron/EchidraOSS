@@ -86,6 +86,19 @@ _SCANNER_USER_AGENT_MARKERS = (
 _SCANNER_USER_AGENT_PATTERN = re.compile(
     "|".join(re.escape(marker) for marker in _SCANNER_USER_AGENT_MARKERS)
 )
+# A download tool invoked as a command ("wget http://...", "/usr/bin/curl -s
+# ...", "busybox tftp ..."), not merely mentioned inside another word or a
+# filename ("out_wget", "mycurl").
+_REMOTE_FETCH_PATTERN = re.compile(r"(?<![A-Za-z0-9_-])(?:wget|curl|tftp|scp|ftpget)\s")
+# The other half of a dropper: what was fetched gets piped into a shell
+# ("... | sh", "| bash") or marked executable ("chmod +x", "chmod 777").
+# A numeric mode only counts if it sets an execute bit (an odd digit), so
+# "chmod 400 key" -- locking down a file, not arming one -- doesn't.
+# A download on its own isn't flagged -- only fetch plus run.
+_RUN_FETCHED_PATTERN = re.compile(
+    r"\|\s*(?:ba|da|z|k)?sh\b"
+    r"|chmod\s+(?:[ugoa]*\+[rwxst]*x|[0-7]{0,3}[1357][0-7]{0,3}(?![0-7]))"
+)
 # Bounds for normalizing average_inter_command_interval_seconds into a 0-1
 # human_timing_score. Below BOT_SPEED, commands are indistinguishable from
 # automation (matches the ftp/telnet automated-credential-burst rules'
@@ -147,6 +160,13 @@ class SessionFeatures(BaseModel):
     # contains_any operator only does exact element membership, not substring
     # matching within a list of free-form header strings.
     http_known_scanner_user_agent: bool = False
+    # True if the session both invoked a download tool (wget, curl, tftp, scp,
+    # ftpget) and piped something into a shell or marked a file executable --
+    # the two halves of fetching a remote program and running it. A dedicated
+    # boolean for the same reason as http_known_scanner_user_agent: rules only
+    # see command_names (the first word of each command), and a dropper is
+    # usually one long line starting with something harmless like "uname".
+    remote_fetch_and_run_attempt: bool = False
     # Cross-session feature — only populated by the store-time path when the DB
     # is available; None in the stateless /classify/session endpoint by design.
     connection_count_from_same_ip: int | None = None
@@ -173,6 +193,8 @@ def extract_session_features(
     http_paths_requested: list[str] = []
     http_user_agents: list[str] = []
     http_known_scanner_user_agent = False
+    _remote_fetch_seen = False
+    _run_fetched_seen = False
     _pending_telnet_username: str | None = None
     _pending_ssh_username: str | None = None
     _pending_ftp_username: str | None = None
@@ -227,6 +249,14 @@ def extract_session_features(
                 http_user_agents.append(user_agent)
                 if _SCANNER_USER_AGENT_PATTERN.search(user_agent.lower()):
                     http_known_scanner_user_agent = True
+
+        # Credential lines are attacker-chosen text, not commands -- a
+        # password that happens to contain "wget " mustn't count.
+        if not normalized.startswith(("login:", "password:")):
+            if _REMOTE_FETCH_PATTERN.search(normalized):
+                _remote_fetch_seen = True
+            if _RUN_FETCHED_PATTERN.search(normalized):
+                _run_fetched_seen = True
 
         if command_name in DISCOVERY_COMMANDS:
             discovery_command_count += 1
@@ -284,6 +314,7 @@ def extract_session_features(
         http_paths_requested=http_paths_requested,
         http_user_agents=http_user_agents,
         http_known_scanner_user_agent=http_known_scanner_user_agent,
+        remote_fetch_and_run_attempt=_remote_fetch_seen and _run_fetched_seen,
         connection_count_from_same_ip=connection_count_from_same_ip,
     )
 

