@@ -129,6 +129,25 @@ rules:
         operator: equals
         value: true
 
+  # Leaving a key behind is an attempt to keep access after the password
+  # changes. Scored like the rule above, for the same averaging reason.
+  - id: ssh_authorized_key_install
+    name: SSH login key added after login
+    actor_label: commodity_bot
+    confidence: 0.9
+    risk_score: 90
+    mitre_tags:
+      - T1098.004
+    evidence:
+      - After logging in, the session wrote a public key into an SSH authorized_keys file, which would let its owner log back in without a password.
+    conditions:
+      - field: protocol
+        operator: equals
+        value: tcp_shell
+      - field: authorized_keys_write_attempt
+        operator: equals
+        value: true
+
   - id: scripted_probe_with_clean_exit
     name: Scripted probe with clean exit
     actor_label: script_kiddie
@@ -271,25 +290,23 @@ rules:
     confidence: 0.85
     risk_score: 65
     mitre_tags:
-      - T1110
+      - T1078.001
     evidence:
       - The submitted username/password pair matches a known Mirai-family default credential, consistent with an IoT botnet's fixed wordlist rather than opportunistic server credential stuffing.
     conditions:
       - field: protocol
         operator: equals
         value: telnet
+      # Only device-specific factory passwords from the Mirai wordlist.
+      # Pairs every generic wordlist also carries (admin:admin, root:root,
+      # root:toor, ...) are left to the brute_force_bot rules, so this rule
+      # names an IoT botnet only when the password itself points to one.
       - field: telnet_credentials_tried
         operator: contains_any
         value:
           - "root:vizxv"
           - "root:xc3511"
-          - "root:888888"
           - "root:zte521"
-          - "admin:1234"
-          - "root:toor"
-          - "admin:admin"
-          - "root:root"
-          - "support:support"
 
   - id: http_sensitive_path_probe
     name: HTTP request for a sensitive-looking path

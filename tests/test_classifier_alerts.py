@@ -458,6 +458,26 @@ def test_recommended_fix_matches_the_intelligence_playbook():
     assert fix.startswith("Rate-limit or temporarily block source IPs")
 
 
+@pytest.mark.parametrize(
+    "mitre_tags, expected_start",
+    [
+        (["T1110", "T1105"], "Block outbound connections from servers"),
+        (["T1110", "T1098.004"], "Disable password login over SSH, review every authorized_keys"),
+        (["T1110", "T1078.001"], "Treat these hits as an IoT botnet campaign indicator"),
+    ],
+)
+def test_recommended_fix_is_for_what_the_session_did_not_the_login(mitre_tags, expected_start):
+    """A commodity bot always carries T1110 from logging in first; the fix
+    an alert leads with has to be the one for what came after."""
+    _, summary = _session_and_summary()
+    summary = summary.model_copy(update={"actor_label": "commodity_bot", "mitre_tags": mitre_tags})
+
+    fix = alerts_module._recommended_fix(summary)
+
+    assert fix is not None
+    assert fix.startswith(expected_start)
+
+
 def test_alert_email_leads_with_the_fix_and_uses_readable_fields(monkeypatch):
     monkeypatch.delenv("ECHIDRA_DASHBOARD_URL", raising=False)
     session, summary = _brute_force_summary()

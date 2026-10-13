@@ -527,6 +527,47 @@ def test_fetch_and_run_ignores_credential_lines_and_lookalike_names():
     assert features.remote_fetch_and_run_attempt is False
 
 
+def test_key_appended_to_authorized_keys_is_flagged():
+    session = create_session([
+        ("login: root", 0.0),
+        ("password: admin", 0.0),
+        (
+            "mkdir -p /root/.ssh && echo 'ssh-rsa AAAAB3NzaC1yc2E example-key' >> /root/.ssh/authorized_keys "
+            "&& chmod 700 /root/.ssh && chmod 600 /root/.ssh/authorized_keys 2>/dev/null",
+            2.0,
+        ),
+    ])
+
+    features = extract_session_features(session)
+
+    assert features.authorized_keys_write_attempt is True
+
+
+def test_key_written_to_authorized_keys_with_tee_is_flagged():
+    session = create_session([("echo ssh-ed25519 AAAAC3 example-key | tee -a ~/.ssh/authorized_keys", 1.0)])
+
+    features = extract_session_features(session)
+
+    assert features.authorized_keys_write_attempt is True
+
+
+def test_reading_or_locking_authorized_keys_is_not_flagged():
+    """Only a write counts. Reading the file, changing its mode, copying it
+    elsewhere, or a password that happens to contain the text doesn't."""
+    session = create_session([
+        ("login: root", 0.0),
+        ("password: x >> ~/.ssh/authorized_keys", 0.0),
+        ("cat ~/.ssh/authorized_keys", 1.0),
+        ("chmod 600 ~/.ssh/authorized_keys", 2.0),
+        ("cat ~/.ssh/authorized_keys > /tmp/keys.txt", 3.0),
+        ("echo hi > /tmp/authorized_keys.bak", 4.0),
+    ])
+
+    features = extract_session_features(session)
+
+    assert features.authorized_keys_write_attempt is False
+
+
 def test_handles_malformed_shell_input_as_observed_command():
     """Malformed input should remain measurable without crashing extraction."""
     session = create_session([

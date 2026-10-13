@@ -99,6 +99,14 @@ _RUN_FETCHED_PATTERN = re.compile(
     r"\|\s*(?:ba|da|z|k)?sh\b"
     r"|chmod\s+(?:[ugoa]*\+[rwxst]*x|[0-7]{0,3}[1357][0-7]{0,3}(?![0-7]))"
 )
+# Something written into an SSH authorized_keys file: output redirected to
+# it ("echo ssh-rsa ... >> ~/.ssh/authorized_keys") or piped through tee.
+# Only a write counts -- "cat ~/.ssh/authorized_keys" reads the file, and
+# "chmod 600 authorized_keys" changes nothing about who can log in.
+_AUTHORIZED_KEYS_WRITE_PATTERN = re.compile(
+    r">\s*['\"]?[^\s'\"|;&<>]*authorized_keys2?(?![\w.-])"
+    r"|(?<![A-Za-z0-9_-])tee\s+(?:-\S+\s+)*['\"]?[^\s'\"|;&<>]*authorized_keys2?(?![\w.-])"
+)
 # Bounds for normalizing average_inter_command_interval_seconds into a 0-1
 # human_timing_score. Below BOT_SPEED, commands are indistinguishable from
 # automation (matches the ftp/telnet automated-credential-burst rules'
@@ -167,6 +175,10 @@ class SessionFeatures(BaseModel):
     # see command_names (the first word of each command), and a dropper is
     # usually one long line starting with something harmless like "uname".
     remote_fetch_and_run_attempt: bool = False
+    # True if a command wrote to an SSH authorized_keys file, which is how
+    # an intruder leaves a key behind to log back in later without the
+    # password. A dedicated boolean for the same reason as above.
+    authorized_keys_write_attempt: bool = False
     # Cross-session feature — only populated by the store-time path when the DB
     # is available; None in the stateless /classify/session endpoint by design.
     connection_count_from_same_ip: int | None = None
@@ -195,6 +207,7 @@ def extract_session_features(
     http_known_scanner_user_agent = False
     _remote_fetch_seen = False
     _run_fetched_seen = False
+    authorized_keys_write_attempt = False
     _pending_telnet_username: str | None = None
     _pending_ssh_username: str | None = None
     _pending_ftp_username: str | None = None
@@ -257,6 +270,8 @@ def extract_session_features(
                 _remote_fetch_seen = True
             if _RUN_FETCHED_PATTERN.search(normalized):
                 _run_fetched_seen = True
+            if _AUTHORIZED_KEYS_WRITE_PATTERN.search(normalized):
+                authorized_keys_write_attempt = True
 
         if command_name in DISCOVERY_COMMANDS:
             discovery_command_count += 1
@@ -315,6 +330,7 @@ def extract_session_features(
         http_user_agents=http_user_agents,
         http_known_scanner_user_agent=http_known_scanner_user_agent,
         remote_fetch_and_run_attempt=_remote_fetch_seen and _run_fetched_seen,
+        authorized_keys_write_attempt=authorized_keys_write_attempt,
         connection_count_from_same_ip=connection_count_from_same_ip,
     )
 

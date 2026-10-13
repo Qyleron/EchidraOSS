@@ -20,6 +20,11 @@ T1059:
   recommended_fix: Flag interactive, low-and-slow shell sessions for manual review and keep the session open long enough to observe further behavior before disconnecting.
   impact: Separates scripted bot traffic from real human operators, who carry more investigative value.
 
+T1078.001:
+  name: Default Accounts
+  recommended_fix: Change the factory username and password on every network device before it is reachable, turn Telnet off in favour of SSH, and keep device management ports off the public internet.
+  impact: Closes the way in that IoT botnets rely on, since they only try the passwords devices ship with.
+
 T1082:
   name: System Information Discovery
   recommended_fix: Trim shell banner and uname detail, randomize first-command response timing, and alert on rapid fingerprinting sequences.
@@ -29,6 +34,11 @@ T1087:
   name: Account Discovery
   recommended_fix: Return uniform responses with no user-existence hints, and rate-limit account-enumeration command bursts.
   impact: Removes the reconnaissance signal scanners use to pick high-value accounts to target next.
+
+T1098.004:
+  name: SSH Authorized Keys
+  recommended_fix: Disable password login over SSH, review every authorized_keys file for keys you don't recognize, and alert on any change to those files.
+  impact: Removes a way back in that survives a password change, since a planted key keeps working until someone finds and deletes it.
 
 T1105:
   name: Ingress Tool Transfer

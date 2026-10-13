@@ -16,6 +16,7 @@ BehaviorStage = Literal[
     "credential_access",
     "collection",
     "execution",
+    "persistence",
 ]
 Intent = Literal[
     "unknown",
@@ -24,6 +25,8 @@ Intent = Literal[
     "data_access",
     "interactive_operation",
     "vulnerability_exploitation",
+    "payload_delivery",
+    "persistence",
 ]
 SafeguardPriority = Literal["low", "medium", "high", "critical"]
 DeceptionActionName = Literal["adaptive_response_delay"]
@@ -36,6 +39,9 @@ AnalystRecommendationName = Literal[
     "escalate_incident_review",
 ]
 CLASSIFIER_VERSION = "1.0.0"
+# Lowest risk score rated "high". Also the bar a single rule has to clear
+# to decide the actor label on its own -- see _actor_vote.
+_HIGH_RISK_SCORE = 65
 
 
 class EvidenceItem(BaseModel):
@@ -283,15 +289,27 @@ def _combined_risk_score(matches: list[RuleMatch]) -> int:
 
 
 def _actor_vote(matches: list[RuleMatch]) -> tuple[ActorLabel, float]:
+    # A rule rated "high" on its own describes the specific thing a session
+    # did (eg. fetched and ran a program), so when any matched, only those
+    # rules name the actor. Otherwise the generic rules that nearly every
+    # session from a busy address also matches (authentication_attempt,
+    # repeat_connections_same_ip -- both brute_force_bot) outvote it by
+    # count, and a malware download gets labelled a brute-force bot.
+    decisive = [
+        match for match in matches
+        if match.risk_score >= _HIGH_RISK_SCORE
+    ]
+    voters = decisive or matches
+
     votes = {actor_label: 0.0 for actor_label in ACTOR_LABELS}
-    for match in matches:
+    for match in voters:
         votes[match.actor_label] += match.confidence
 
     actor_label, vote_confidence = max(
         votes.items(),
         key=lambda item: (item[1], item[0]),
     )
-    normalized_confidence = vote_confidence / len(matches)
+    normalized_confidence = vote_confidence / len(voters)
     return actor_label, round(min(normalized_confidence, 1.0), 2)
 
 
@@ -334,7 +352,7 @@ def _feature_summary(features: SessionFeatures | None) -> FeatureSummary | None:
 def _risk_level(risk_score: int) -> RiskLevel:
     if risk_score >= 85:
         return "critical"
-    if risk_score >= 65:
+    if risk_score >= _HIGH_RISK_SCORE:
         return "high"
     if risk_score >= 40:
         return "medium"
@@ -351,12 +369,23 @@ def _behavior_stage_and_intent(
     tag_set = set(mitre_tags)
     rule_ids = {match.rule_id for match in matches}
 
+    # T1105 (Ingress Tool Transfer) comes first: a session that downloads a
+    # program and runs it has always logged in beforehand, so it carries
+    # T1110 from authentication_attempt as well. The download is what the
+    # session was for; the login was only how it got there.
+    if "T1105" in tag_set:
+        return "execution", "payload_delivery"
+    # T1098.004 (SSH Authorized Keys) is ahead of T1110 for the same reason:
+    # the session logged in first, but leaving a key behind is what it did.
+    if "T1098.004" in tag_set:
+        return "persistence", "persistence"
     # T1110 (Brute Force) is every brute_force_bot rule's only tag (repeat
     # connections, raw auth attempts, FTP/Telnet/HTTP credential bursts) --
     # without this branch, all of those matched, "complete" classifications
     # fell through to behavior_stage="none"/intent="unknown" despite being
-    # unambiguously credential-access activity.
-    if "T1552.001" in tag_set or "T1110" in tag_set:
+    # unambiguously credential-access activity. T1078.001 (Default Accounts)
+    # is a factory password being tried, so it belongs here too.
+    if "T1552.001" in tag_set or "T1110" in tag_set or "T1078.001" in tag_set:
         return "credential_access", "credential_theft"
     if "T1005" in tag_set:
         return "collection", "data_access"

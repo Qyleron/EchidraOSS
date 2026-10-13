@@ -290,6 +290,90 @@ def test_t1110_only_match_reports_credential_theft_not_unknown():
     assert summary.intent == "credential_theft"
 
 
+def _login_match():
+    return make_match("authentication_attempt", "brute_force_bot", 0.7, 55, mitre_tags=["T1110"])
+
+
+def _repeat_match():
+    return make_match("repeat_connections_same_ip", "brute_force_bot", 0.75, 55, mitre_tags=["T1110"])
+
+
+def _download_match():
+    return make_match(
+        "ssh_remote_payload_fetch_and_run", "commodity_bot", 0.9, 90, mitre_tags=["T1105"],
+    )
+
+
+def test_download_and_run_reports_payload_delivery_not_credential_theft():
+    """Every session that downloads a program logged in first, so it carries
+    T1110 too -- the intent has to describe the download, not the login."""
+    evaluation = RuleEvaluation(matched_rules=[_login_match(), _download_match()])
+
+    summary = summarize_rule_evaluation(evaluation, make_features(command_count=3))
+
+    assert summary.behavior_stage == "execution"
+    assert summary.intent == "payload_delivery"
+    assert summary.analyst_recommendation.action == "escalate_incident_review"
+
+
+def test_key_install_reports_persistence_not_credential_theft():
+    evaluation = RuleEvaluation(matched_rules=[
+        _login_match(),
+        make_match(
+            "ssh_authorized_key_install", "commodity_bot", 0.9, 90, mitre_tags=["T1098.004"],
+        ),
+    ])
+
+    summary = summarize_rule_evaluation(evaluation, make_features(command_count=3))
+
+    assert summary.behavior_stage == "persistence"
+    assert summary.intent == "persistence"
+
+
+def test_default_account_attempt_reports_credential_theft():
+    evaluation = RuleEvaluation(matched_rules=[
+        make_match(
+            "mirai_iot_credential_burst", "commodity_bot", 0.85, 65, mitre_tags=["T1078.001"],
+        ),
+    ])
+
+    summary = summarize_rule_evaluation(evaluation, make_features(command_count=2))
+
+    assert summary.behavior_stage == "credential_access"
+    assert summary.intent == "credential_theft"
+
+
+def test_high_risk_rule_names_the_actor_even_when_outnumbered():
+    """Two generic brute_force_bot rules out-count the one rule describing
+    what the session did; the high-risk rule still decides the label."""
+    evaluation = RuleEvaluation(matched_rules=[
+        _login_match(),
+        _repeat_match(),
+        _download_match(),
+    ])
+
+    summary = summarize_rule_evaluation(evaluation, make_features(command_count=3))
+
+    assert summary.actor_label == "commodity_bot"
+    assert summary.confidence == 0.9
+    assert summary.actor_votes["brute_force_bot"] == 2
+    assert summary.actor_votes["commodity_bot"] == 1
+    assert summary.risk_level == "high"
+
+
+def test_actor_label_is_voted_by_all_rules_when_none_is_high_risk():
+    evaluation = RuleEvaluation(matched_rules=[
+        _login_match(),
+        _repeat_match(),
+        make_match("sensitive_file_probe", "commodity_bot", 0.78, 55, mitre_tags=["T1005"]),
+    ])
+
+    summary = summarize_rule_evaluation(evaluation, make_features(command_count=3))
+
+    assert summary.actor_label == "brute_force_bot"
+    assert summary.confidence == 0.48
+
+
 def _risk_level_for_score(score):
     evaluation = RuleEvaluation(matched_rules=[
         make_match("rule", "automated_scanner", 1.0, score),

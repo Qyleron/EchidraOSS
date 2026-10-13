@@ -15,10 +15,17 @@ All notable changes to Echidra are documented here. The format follows
   server, logging out existing sessions and clearing any login lockout.
 - "Export Blocklist (TXT)" on the Analytics page, and
   `GET /analytics/blocklist`: the same list for the applied date range.
+- Classifier rules for what an SSH session does after logging in:
+  downloading and running a program (intent "Payload Delivery") and adding
+  a login key to `authorized_keys` (intent "Persistence"). Both are rated
+  high and come with a recommended fix.
 - GitHub Actions: tests on Python 3.11–3.13, CodeQL, and OpenSSF Scorecard; Dependabot for pip,
   Docker, and Actions.
 
 ### Changed
+- The Telnet Mirai rule matches only device-specific factory passwords and
+  is tagged T1078.001 (Default Accounts), with its own recommended fix.
+  Generic pairs such as `admin:admin` are labelled as brute-force.
 - `echidra start` and `deploy/systemd/echidra-api.service` now bind the
   dashboard to `127.0.0.1` by default, matching Docker Compose. Use
   `--api-host` to override.
