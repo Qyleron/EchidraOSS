@@ -118,6 +118,18 @@ def test_build_evidence_includes_source_ips_window_and_matched_samples():
     assert "Matched: cat /etc/passwd; whoami." in evidence
 
 
+def test_evidence_uses_singular_nouns_for_a_count_of_one():
+    aggregate = make_aggregate(session_count=1, persona_count=1, source_ip_count=1)
+
+    evidence = issue_sync._build_evidence(aggregate, "Account Discovery")
+    repeat_evidence = issue_sync._build_repeat_connection_evidence(
+        {"session_count": 1, "persona_count": 1, "source_ip_count": 1}, 86_400, 5
+    )
+
+    assert evidence == "1 session across 1 persona exhibited Account Discovery behavior from 1 source IP."
+    assert repeat_evidence.startswith("1 connection attempt across 1 persona from 1 source IP, ")
+
+
 def test_issue_id_for_pair_is_stable_and_unique():
     assert issue_sync._issue_id_for_pair("automated_scanner", "T1087") == issue_sync._issue_id_for_pair(
         "automated_scanner", "T1087"

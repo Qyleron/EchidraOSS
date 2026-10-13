@@ -221,15 +221,19 @@ def _technique_name(tag: str, playbook: IssuePlaybook, mitre_catalog: dict[str, 
     return playbook.mitre_technique_names.get(tag) or mitre_catalog.get(tag, tag)
 
 
+def _count(number: int, noun: str) -> str:
+    return f"{number} {noun}{'' if number == 1 else 's'}"
+
+
 def _build_evidence(aggregate: dict[str, Any], technique_name: str) -> str:
     samples = [text for text in (aggregate.get("sample_evidence") or []) if text]
     window = _seen_window(aggregate.get("first_seen"), aggregate.get("last_seen"))
     source_ips = aggregate.get("source_ip_count")
 
     parts = [
-        f"{aggregate['session_count']} sessions across {aggregate['persona_count']} "
-        f"personas exhibited {technique_name} behavior"
-        + (f" from {source_ips} source IP{'s' if source_ips != 1 else ''}" if source_ips else "")
+        f"{_count(aggregate['session_count'], 'session')} across "
+        f"{_count(aggregate['persona_count'], 'persona')} exhibited {technique_name} behavior"
+        + (f" from {_count(source_ips, 'source IP')}" if source_ips else "")
         + (f", {window}" if window else "")
         + "."
     ]
@@ -301,8 +305,9 @@ def _build_repeat_connection_evidence(
     min_sessions: int,
 ) -> str:
     return (
-        f"{aggregate['session_count']} connection attempts across {aggregate['persona_count']} "
-        f"personas from {aggregate['source_ip_count']} source IPs, each making at least "
+        f"{_count(aggregate['session_count'], 'connection attempt')} across "
+        f"{_count(aggregate['persona_count'], 'persona')} from "
+        f"{_count(aggregate['source_ip_count'], 'source IP')}, each making at least "
         f"{min_sessions} connections within {_format_window(window_seconds)}."
     )
 
