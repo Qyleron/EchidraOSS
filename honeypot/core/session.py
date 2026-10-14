@@ -40,6 +40,13 @@ class SessionState:
         """Record a command and refresh session activity metadata."""
 
         timestamp = time.time()
+        # Bytes that weren't valid UTF-8 arrive as surrogate escapes; store
+        # them as visible \xNN text so the log and the database accept them.
+        try:
+            raw = command.encode("utf-8", "surrogateescape")
+        except UnicodeEncodeError:
+            raw = command.encode("utf-8", "backslashreplace")
+        command = raw.decode("utf-8", "backslashreplace")
         self.commands.append({
             "cmd": command,
             "timestamp": timestamp,

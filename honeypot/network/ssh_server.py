@@ -286,6 +286,10 @@ class SSHListener:
             server_host_keys=[key],
             process_factory=handle_shell,
             server_version=_server_version_for(get_active_persona()),
+            # Lets the shell send raw bytes (a program file's header) and
+            # keeps a client's invalid UTF-8 from ending the session; the
+            # session log stores those bytes as \xNN text.
+            errors="surrogateescape",
         )
         logger.info("SSH server listening on %s:%s", self.host, self.port)
 

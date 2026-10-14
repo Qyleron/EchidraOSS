@@ -266,6 +266,23 @@ async def test_non_interactive_exec_runs_one_command_without_a_shell_loop(runnin
 
 
 @pytest.mark.asyncio
+async def test_program_file_header_reaches_the_client_as_raw_bytes(running_server):
+    """Byte 0x8A isn't valid UTF-8 on its own; the client must still get
+    exactly that byte, or a loader misreads the header."""
+    port, _, _ = running_server
+
+    conn = await connect(port, username="admin", password="admin")
+    result = await conn.run("cat /bin/echo", encoding=None)
+
+    assert result.stdout[:4] == b"\x7fELF"
+    assert result.stdout[18] == 0x3E  # x86_64
+    assert result.stdout[40:42] == b"\x38\x8a"  # section table offset
+
+    conn.close()
+    await conn.wait_closed()
+
+
+@pytest.mark.asyncio
 async def test_two_clients_have_independent_shell_state(running_server):
     port, _, _ = running_server
 

