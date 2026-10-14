@@ -4,7 +4,7 @@ import base64
 import binascii
 import re
 import shlex
-from urllib.parse import parse_qsl
+from urllib.parse import parse_qsl, unquote, unquote_plus
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -25,15 +25,23 @@ DISCOVERY_COMMANDS = {
 }
 EXIT_COMMANDS = {"exit", "logout", "quit"}
 SENSITIVE_PATH_MARKERS = {
+    ".aws",
     ".env",
     ".git",
     ".htaccess",
+    ".npmrc",
+    "actuator/env",
+    "appsettings",
     "auth.log",
     "backup",
+    "config.json",
     "config.php",
     "credential",
+    "docker-compose",
     "passwd",
+    "secret",
     "shadow",
+    "tfstate",
     "wp-config",
 }
 # Bare "marker in path" substring matching misclassifies benign paths that
@@ -87,6 +95,33 @@ _SCANNER_USER_AGENT_MARKERS = (
 )
 _SCANNER_USER_AGENT_PATTERN = re.compile(
     "|".join(re.escape(marker) for marker in _SCANNER_USER_AGENT_MARKERS)
+)
+# Every method a request line can start with, for reading its target.
+_HTTP_METHODS = {"get", "post", "head", "put", "delete", "connect", "options", "patch", "trace"}
+# A shell download command smuggled into a request (after URL decoding): a
+# router form field ending in ";wget http://...", a backtick-wrapped
+# "busybox wget", a "(wget ...)" in a JSON body. The command has to follow
+# a shell separator, so a query field merely named "curl" doesn't count.
+# Java's Runtime exec is the same attack against Java apps (GeoServer
+# CVE-2024-36401 puts it in a WFS query).
+_HTTP_INJECTED_COMMAND_PATTERN = re.compile(
+    r"[;|&`(\n]\s*(?:busybox\s+)?(?:wget|curl|tftp|ftpget)\s"
+    r"|java\.lang\.runtime|runtime\.getruntime\("
+)
+# Two or more "../" in a row, after URL decoding: climbing out of the web
+# root. A single "/../" also shows up in harmless relative links.
+_PATH_TRAVERSAL_PATTERN = re.compile(r"(?:\.\.[/\\]){2,}")
+# Request paths that only make sense when looking for one product. A path
+# matches its entry exactly or as a parent folder ("/geoserver/web/").
+_HTTP_PROBE_TARGETS = (
+    ("/sdk/weblanguage", "hikvision_camera"),
+    ("/geoserver", "geoserver"),
+    ("/mcp", "mcp_server"),
+    ("/api/mcp", "mcp_server"),
+    ("/sse", "mcp_server"),
+    ("/v1/models", "ai_model_api"),
+    ("/api/tags", "ai_model_api"),
+    ("/wsman", "winrm"),
 )
 # A download tool invoked as a command ("wget http://...", "/usr/bin/curl -s
 # ...", "busybox tftp ..."), not merely mentioned inside another word or a
@@ -182,6 +217,22 @@ class SessionFeatures(BaseModel):
     # contains_any operator only does exact element membership, not substring
     # matching within a list of free-form header strings.
     http_known_scanner_user_agent: bool = False
+    # True if the request line or body carried a shell download command or
+    # a Java exec call (see _HTTP_INJECTED_COMMAND_PATTERN): an exploit
+    # telling a router, camera or web app to fetch and run a program.
+    http_command_injection_attempt: bool = False
+    # True if the request path climbs out of the web root ("../../", often
+    # URL-encoded) to read a file such as /etc/passwd.
+    http_path_traversal_attempt: bool = False
+    # True if the request asked the server to connect to another site: a
+    # CONNECT request, or a full URL as the request target.
+    http_proxy_request: bool = False
+    # Products the request paths were looking for (eg. "hikvision_camera",
+    # "mcp_server"), from _HTTP_PROBE_TARGETS, in order of first request.
+    http_probe_targets: list[str] = Field(default_factory=list)
+    # Authorization header schemes sent, lowercased (eg. "basic", "ntlm",
+    # "bearer"), whether or not they carried a password.
+    http_auth_schemes: list[str] = Field(default_factory=list)
     # True if the session both invoked a download tool (wget, curl, tftp, scp,
     # ftpget) and piped something into a shell or marked a file executable --
     # the two halves of fetching a remote program and running it. A dedicated
@@ -227,6 +278,11 @@ def extract_session_features(
     http_paths_requested: list[str] = []
     http_user_agents: list[str] = []
     http_known_scanner_user_agent = False
+    http_command_injection_attempt = False
+    http_path_traversal_attempt = False
+    http_proxy_request = False
+    http_probe_targets: list[str] = []
+    http_auth_schemes: list[str] = []
     _remote_fetch_seen = False
     _run_fetched_seen = False
     authorized_keys_write_attempt = False
@@ -279,11 +335,27 @@ def extract_session_features(
         if session.protocol == "http" and command_name in _HTTP_REQUEST_COMMANDS and args:
             http_paths_requested.append(args[0])
 
+        if session.protocol == "http" and command_name in _HTTP_METHODS:
+            if _HTTP_INJECTED_COMMAND_PATTERN.search(unquote_plus(normalized)):
+                http_command_injection_attempt = True
+            target = _http_request_target(event.cmd)
+            if target is not None:
+                if command_name == "connect" or target.lower().startswith(("http://", "https://")):
+                    http_proxy_request = True
+                elif _PATH_TRAVERSAL_PATTERN.search(unquote(unquote(target))):
+                    http_path_traversal_attempt = True
+                product = _http_probe_target(target)
+                if product and product not in http_probe_targets:
+                    http_probe_targets.append(product)
+
         # Only a Basic header carries a username and password. NTLM and
         # Negotiate open a handshake (WinRM probes to /wsman send these) and
         # a Bearer token such as "sk-test" tests whether keys are accepted;
         # neither is a login attempt.
         if session.protocol == "http" and normalized.startswith("authorization:"):
+            scheme = normalized.split(":", 1)[1].split(maxsplit=1)[:1]
+            if scheme and scheme[0] not in http_auth_schemes:
+                http_auth_schemes.append(scheme[0])
             pair = _basic_auth_pair(event.cmd.split(":", 1)[1])
             if pair:
                 auth_attempt_count += 1
@@ -371,6 +443,11 @@ def extract_session_features(
         http_paths_requested=http_paths_requested,
         http_user_agents=http_user_agents,
         http_known_scanner_user_agent=http_known_scanner_user_agent,
+        http_command_injection_attempt=http_command_injection_attempt,
+        http_path_traversal_attempt=http_path_traversal_attempt,
+        http_proxy_request=http_proxy_request,
+        http_probe_targets=http_probe_targets,
+        http_auth_schemes=http_auth_schemes,
         remote_fetch_and_run_attempt=_remote_fetch_seen and _run_fetched_seen,
         authorized_keys_write_attempt=authorized_keys_write_attempt,
         system_binary_read_attempt=system_binary_read_attempt,
@@ -392,6 +469,29 @@ def _parse_command(raw_command: str) -> tuple[str, list[str]]:
         return "", []
 
     return tokens[0].lower(), tokens[1:]
+
+
+def _http_request_target(line: str) -> str | None:
+    """The target of a logged request line ("GET /x HTTP/1.1" -> "/x").
+
+    None for the body line HttpHandler logs after a POST ("POST /x: body"),
+    whose path already appeared in the request line before it.
+    """
+    parts = line.split(" ", 2)
+    if len(parts) < 2 or not parts[1]:
+        return None
+    if parts[0].lower() == "post" and parts[1].endswith(":"):
+        return None
+    return parts[1]
+
+
+def _http_probe_target(target: str) -> str | None:
+    """Which product, if any, a request path is looking for."""
+    path = unquote(target.split("?", 1)[0]).lower().rstrip("/")
+    for prefix, product in _HTTP_PROBE_TARGETS:
+        if path == prefix or path.startswith(prefix + "/"):
+            return product
+    return None
 
 
 def _basic_auth_pair(header_value: str) -> str | None:

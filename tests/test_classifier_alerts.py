@@ -462,6 +462,7 @@ def test_recommended_fix_matches_the_intelligence_playbook():
     "mitre_tags, expected_start",
     [
         (["T1105", "T1110"], "Block outbound connections from servers"),
+        (["T1190", "T1105"], "Update the firmware or software on every internet-facing device"),
         (["T1098.004", "T1110"], "Disable password login over SSH, review every authorized_keys"),
         (["T1078.001", "T1110"], "Treat these hits as an IoT botnet campaign indicator"),
         (["T1082", "T1110"], "Disable password login over SSH, and alert when an interactive login prints"),

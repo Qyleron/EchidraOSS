@@ -52,6 +52,24 @@ fixes:
       title: Automated scanners are touching FTP/Telnet ports without submitting real credentials, consistent with a banner-grab or port sweep.
       recommended_fix: Rate-limit connections per source IP across these ports and correlate banner-grab activity with later credential-stuffing attempts from the same IP.
       impact: Surfaces the reconnaissance sweep that typically precedes a targeted credential-stuffing run, before it arrives.
+    # Hikvision camera, GeoServer and AI server checks share this finding.
+    T1595.002:
+      title: Automated scanners are checking for products with a known flaw or no login by default, such as Hikvision cameras, GeoServer, and AI tool or model servers.
+      recommended_fix: Keep cameras, GeoServer, and AI tool (MCP) or model servers off the public internet, or behind a VPN or a login, and apply the vendor fixes for Hikvision (CVE-2021-36260) and GeoServer (CVE-2024-36401).
+      impact: Closes the opening these scans look for before a bot comes back with the exploit.
+    T1190:
+      title: Automated scanners are using path traversal (../) to read system files through the web server.
+      recommended_fix: Keep web servers and apps updated, make sure no request can reach files outside the web root, and alert on request paths containing ../ or its encoded forms.
+      impact: Stops one request from exposing system files or the app's own secrets.
+    T1090:
+      title: Automated scanners are testing whether this server will relay their traffic as an open proxy.
+      recommended_fix: Make sure no proxy you run accepts connections from the internet without a login, and refuse CONNECT requests on web servers that are not meant to be proxies.
+      impact: Keeps your servers from carrying other people's attack and spam traffic under your address.
+    # WinRM requests and password-less Windows sign-ins share this finding.
+    T1592:
+      title: Automated scanners are probing Windows remote management (WinRM) and Windows sign-in, which reveal the Windows version, host name and domain.
+      recommended_fix: Keep WinRM (ports 5985 and 5986) and web services that use Windows sign-in off the public internet or behind a VPN, and turn off NTLM where you can.
+      impact: Removes the host details bots use to choose which Windows exploits and passwords to try.
 
   commodity_bot:
     T1005:
@@ -60,7 +78,7 @@ fixes:
       impact: Confirms which decoy bait is effective and where real systems should add equivalent monitoring.
     T1552.001:
       title: Commodity bots are searching for credentials stored in files.
-      recommended_fix: Remove plaintext credentials from disk, rotate decoy credentials periodically, and alert on credential-file access.
+      recommended_fix: Make sure web servers never serve .env, .git, cloud credential or config files, remove plaintext credentials from disk, and alert on credential-file access.
       impact: Closes a common, low-effort path to lateral movement.
     # Every commodity bot that acted after an SSH login also carries T1110.
     # Alerts list techniques most serious first, so the download, key or
@@ -73,10 +91,16 @@ fixes:
       title: A known Mirai-family default credential was submitted over Telnet, consistent with an IoT botnet's fixed wordlist rather than generic brute-forcing.
       recommended_fix: Treat these hits as an IoT botnet campaign indicator distinct from ordinary brute-force traffic -- cross-reference the source IP against known Mirai C2/scanner ranges and prioritize alerting over rate-limiting alone, since these bots don't back off.
       impact: Separates commodity IoT botnet scanning (large volume, low sophistication, fixed wordlist) from targeted brute-force attempts, so response effort goes to the right one.
+    # SSH downloads and HTTP command injection both carry T1105. HTTP
+    # sessions lead with T1190 below, so their alerts use that fix.
     T1105:
-      title: Commodity bots are downloading and running a program right after logging in over SSH.
-      recommended_fix: Block outbound connections from servers to addresses they have no reason to reach, disable password login over SSH, and alert on download tools (wget, curl, scp, tftp) run by an interactive login.
-      impact: Stops a guessed password from turning into installed malware, and the download address in the session is an indicator you can block.
+      title: Commodity bots are downloading and running a program, after logging in over SSH or through a flaw in a web app or device.
+      recommended_fix: Block outbound connections from servers and devices to addresses they have no reason to reach, disable password login over SSH, and alert on download tools (wget, curl, scp, tftp) run by a login or a web service.
+      impact: Stops a way in from turning into installed malware, and the download address in the session is an indicator you can block.
+    T1190:
+      title: Commodity bots are sending exploits that make routers, cameras and web apps download and run malware.
+      recommended_fix: Update the firmware or software on every internet-facing device and web app, keep device admin pages off the public internet, and block outbound connections from devices to addresses they have no reason to reach.
+      impact: Closes the flaw the bot used, and the download address in the session is an indicator you can block.
     T1098.004:
       title: Commodity bots are adding their own login key to authorized_keys after logging in over SSH.
       recommended_fix: Disable password login over SSH, review every authorized_keys file for keys you don't recognize, and alert on any change to those files.

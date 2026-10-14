@@ -348,14 +348,14 @@ rules:
           - "root:zte521"
 
   - id: http_sensitive_path_probe
-    name: HTTP request for a sensitive-looking path
+    name: HTTP request for a secret or configuration file
     actor_label: commodity_bot
     confidence: 0.7
     risk_score: 45
     mitre_tags:
       - T1552.001
     evidence:
-      - Requested a path commonly used to store credentials or configuration secrets (eg. .env, wp-config.php, .git).
+      - Requested a file that often holds passwords, keys or configuration secrets (eg. .env, .git/config, .aws/credentials, config.json, wp-config.php).
     conditions:
       - field: protocol
         operator: equals
@@ -363,6 +363,10 @@ rules:
       - field: sensitive_file_read_count
         operator: gte
         value: 1
+      # "/../../etc/passwd" is a path traversal attempt; that rule names it.
+      - field: http_path_traversal_attempt
+        operator: equals
+        value: false
 
   - id: http_credential_harvest_attempt
     name: HTTP credential submission
@@ -397,3 +401,162 @@ rules:
       - field: http_known_scanner_user_agent
         operator: equals
         value: true
+
+  # The request is the attack, aimed at a known flaw in a router, camera or
+  # web app (eg. /goform/, /tmUnblock.cgi, /GponForm/, GeoServer's WFS).
+  # It usually matches alone, so 80 lands it in "high", where SSH download
+  # sessions land once averaged with the login rule.
+  - id: http_command_injection
+    name: Command injected into a web request
+    actor_label: commodity_bot
+    confidence: 0.9
+    risk_score: 80
+    mitre_tags:
+      - T1190
+      - T1105
+    evidence:
+      - The request carried a shell download command (wget, curl or tftp) or a Java exec call, aimed at a known flaw in a router, camera or web app, to make it download and run a program.
+    conditions:
+      - field: protocol
+        operator: equals
+        value: http
+      - field: http_command_injection_attempt
+        operator: equals
+        value: true
+
+  - id: http_path_traversal
+    name: Path traversal to read files outside the web root
+    actor_label: automated_scanner
+    confidence: 0.8
+    risk_score: 60
+    mitre_tags:
+      - T1190
+    evidence:
+      - The request path climbs out of the web root with ../ (often URL-encoded) to read a system file such as /etc/passwd.
+    conditions:
+      - field: protocol
+        operator: equals
+        value: http
+      - field: http_path_traversal_attempt
+        operator: equals
+        value: true
+
+  - id: http_open_proxy_probe
+    name: Open proxy test
+    actor_label: automated_scanner
+    confidence: 0.8
+    risk_score: 35
+    mitre_tags:
+      - T1090
+    evidence:
+      - Asked the server to connect to another site (a CONNECT request or a full URL as the request target), which is how bots find open proxies to send their own traffic through.
+    conditions:
+      - field: protocol
+        operator: equals
+        value: http
+      - field: http_proxy_request
+        operator: equals
+        value: true
+
+  - id: http_hikvision_camera_probe
+    name: Check for a Hikvision camera
+    actor_label: automated_scanner
+    confidence: 0.85
+    risk_score: 35
+    mitre_tags:
+      - T1595.002
+    evidence:
+      - Requested /SDK/webLanguage, a page Hikvision cameras serve. Bots check for it before sending the command injection that takes over unpatched cameras (CVE-2021-36260).
+    conditions:
+      - field: protocol
+        operator: equals
+        value: http
+      - field: http_probe_targets
+        operator: contains
+        value: hikvision_camera
+      # The probe rules describe a check. A request that also carries the
+      # exploit is named by http_command_injection instead.
+      - field: http_command_injection_attempt
+        operator: equals
+        value: false
+
+  - id: http_geoserver_probe
+    name: Check for a GeoServer install
+    actor_label: automated_scanner
+    confidence: 0.8
+    risk_score: 35
+    mitre_tags:
+      - T1595.002
+    evidence:
+      - Requested a GeoServer page. Bots look for GeoServer installs missing the fix for a remote code execution flaw (CVE-2024-36401).
+    conditions:
+      - field: protocol
+        operator: equals
+        value: http
+      - field: http_probe_targets
+        operator: contains
+        value: geoserver
+      - field: http_command_injection_attempt
+        operator: equals
+        value: false
+
+  - id: http_ai_server_probe
+    name: Scan for exposed AI tool or model servers
+    actor_label: automated_scanner
+    confidence: 0.8
+    risk_score: 35
+    mitre_tags:
+      - T1595.002
+    evidence:
+      - Requested the address of an MCP (AI tool) server or an OpenAI-style model API (eg. /mcp, /sse, /v1/models). Bots look for these left open without a login, to run their tools or use the models.
+    conditions:
+      - field: protocol
+        operator: equals
+        value: http
+      - field: http_probe_targets
+        operator: contains_any
+        value:
+          - mcp_server
+          - ai_model_api
+      - field: http_command_injection_attempt
+        operator: equals
+        value: false
+
+  - id: http_winrm_probe
+    name: Windows remote management (WinRM) probe
+    actor_label: automated_scanner
+    confidence: 0.8
+    risk_score: 35
+    mitre_tags:
+      - T1592
+    evidence:
+      - Sent a request to /wsman, the Windows remote management (WinRM) address. Its reply can give the Windows version, and it accepts logins for running commands remotely.
+    conditions:
+      - field: protocol
+        operator: equals
+        value: http
+      - field: http_probe_targets
+        operator: contains
+        value: winrm
+      - field: http_command_injection_attempt
+        operator: equals
+        value: false
+
+  - id: http_windows_signin_probe
+    name: Windows sign-in started without a password
+    actor_label: automated_scanner
+    confidence: 0.8
+    risk_score: 35
+    mitre_tags:
+      - T1592
+    evidence:
+      - Started a Windows sign-in (NTLM or Negotiate) with no password. The server's reply names its Windows host and domain, which bots collect to choose targets.
+    conditions:
+      - field: protocol
+        operator: equals
+        value: http
+      - field: http_auth_schemes
+        operator: contains_any
+        value:
+          - ntlm
+          - negotiate

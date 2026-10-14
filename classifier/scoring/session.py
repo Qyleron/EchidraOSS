@@ -402,7 +402,9 @@ def _behavior_stage_and_intent(
     # T1595/T1087/T1082 reconnaissance bucket below.
     if "T1190" in tag_set:
         return "execution", "vulnerability_exploitation"
-    if "T1087" in tag_set or "T1082" in tag_set or "T1595" in tag_set:
+    # Checking for a product (T1595.002), reading Windows host details
+    # (T1592) and testing for an open proxy (T1090) all look before acting.
+    if tag_set & {"T1087", "T1082", "T1595", "T1595.002", "T1592", "T1090"}:
         return "discovery", "reconnaissance"
     if "T1059" in tag_set:
         return "execution", "interactive_operation"
@@ -481,9 +483,8 @@ def _analyst_recommendation(
                 action="increase_source_monitoring",
                 priority="high",
                 rationale=(
-                    "A known exploit or scanning tool was run directly "
-                    "against the service, warranting closer monitoring of "
-                    "this source."
+                    "An exploit or exploit tool was aimed directly at the "
+                    "service, warranting closer monitoring of this source."
                 ),
                 supporting_evidence=supporting_evidence,
         )

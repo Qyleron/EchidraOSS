@@ -21,6 +21,13 @@ All notable changes to Echidra are documented here. The format follows
   high and come with a recommended fix. Two more cover reading a system
   program to learn the CPU type and confirming a guessed password with a
   test command (T1110.001, Password Guessing), both rated medium.
+- HTTP rules that name the attack, each with a recommended fix: commands
+  injected into a web request to download and run a program (router,
+  camera and GeoServer exploits), path traversal, open-proxy tests, checks
+  for Hikvision cameras, GeoServer and AI tool or model servers (MCP,
+  OpenAI-style APIs), and WinRM and Windows sign-in probes. More secret
+  and configuration files count as sensitive (`.aws/credentials`,
+  `config.json`, `terraform.tfstate` and others).
 - The fake shell answers `echo`, including `-n`, `-e` and its escapes;
   runs several commands on one line (`;`, `&&`, `||`) and pipelines, with
   `grep`, `head`, `tail`, `wc`, `base64` and `sh -c`; accepts programs by

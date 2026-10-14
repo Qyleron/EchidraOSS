@@ -35,6 +35,11 @@ T1087:
   recommended_fix: Return uniform responses with no user-existence hints, and rate-limit account-enumeration command bursts.
   impact: Removes the reconnaissance signal scanners use to pick high-value accounts to target next.
 
+T1090:
+  name: Proxy
+  recommended_fix: Make sure no proxy you run accepts connections from the internet without a login, and refuse CONNECT requests on web servers that are not meant to be proxies.
+  impact: Keeps your servers from carrying other people's attack and spam traffic under your address.
+
 T1098.004:
   name: SSH Authorized Keys
   recommended_fix: Disable password login over SSH, review every authorized_keys file for keys you don't recognize, and alert on any change to those files.
@@ -64,6 +69,16 @@ T1552.001:
   name: Credentials In Files
   recommended_fix: Remove plaintext credentials from disk, rotate decoy credentials periodically, and alert on any credential-file read.
   impact: Closes a common, low-effort path to lateral movement from a single compromised host.
+
+T1592:
+  name: Gather Victim Host Information
+  recommended_fix: Keep remote management (WinRM, ports 5985 and 5986) and services that use Windows sign-in off the public internet or behind a VPN, and turn off NTLM where you can.
+  impact: Removes the host details attackers use to choose which exploits and passwords to try.
+
+T1595.002:
+  name: Vulnerability Scanning
+  recommended_fix: Keep products with known flaws or no login by default (cameras, GeoServer, AI tool or model servers) off the public internet or behind a login, and apply vendor fixes promptly.
+  impact: Closes the opening these scans look for before a bot comes back with the exploit.
 
 T1595:
   name: Active Scanning
