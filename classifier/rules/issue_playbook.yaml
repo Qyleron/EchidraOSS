@@ -62,8 +62,13 @@ fixes:
       title: Commodity bots are searching for credentials stored in files.
       recommended_fix: Remove plaintext credentials from disk, rotate decoy credentials periodically, and alert on credential-file access.
       impact: Closes a common, low-effort path to lateral movement.
-    # No commodity_bot/T1110 entry: a commodity bot's finding names what it
-    # did after logging in over SSH (T1105, T1098.004, T1082), not the login.
+    # Every commodity bot that acted after an SSH login also carries T1110.
+    # Alerts list techniques most serious first, so the download, key or
+    # inspection fix still leads; this finding groups the logins themselves.
+    T1110:
+      title: Commodity bots are getting into SSH with guessed passwords before running their next step.
+      recommended_fix: Disable password login over SSH and use keys. Change any password seen in these sessions if it is used on a real system, and alert on a successful password login from an address that has failed many times.
+      impact: Removes the way in that every later step of these sessions depends on.
     T1078.001:
       title: A known Mirai-family default credential was submitted over Telnet, consistent with an IoT botnet's fixed wordlist rather than generic brute-forcing.
       recommended_fix: Treat these hits as an IoT botnet campaign indicator distinct from ordinary brute-force traffic -- cross-reference the source IP against known Mirai C2/scanner ranges and prioritize alerting over rate-limiting alone, since these bots don't back off.

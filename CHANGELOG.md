@@ -33,7 +33,11 @@ All notable changes to Echidra are documented here. The format follows
 
 ### Changed
 - A session's ATT&CK techniques are listed most serious first, so alerts
-  lead with the fix for the most serious thing the session did.
+  lead with the fix for the most serious thing the session did. When a
+  high-rated rule matches, it also sets the session's intent, and
+  commodity bots that log in over SSH get their own finding.
+- An HTTP `Authorization` header counts as a credential submission only
+  when it is Basic and carries a username and password.
 - The Telnet Mirai rule matches only device-specific factory passwords and
   is tagged T1078.001 (Default Accounts), with its own recommended fix.
   Generic pairs such as `admin:admin` are labelled as brute-force.

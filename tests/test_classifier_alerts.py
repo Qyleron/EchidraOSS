@@ -461,15 +461,18 @@ def test_recommended_fix_matches_the_intelligence_playbook():
 @pytest.mark.parametrize(
     "mitre_tags, expected_start",
     [
-        (["T1110", "T1105"], "Block outbound connections from servers"),
-        (["T1110", "T1098.004"], "Disable password login over SSH, review every authorized_keys"),
-        (["T1110", "T1078.001"], "Treat these hits as an IoT botnet campaign indicator"),
-        (["T1110", "T1082"], "Disable password login over SSH, and alert when an interactive login prints"),
+        (["T1105", "T1110"], "Block outbound connections from servers"),
+        (["T1098.004", "T1110"], "Disable password login over SSH, review every authorized_keys"),
+        (["T1078.001", "T1110"], "Treat these hits as an IoT botnet campaign indicator"),
+        (["T1082", "T1110"], "Disable password login over SSH, and alert when an interactive login prints"),
+        (["T1110"], "Disable password login over SSH and use keys. Change any password"),
     ],
 )
 def test_recommended_fix_is_for_what_the_session_did_not_the_login(mitre_tags, expected_start):
-    """A commodity bot always carries T1110 from logging in first; the fix
-    an alert leads with has to be the one for what came after."""
+    """A commodity bot always carries T1110 from logging in first. Tags come
+    most serious first (see _tags_by_seriousness), so the fix an alert
+    leads with is the one for what came after; a login alone gets the
+    login fix."""
     _, summary = _session_and_summary()
     summary = summary.model_copy(update={"actor_label": "commodity_bot", "mitre_tags": mitre_tags})
 

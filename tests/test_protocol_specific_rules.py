@@ -6,6 +6,8 @@ format ever drifts out of sync with what the rules actually match on."""
 
 import uuid
 
+import pytest
+
 from classifier.pipeline import classify_session
 from classifier.schemas.session import SessionRecord
 
@@ -218,6 +220,46 @@ def test_http_post_without_credential_fields_does_not_match_harvest_rule():
     summary = classify_session(session)
 
     assert "http_credential_harvest_attempt" not in summary.matched_rule_ids
+
+
+def test_http_basic_auth_header_is_a_credential_submission():
+    session = make_session(
+        "http",
+        [("GET / HTTP/1.1", 0.0), ("Authorization: Basic YWRtaW46c2VjcmV0", 0.1)],
+        duration_seconds=0.1,
+        persona_id="ubuntu_web_server",
+    )
+
+    summary = classify_session(session)
+
+    assert "http_credential_harvest_attempt" in summary.matched_rule_ids
+    assert summary.intent == "credential_theft"
+
+
+@pytest.mark.parametrize(
+    "header",
+    [
+        # Opening NTLM handshake message: no username or password in it
+        "Authorization: NTLM TlRMTVNTUAABAAAAB4IIogAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "Authorization: Negotiate TlRMTVNTUAABAAAAB4IIogAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "Authorization: Bearer sk-test",
+        "Authorization: Basic not-base64!",
+    ],
+)
+def test_http_authorization_without_a_password_is_not_a_credential_submission(header):
+    """WinRM probes open an NTLM/Negotiate handshake, and API scanners send
+    a placeholder Bearer token; neither carries a password."""
+    session = make_session(
+        "http",
+        [("POST /wsman HTTP/1.1", 0.0), (header, 0.1)],
+        duration_seconds=0.1,
+        persona_id="ubuntu_web_server",
+    )
+
+    summary = classify_session(session)
+
+    assert "http_credential_harvest_attempt" not in summary.matched_rule_ids
+    assert summary.intent != "credential_theft"
 
 
 def test_http_known_scanner_user_agent_matches_masscan():
@@ -464,8 +506,11 @@ def test_ssh_system_binary_read_is_medium_risk_commodity_bot():
     assert "ssh_system_binary_read" in summary.matched_rule_ids
     assert "repeat_connections_same_ip" in summary.matched_rule_ids
     assert summary.actor_label == "commodity_bot"
-    assert "T1082" in summary.mitre_tags
+    assert summary.mitre_tags[0] == "T1082"
     assert summary.risk_level == "medium"
+    # Inspecting the system, not stealing credentials
+    assert summary.behavior_stage == "discovery"
+    assert summary.intent == "reconnaissance"
 
 
 def test_reading_an_ordinary_file_does_not_match_the_system_binary_rule():

@@ -364,7 +364,15 @@ def _behavior_stage_and_intent(
     mitre_tags: list[str],
     features: SessionFeatures | None,
 ) -> tuple[BehaviorStage, Intent]:
-    tag_set = set(mitre_tags)
+    # As in _actor_vote: when a rule rated high matched, it alone says what
+    # the session was for. A loader that logged in and then read a program
+    # file to learn the CPU type is inspecting the system; the login tag
+    # (T1110) it also carries would otherwise call it credential theft.
+    decisive = [match for match in matches if match.risk_score >= _HIGH_RISK_SCORE]
+    if decisive:
+        tag_set = {tag for match in decisive for tag in match.mitre_tags}
+    else:
+        tag_set = set(mitre_tags)
     rule_ids = {match.rule_id for match in matches}
 
     # T1105 (Ingress Tool Transfer) comes first: a session that downloads a

@@ -365,14 +365,14 @@ rules:
         value: 1
 
   - id: http_credential_harvest_attempt
-    name: HTTP login form credential submission
+    name: HTTP credential submission
     actor_label: brute_force_bot
     confidence: 0.72
     risk_score: 50
     mitre_tags:
       - T1110
     evidence:
-      - Submitted a POST body containing login-form-shaped credential fields.
+      - Submitted a username and password over HTTP, in a login form or a Basic authentication header.
     conditions:
       - field: protocol
         operator: equals

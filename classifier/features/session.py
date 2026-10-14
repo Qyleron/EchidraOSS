@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import binascii
 import re
 import shlex
 from urllib.parse import parse_qsl
@@ -240,9 +242,7 @@ def extract_session_features(
         command_names.append(command_name)
 
         normalized = event.cmd.strip().lower()
-        if command_name in {"user", "pass"} or normalized.startswith(
-            ("login:", "password:", "authorization:")
-        ):
+        if command_name in {"user", "pass"} or normalized.startswith(("login:", "password:")):
             auth_attempt_count += 1
 
         if session.protocol == "telnet":
@@ -278,6 +278,16 @@ def extract_session_features(
 
         if session.protocol == "http" and command_name in _HTTP_REQUEST_COMMANDS and args:
             http_paths_requested.append(args[0])
+
+        # Only a Basic header carries a username and password. NTLM and
+        # Negotiate open a handshake (WinRM probes to /wsman send these) and
+        # a Bearer token such as "sk-test" tests whether keys are accepted;
+        # neither is a login attempt.
+        if session.protocol == "http" and normalized.startswith("authorization:"):
+            pair = _basic_auth_pair(event.cmd.split(":", 1)[1])
+            if pair:
+                auth_attempt_count += 1
+                http_credentials_tried.append(pair)
 
         if session.protocol == "http" and normalized.startswith("user-agent:"):
             user_agent = event.cmd.split(":", 1)[1].strip()
@@ -382,6 +392,20 @@ def _parse_command(raw_command: str) -> tuple[str, list[str]]:
         return "", []
 
     return tokens[0].lower(), tokens[1:]
+
+
+def _basic_auth_pair(header_value: str) -> str | None:
+    """"user:password" from an HTTP Basic Authorization value, lowercased."""
+    scheme, _, token = header_value.strip().partition(" ")
+    if scheme.lower() != "basic" or not token.strip():
+        return None
+    try:
+        decoded = base64.b64decode(token.strip(), validate=True).decode("utf-8")
+    except (binascii.Error, ValueError):
+        return None
+    if ":" not in decoded:
+        return None
+    return decoded.lower()
 
 
 def _extract_http_credential_pair(body: str) -> str | None:
