@@ -51,8 +51,9 @@ def _server_version_for(persona) -> str:
 # tests can shrink it to (0, 0) instead of eating this delay for real.
 AUTH_DELAY_RANGE = (0.5, 1.8)
 
-# Ranks used to dispatch each increased alert severity only once per session,
-# same convention as the other protocol handlers.
+# Ranks used to send a live alert only when the session's level rises, so
+# the 30-second live check doesn't call the alert path on every pass.
+# classifier/alerts.py applies the same rule again at session end.
 _RISK_RANKS = {"none": 0, "low": 1, "medium": 2, "high": 3, "critical": 4}
 
 

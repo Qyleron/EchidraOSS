@@ -49,7 +49,6 @@ class LiveSessionClassifier:
         self.interval_seconds = interval_seconds
         self.on_result = on_result
         self.latest_summary: ClassificationSummary | None = None
-        self.highest_alerted_rank = -1
         self.rules = load_live_rules()
 
     async def run(self) -> None:

@@ -2,8 +2,20 @@ import uuid
 
 import pytest
 
+from classifier.alerts import reset_alert_grouping
 from classifier.features.session import SessionFeatures
 from honeypot.network import config as honeypot_config
+
+
+@pytest.fixture(autouse=True)
+def clear_alert_grouping(monkeypatch):
+    """Alert grouping remembers recent alerts per source address and
+    technique, and most tests reuse the same address, so each test starts
+    with none remembered and the default window."""
+    monkeypatch.delenv("ECHIDRA_ALERT_REPEAT_MINUTES", raising=False)
+    reset_alert_grouping()
+    yield
+    reset_alert_grouping()
 
 
 @pytest.fixture(autouse=True)

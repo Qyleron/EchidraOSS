@@ -58,6 +58,12 @@ python -c "import secrets; print(secrets.token_urlsafe(32))"   # ECHIDRA_SESSION
   if you reach the dashboard some other way (eg. behind a reverse proxy).
   The link only works where that address is reachable, and only while
   you're logged in to the dashboard.
+- `ECHIDRA_ALERT_REPEAT_MINUTES` (optional, default `60`) — repeat alerts
+  for the same source address and technique within this many minutes are
+  held and counted, and one follow-up with the count is sent when the
+  window ends. A higher risk level, or a critical session, always alerts
+  at once. `0` sends every alert. Every session is still recorded and shown
+  in the dashboard either way.
 - `ECHIDRA_ALERT_SECRET` — required before SMTP email alerting actually
   works (falls back to `ECHIDRA_SECRET_KEY` if unset). Encrypts the SMTP
   password stored in `alert_config`. Unlike the keys above, omitting it

@@ -1032,12 +1032,17 @@ SELECT_ALERT_CONFIG_SMTP_PASSWORD_SQL = """
 SELECT smtp_password FROM alert_config WHERE id = 1
 """
 
+# A live alert fires while its session is still open, before the session
+# row exists, so session_id is looked up rather than inserted directly: the
+# foreign key would otherwise reject the row and the alert would go
+# unrecorded.
 INSERT_ALERT_EVENT_SQL = """
 INSERT INTO alert_events (
     id, run_id, session_id, persona_id, risk_level, actor_label,
     channel, contact_email, sent_at, success, error_message
 ) VALUES (
-    %(id)s, %(run_id)s, %(session_id)s, %(persona_id)s, %(risk_level)s, %(actor_label)s,
+    %(id)s, %(run_id)s, (SELECT id FROM sessions WHERE id = %(session_id)s),
+    %(persona_id)s, %(risk_level)s, %(actor_label)s,
     %(channel)s, %(contact_email)s, %(sent_at)s, %(success)s, %(error_message)s
 )
 """

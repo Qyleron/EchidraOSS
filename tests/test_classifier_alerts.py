@@ -2,6 +2,7 @@
 Slack webhook POST helper."""
 
 import uuid
+from types import SimpleNamespace
 
 import pytest
 
@@ -367,6 +368,38 @@ def test_maybe_send_alert_dispatches_to_both_channels_when_routing_is_both(monke
     assert channels == {"email", "slack"}
 
 
+def test_slack_is_still_sent_when_recording_the_email_alert_fails(monkeypatch):
+    session, summary = _session_and_summary()
+    repository = _patch_repository(
+        monkeypatch,
+        _alert_config(),
+        _persona_config(alert_routing_level="both", contact_email="analyst@example.com"),
+    )
+    recorded = repository.inserted_events
+
+    def insert_alert_event(event):
+        if event.channel == "email":
+            raise RuntimeError("insert failed")
+        recorded.append(event)
+        return event
+
+    repository.insert_alert_event = insert_alert_event
+    posted = []
+    monkeypatch.setattr(alerts_module, "_smtp_send", lambda config, recipient, subject, body, html_body=None: None)
+    monkeypatch.setattr(alerts_module, "_slack_post", lambda url, text: posted.append(text))
+
+    alerts_module._maybe_send_alert(None, session, summary)
+
+    assert len(posted) == 1
+    assert [event.channel for event in recorded] == ["slack"]
+
+
+def test_alert_event_insert_tolerates_a_session_not_saved_yet():
+    from classifier.storage.repository import INSERT_ALERT_EVENT_SQL
+
+    assert "(SELECT id FROM sessions WHERE id = %(session_id)s)" in INSERT_ALERT_EVENT_SQL
+
+
 def test_maybe_send_alert_skips_slack_channel_when_webhook_not_configured(monkeypatch):
     session, summary = _session_and_summary()
     repository = _patch_repository(
@@ -560,3 +593,127 @@ def test_alert_html_escapes_attacker_controlled_evidence(monkeypatch):
 
     assert "<script>" not in sent["html"]
     assert "&lt;script&gt;x&lt;/script&gt;" in sent["html"]
+
+
+# ---------------------------------------------------------------------------
+# alert grouping
+# ---------------------------------------------------------------------------
+
+
+class _FakeTimer:
+    def __init__(self, delay, key):
+        self.delay = delay
+        self.key = key
+        self.cancelled = False
+
+    def cancel(self):
+        self.cancelled = True
+
+
+@pytest.fixture
+def slack_alerts(monkeypatch):
+    """Slack routing, a clock the test moves by hand, and follow-up timers
+    that are recorded instead of started."""
+    state = SimpleNamespace(posted=[], timers=[], now=1000.0)
+    _patch_repository(monkeypatch, _alert_config(), _persona_config(alert_routing_level="slack"))
+    monkeypatch.setattr(alerts_module, "_slack_post", lambda url, text: state.posted.append(text))
+    monkeypatch.setattr(alerts_module, "_clock", lambda: state.now)
+
+    def fake_timer(delay, key):
+        state.timers.append(_FakeTimer(delay, key))
+        return state.timers[-1]
+
+    monkeypatch.setattr(alerts_module, "_start_follow_up_timer", fake_timer)
+    return state
+
+
+def _send(risk_level="high", tags=("T1110",), session=None):
+    session = session or _session()
+    summary = classify_session(session).model_copy(
+        update={"actor_label": "brute_force_bot", "mitre_tags": list(tags), "risk_level": risk_level}
+    )
+    alerts_module._maybe_send_alert(None, session, summary)
+    return session
+
+
+def test_a_session_alerts_once_per_level(slack_alerts):
+    session = _send()  # live classification
+    _send(session=session)  # the same session's end-of-session classification
+    assert len(slack_alerts.posted) == 1
+    assert slack_alerts.timers == []
+
+    _send(risk_level="critical", session=session)
+    assert len(slack_alerts.posted) == 2
+
+
+def test_repeats_from_one_source_are_held_and_counted_when_the_window_ends(slack_alerts):
+    _send()
+    _send()
+    last = _send()
+
+    assert len(slack_alerts.posted) == 1
+    assert len(slack_alerts.timers) == 1
+    timer = slack_alerts.timers[0]
+    assert timer.delay == 3600
+
+    alerts_module._send_follow_up(timer.key)
+
+    assert len(slack_alerts.posted) == 2
+    follow_up = slack_alerts.posted[1]
+    assert follow_up.startswith(
+        "*[Echidra] 2 more sessions like this: "
+        "High-risk brute-force bot from 127.0.0.1 on generic_linux (T1110)*\n"
+    )
+    assert "Repeats: 2 more sessions like this from this source since the last alert, the last at " in follow_up
+    assert f"session={last.session_id}" in follow_up
+
+    # The follow-up opens a new window: the next repeat is held again.
+    _send()
+    assert len(slack_alerts.posted) == 2
+    assert len(slack_alerts.timers) == 2
+
+
+def test_the_first_alert_after_the_window_counts_the_held_sessions(slack_alerts):
+    _send()
+    _send()
+    slack_alerts.now += 3600
+    _send()
+
+    assert len(slack_alerts.posted) == 2
+    assert slack_alerts.timers[0].cancelled
+    assert slack_alerts.posted[1].startswith("*[Echidra] High-risk brute-force bot")
+    assert "Repeats: 1 more session like this from this source since the last alert" in slack_alerts.posted[1]
+
+
+def test_a_higher_level_or_another_technique_alerts_at_once(slack_alerts):
+    _send(risk_level="medium")
+    _send(risk_level="high")
+    _send(risk_level="high", tags=("T1105",))
+    _send(risk_level="high", tags=("T1105",))
+
+    assert len(slack_alerts.posted) == 3
+
+
+def test_critical_sessions_always_alert(slack_alerts):
+    for _ in range(3):
+        _send(risk_level="critical")
+
+    assert len(slack_alerts.posted) == 3
+    assert slack_alerts.timers == []
+
+
+def test_grouping_can_be_turned_off(slack_alerts, monkeypatch):
+    monkeypatch.setenv("ECHIDRA_ALERT_REPEAT_MINUTES", "0")
+    for _ in range(3):
+        _send()
+
+    assert len(slack_alerts.posted) == 3
+
+
+@pytest.mark.parametrize(
+    "raw, expected_seconds",
+    [("", 3600), ("15", 900), ("0", 0), ("-5", 0), ("soon", 3600)],
+)
+def test_repeat_window_setting(monkeypatch, raw, expected_seconds):
+    monkeypatch.setenv("ECHIDRA_ALERT_REPEAT_MINUTES", raw)
+    assert alerts_module._repeat_window_seconds() == expected_seconds

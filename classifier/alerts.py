@@ -6,8 +6,13 @@ import logging
 import os
 import smtplib
 import ssl
+import threading
+import time
 import urllib.parse
 import urllib.request
+from collections import OrderedDict
+from dataclasses import dataclass
+from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
 
@@ -54,85 +59,296 @@ def _is_excluded_ip(excluded_ips: str | None, peer_ip) -> bool:
     return peer_ip_str in entries
 
 
+_REPEAT_WINDOW_ENV = "ECHIDRA_ALERT_REPEAT_MINUTES"
+_DEFAULT_REPEAT_MINUTES = 60.0
+_RISK_RANKS = {"none": 0, "low": 1, "medium": 2, "high": 3, "critical": 4}
+_MAX_TRACKED_SESSIONS = 10_000
+_PRUNE_INTERVAL_SECONDS = 60.0
+
+# Monotonic clock for the repeat window; module-level so tests can replace it.
+_clock = time.monotonic
+
+
+@dataclass
+class _AlertGroup:
+    """Alerts for one (persona, source address, lead technique) in the current window."""
+
+    opened_at: float
+    rank: int
+    held: int = 0
+    last_held_at: datetime | None = None
+    latest: tuple | None = None
+    timer: threading.Timer | None = None
+
+
+_grouping_lock = threading.Lock()
+_alert_groups: dict[tuple[str, str, str], _AlertGroup] = {}
+_alerted_session_ranks: OrderedDict = OrderedDict()
+_last_pruned_at: float | None = None
+
+
+def _repeat_window_seconds() -> float:
+    raw = os.getenv(_REPEAT_WINDOW_ENV, "").strip()
+    if not raw:
+        return _DEFAULT_REPEAT_MINUTES * 60
+    try:
+        minutes = float(raw)
+    except ValueError:
+        logger.warning(
+            "%s=%r is not a number of minutes; using %d",
+            _REPEAT_WINDOW_ENV,
+            raw,
+            _DEFAULT_REPEAT_MINUTES,
+        )
+        return _DEFAULT_REPEAT_MINUTES * 60
+    return max(minutes, 0.0) * 60
+
+
+def _group_key(session: SessionRecord, summary: ClassificationSummary) -> tuple[str, str, str]:
+    technique = summary.mitre_tags[0] if summary.mitre_tags else (summary.actor_label or "")
+    return (session.persona_id, str(session.peer_ip or ""), technique)
+
+
+def _start_follow_up_timer(delay: float, key: tuple[str, str, str]) -> threading.Timer:
+    timer = threading.Timer(max(delay, 0.0), _send_follow_up, args=(key,))
+    timer.daemon = True
+    timer.start()
+    return timer
+
+
+def _alert_decision(
+    run: ClassifierRunRecord | None,
+    session: SessionRecord,
+    summary: ClassificationSummary,
+) -> int | None:
+    """Return how many held-back sessions this alert should count, or None to not send it.
+
+    A session alerts once per level: the end-of-session classification of an
+    SSH session the live classifier already alerted on is dropped unless its
+    level rose. Across sessions, the first alert for a persona, source
+    address and lead technique goes out at once; repeats within the window
+    are held and counted, and one follow-up with the count goes out when the
+    window ends. A higher level than the one already alerted, or a critical
+    session, always goes out at once.
+    """
+    global _last_pruned_at
+    rank = _RISK_RANKS.get(summary.risk_level, 0)
+    with _grouping_lock:
+        previous_rank = _alerted_session_ranks.get(session.session_id)
+        if previous_rank is not None and rank <= previous_rank:
+            return None
+        _alerted_session_ranks[session.session_id] = rank
+        _alerted_session_ranks.move_to_end(session.session_id)
+        while len(_alerted_session_ranks) > _MAX_TRACKED_SESSIONS:
+            _alerted_session_ranks.popitem(last=False)
+
+        window = _repeat_window_seconds()
+        if window <= 0:
+            return 0
+
+        now = _clock()
+        if _last_pruned_at is None or now - _last_pruned_at >= _PRUNE_INTERVAL_SECONDS:
+            _last_pruned_at = now
+            for stale_key in [
+                key
+                for key, group in _alert_groups.items()
+                if group.timer is None and now - group.opened_at >= window
+            ]:
+                del _alert_groups[stale_key]
+
+        key = _group_key(session, summary)
+        group = _alert_groups.get(key)
+        if (
+            group is None
+            or now - group.opened_at >= window
+            or rank > group.rank
+            or summary.risk_level == "critical"
+        ):
+            repeats = 0
+            if group is not None:
+                repeats = group.held
+                if group.timer is not None:
+                    group.timer.cancel()
+            _alert_groups[key] = _AlertGroup(opened_at=now, rank=rank)
+            return repeats
+
+        group.held += 1
+        group.last_held_at = datetime.now(timezone.utc)
+        group.latest = (run, session, summary)
+        if group.timer is None:
+            group.timer = _start_follow_up_timer(group.opened_at + window - now, key)
+        return None
+
+
+def _send_follow_up(key: tuple[str, str, str]) -> None:
+    """Send the count of sessions held back in a window that just ended."""
+    try:
+        with _grouping_lock:
+            group = _alert_groups.get(key)
+            if group is None or not group.held or group.latest is None:
+                return
+            repeats, last_held_at = group.held, group.last_held_at
+            run, session, summary = group.latest
+            # The follow-up opens a new window, so a source that keeps going
+            # produces at most one message per window.
+            _alert_groups[key] = _AlertGroup(opened_at=_clock(), rank=group.rank)
+
+        targets = _alert_targets(session, summary)
+        if targets is None:
+            return
+        repository, config, persona_config = targets
+        _dispatch_alerts(
+            repository, config, persona_config, run, session, summary,
+            repeats=repeats, last_held_at=last_held_at, follow_up=True,
+        )
+    except Exception:
+        logger.exception("Follow-up alert dispatch failed")
+
+
+def reset_alert_grouping() -> None:
+    """Forget all alert grouping state and cancel pending follow-ups (for tests)."""
+    global _last_pruned_at
+    with _grouping_lock:
+        for group in _alert_groups.values():
+            if group.timer is not None:
+                group.timer.cancel()
+        _alert_groups.clear()
+        _alerted_session_ranks.clear()
+        _last_pruned_at = None
+
+
+def _alert_targets(session: SessionRecord, summary: ClassificationSummary):
+    """Return (repository, config, persona_config) when this session should alert, else None."""
+    repository = PostgresClassifierRepository()
+    config = repository.get_alert_config()
+    if config is None or not config.enabled:
+        logger.info(
+            "Alert skipped for session %s: global alert config is missing or disabled",
+            session.session_id,
+        )
+        return None
+
+    if _is_excluded_ip(config.excluded_ips, session.peer_ip):
+        logger.info(
+            "Alert skipped for session %s: peer_ip %s is on the excluded_ips list",
+            session.session_id,
+            session.peer_ip,
+        )
+        return None
+
+    persona_config = repository.get_persona_config(session.persona_id)
+    if persona_config is None or persona_config.alert_routing_level == "none":
+        logger.info(
+            "Alert skipped for session %s: no persona_configs row for %r "
+            "(or its alert_routing_level is 'none')",
+            session.session_id,
+            session.persona_id,
+        )
+        return None
+
+    # The persona's own alert_min_risk_level, when set, is authoritative --
+    # it can loosen the bar below the global default (eg. an operator wants
+    # every hit on a decoy persona flagged) as well as tighten it. Only
+    # fall back to the global default when the persona hasn't set one.
+    effective_threshold = persona_config.alert_min_risk_level or config.global_min_risk_level
+    if not _risk_meets_threshold(summary.risk_level, effective_threshold):
+        logger.info(
+            "Alert skipped for session %s: risk_level %r below effective threshold %r",
+            session.session_id,
+            summary.risk_level,
+            effective_threshold,
+        )
+        return None
+    return repository, config, persona_config
+
+
 def _maybe_send_alert(
     run: ClassifierRunRecord | None,
     session: SessionRecord | dict,
     summary: ClassificationSummary,
 ) -> None:
-    """Fire an alert (email and/or Slack) if the run meets the configured threshold."""
+    """Fire an alert (email and/or Slack) if the run meets the configured threshold.
+
+    Repeats are grouped by _alert_decision. Only email and Slack are held
+    back; every session is still stored and classified as usual.
+    """
     if summary.alert_action is None:
         return
     try:
         if isinstance(session, dict):
             session = SessionRecord.model_validate(session)
-        repository = PostgresClassifierRepository()
-        config = repository.get_alert_config()
-        if config is None or not config.enabled:
+        targets = _alert_targets(session, summary)
+        if targets is None:
+            return
+        repository, config, persona_config = targets
+
+        repeats = _alert_decision(run, session, summary)
+        if repeats is None:
             logger.info(
-                "Alert skipped for session %s: global alert config is missing or disabled",
+                "Alert held for session %s: already alerted for this session or "
+                "for this source and technique in the current window",
                 session.session_id,
             )
             return
-
-        if _is_excluded_ip(config.excluded_ips, session.peer_ip):
-            logger.info(
-                "Alert skipped for session %s: peer_ip %s is on the excluded_ips list",
-                session.session_id,
-                session.peer_ip,
-            )
-            return
-
-        persona_config = repository.get_persona_config(session.persona_id)
-        if persona_config is None or persona_config.alert_routing_level == "none":
-            logger.info(
-                "Alert skipped for session %s: no persona_configs row for %r "
-                "(or its alert_routing_level is 'none')",
-                session.session_id,
-                session.persona_id,
-            )
-            return
-
-        # The persona's own alert_min_risk_level, when set, is authoritative --
-        # it can loosen the bar below the global default (eg. an operator wants
-        # every hit on a decoy persona flagged) as well as tighten it. Only
-        # fall back to the global default when the persona hasn't set one.
-        effective_threshold = persona_config.alert_min_risk_level or config.global_min_risk_level
-        if not _risk_meets_threshold(summary.risk_level, effective_threshold):
-            logger.info(
-                "Alert skipped for session %s: risk_level %r below effective threshold %r",
-                session.session_id,
-                summary.risk_level,
-                effective_threshold,
-            )
-            return
-
-        # "both" fires each configured channel independently -- a persona
-        # missing one destination (e.g. routing is "both" but no Slack
-        # webhook is set yet) still gets the channel it does have configured,
-        # rather than silently getting nothing.
-        if persona_config.alert_routing_level in ("email", "both") and persona_config.contact_email:
-            err = _dispatch_alert_email(config, persona_config.contact_email, run, session, summary)
-            repository.insert_alert_event(
-                _build_alert_event(
-                    run, session, summary,
-                    channel="email",
-                    contact_email=persona_config.contact_email,
-                    error=err,
-                )
-            )
-
-        if persona_config.alert_routing_level in ("slack", "both") and persona_config.slack_webhook:
-            err = _dispatch_alert_slack(persona_config.slack_webhook, run, session, summary)
-            repository.insert_alert_event(
-                _build_alert_event(
-                    run, session, summary,
-                    channel="slack",
-                    contact_email=None,
-                    error=err,
-                )
-            )
+        _dispatch_alerts(repository, config, persona_config, run, session, summary, repeats=repeats)
     except Exception:
         logger.exception("Alert dispatch failed — classifier run was saved normally")
+
+
+def _dispatch_alerts(
+    repository,
+    config: AlertConfigRecord,
+    persona_config,
+    run: ClassifierRunRecord | None,
+    session: SessionRecord,
+    summary: ClassificationSummary,
+    *,
+    repeats: int = 0,
+    last_held_at: datetime | None = None,
+    follow_up: bool = False,
+) -> None:
+    grouping = {"repeats": repeats, "last_held_at": last_held_at, "follow_up": follow_up}
+
+    # "both" fires each configured channel independently -- a persona
+    # missing one destination (e.g. routing is "both" but no Slack
+    # webhook is set yet) still gets the channel it does have configured,
+    # rather than silently getting nothing.
+    if persona_config.alert_routing_level in ("email", "both") and persona_config.contact_email:
+        err = _dispatch_alert_email(
+            config, persona_config.contact_email, run, session, summary, **grouping
+        )
+        _record_alert_event(
+            repository,
+            _build_alert_event(
+                run, session, summary,
+                channel="email",
+                contact_email=persona_config.contact_email,
+                error=err,
+            ),
+        )
+
+    if persona_config.alert_routing_level in ("slack", "both") and persona_config.slack_webhook:
+        err = _dispatch_alert_slack(persona_config.slack_webhook, run, session, summary, **grouping)
+        _record_alert_event(
+            repository,
+            _build_alert_event(
+                run, session, summary,
+                channel="slack",
+                contact_email=None,
+                error=err,
+            ),
+        )
+
+
+def _record_alert_event(repository, event: AlertEventRecord) -> None:
+    # The alert has already gone out; failing to record it must not stop
+    # the next channel from being sent.
+    try:
+        repository.insert_alert_event(event)
+    except Exception:
+        logger.exception(
+            "Could not record the %s alert for session %s", event.channel, event.session_id
+        )
 
 
 def _build_alert_event(
@@ -229,8 +445,20 @@ def _session_link(session_id) -> str:
     return f"{base}/dashboard/sessions?session={urllib.parse.quote(str(session_id))}"
 
 
-def _alert_content(session: SessionRecord, summary: ClassificationSummary) -> dict:
-    """Everything an alert says, shared by the email and Slack versions."""
+def _alert_content(
+    session: SessionRecord,
+    summary: ClassificationSummary,
+    *,
+    repeats: int = 0,
+    last_held_at: datetime | None = None,
+    follow_up: bool = False,
+) -> dict:
+    """Everything an alert says, shared by the email and Slack versions.
+
+    repeats is the number of sessions like this one held back since the
+    last alert; follow_up marks the message sent when a window ends, which
+    describes the newest of those sessions.
+    """
     from classifier.storage.geolocation import resolve_country
 
     risk = _humanize(summary.risk_level)
@@ -261,9 +489,19 @@ def _alert_content(session: SessionRecord, summary: ClassificationSummary) -> di
         ("Session", str(session.session_id)),
         ("Open", _session_link(session.session_id)),
     ]
+    heading = f"Echidra alert: {risk.lower()}-risk session"
+    if repeats:
+        more = f"{repeats} more session{'s' if repeats != 1 else ''} like this"
+        repeat_text = f"{more} from this source since the last alert"
+        if last_held_at is not None:
+            repeat_text += f", the last at {last_held_at:%H:%M} UTC"
+        fields.insert(5, ("Repeats", repeat_text))
+        if follow_up:
+            subject = f"[Echidra] {more}: {subject.removeprefix('[Echidra] ')}"
+            heading = f"Echidra alert: {more}"
     return {
         "subject": subject,
-        "heading": f"Echidra alert: {risk.lower()}-risk session",
+        "heading": heading,
         "fix": _recommended_fix(summary),
         "fields": fields,
         "evidence": [item.text for item in summary.evidence],
@@ -299,8 +537,9 @@ def _dispatch_alert_email(
     run: ClassifierRunRecord | None,
     session: SessionRecord,
     summary: ClassificationSummary,
+    **grouping,
 ) -> str | None:
-    content = _alert_content(session, summary)
+    content = _alert_content(session, summary, **grouping)
     evidence = content["evidence"] or ["None recorded."]
     body = (
         f"{content['heading']}\n\n"
@@ -334,8 +573,9 @@ def _dispatch_alert_slack(
     run: ClassifierRunRecord | None,
     session: SessionRecord,
     summary: ClassificationSummary,
+    **grouping,
 ) -> str | None:
-    content = _alert_content(session, summary)
+    content = _alert_content(session, summary, **grouping)
     evidence = content["evidence"] or ["None recorded."]
     text = (
         f"*{content['subject']}*\n"

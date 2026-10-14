@@ -39,6 +39,12 @@ All notable changes to Echidra are documented here. The format follows
   Docker, and Actions.
 
 ### Changed
+- Alerts are grouped: a session alerts once for each risk level it reaches,
+  and repeat alerts for the same source address and technique within an
+  hour are held, then sent as one follow-up with the count. A higher risk
+  level, or a critical session, always alerts at once. Set
+  `ECHIDRA_ALERT_REPEAT_MINUTES` to change the window (`0` sends every
+  alert).
 - A session's ATT&CK techniques are listed most serious first, so alerts
   lead with the fix for the most serious thing the session did. When a
   high-rated rule matches, it also sets the session's intent, and
@@ -79,6 +85,11 @@ All notable changes to Echidra are documented here. The format follows
   scrollbars and autofill styling; empty pages explain what happens next.
 
 ### Fixed
+- Alerts sent while an SSH session is still open are recorded in the alert
+  history, and with "both" routing each channel is sent and recorded on its
+  own.
+- Docker Compose passes `ECHIDRA_DASHBOARD_URL` to the honeypot and
+  dashboard, so alert links use it.
 - The `ECHIDRA_COOKIE_SECURE` startup notice is logged once instead of
   twice, and says when it applies.
 - Spacing between the sign-in page's message box and the form below it.
