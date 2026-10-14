@@ -33,6 +33,23 @@ class CommandEvent(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+# How far an SSH connection got before it ended. Earlier records and other
+# protocols leave it unset.
+SshEndStage = Literal[
+    "no_version",  # closed before sending an SSH version line
+    "not_ssh",  # sent something other than SSH
+    "key_exchange_failed",  # no algorithm or host key type in common
+    "before_auth",  # handshake finished, closed before trying to log in
+    "auth_without_password",  # tried to log in, never sent a password
+    "after_password",  # sent a password, closed before opening a shell
+    "shell",  # opened a shell or ran a command
+]
+
+# Written to the session log only when set, so records from other protocols
+# and older versions keep their shape.
+SSH_DETAIL_FIELDS = frozenset({"client_version", "end_stage", "end_error"})
+
+
 class SessionRecord(BaseModel):
     """Canonical v1 record for one completed TCP shell session."""
 
@@ -51,6 +68,9 @@ class SessionRecord(BaseModel):
     command_count: int = Field(ge=0)
     commands: list[CommandEvent]
     decoy_files_surfaced: list[str] = Field(default_factory=list)
+    client_version: str | None = Field(default=None, max_length=255)
+    end_stage: SshEndStage | None = None
+    end_error: str | None = Field(default=None, max_length=1000)
 
     @field_validator("latitude", "longitude", "started_at", "ended_at", "duration_seconds")
     @classmethod

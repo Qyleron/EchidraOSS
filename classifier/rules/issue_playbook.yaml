@@ -61,6 +61,10 @@ fixes:
       title: Automated scanners are using path traversal (../) to read system files through the web server.
       recommended_fix: Keep web servers and apps updated, make sure no request can reach files outside the web root, and alert on request paths containing ../ or its encoded forms.
       impact: Stops one request from exposing system files or the app's own secrets.
+    T1046:
+      title: Automated scanners are sending web, TLS, SSH and remote-desktop openings to the FTP port, looking for services on unexpected ports.
+      recommended_fix: Close every port you don't use, and keep the services you do run on their usual ports behind a firewall that only admits the addresses that need them.
+      impact: Leaves scanners less to find, so fewer of your services end up on the target lists bots work from.
     T1090:
       title: Automated scanners are testing whether this server will relay their traffic as an open proxy.
       recommended_fix: Make sure no proxy you run accepts connections from the internet without a login, and refuse CONNECT requests on web servers that are not meant to be proxies.

@@ -90,6 +90,11 @@ tail -1 logs/sessions.jsonl | python3 -m json.tool
 Expect a JSON object with `"protocol": "tcp_shell"`, your typed commands under
 `"commands"`, and `"decoy_files_surfaced": ["/home/admin/readme.txt", "/etc/passwd"]`
 (every file you `cat`, or that appeared in an `ls` listing, gets tracked here).
+SSH records also carry `"client_version"` (your client's version line, eg.
+`"SSH-2.0-OpenSSH_9.6"`) and `"end_stage": "shell"`. A connection that ends
+earlier records how far it got instead: `no_version`, `not_ssh`,
+`key_exchange_failed`, `before_auth`, `auth_without_password` or
+`after_password`, with the reason in `"end_error"` when one was given.
 
 ### HTTP (port 8080)
 

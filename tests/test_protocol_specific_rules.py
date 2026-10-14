@@ -760,3 +760,37 @@ def test_http_secret_file_requests_match_the_sensitive_path_rule(path):
     summary = classify_session(session)
 
     assert "http_sensitive_path_probe" in summary.matched_rule_ids
+
+
+@pytest.mark.parametrize(
+    "first_line",
+    [
+        "GET / HTTP/1.1",
+        "GET /..%2F..%2F..%2Fetc%2Fpasswd HTTP/1.1",
+        "SSH-2.0-Go",
+        "[TLS handshake] 16 03 01 02 00 01 00 01 fc 03 03 00 00 00 00 00",
+        "[RDP connection request] mstshash=hello",
+        # How remote-desktop requests looked in logs written before the marker
+        "\x03\x00\x00+&\xe0\x00\x00\x00\x00\x00Cookie: mstshash=hello",
+    ],
+)
+def test_another_protocol_on_the_ftp_port_is_a_low_risk_scan(first_line):
+    session = make_session("ftp", [(first_line, 0.0)], duration_seconds=0.1)
+
+    summary = classify_session(session)
+
+    assert "ftp_other_protocol_probe" in summary.matched_rule_ids
+    assert "ftp_banner_probe_no_credentials" not in summary.matched_rule_ids
+    assert summary.actor_label == "automated_scanner"
+    assert summary.mitre_tags == ["T1046"]
+    assert summary.risk_level == "low"
+    assert summary.intent == "reconnaissance"
+
+
+@pytest.mark.parametrize("first_line", ["USER admin", "SYST", "AUTH TLS", "HELP"])
+def test_ftp_commands_are_not_another_protocol(first_line):
+    session = make_session("ftp", [(first_line, 0.0)], duration_seconds=0.1)
+
+    summary = classify_session(session)
+
+    assert "ftp_other_protocol_probe" not in summary.matched_rule_ids

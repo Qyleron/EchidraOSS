@@ -51,6 +51,32 @@ def _server_version_for(persona) -> str:
 # tests can shrink it to (0, 0) instead of eating this delay for real.
 AUTH_DELAY_RANGE = (0.5, 1.8)
 
+_CLIENT_VERSION_LIMIT = 255
+_END_ERROR_LIMIT = 1000
+
+
+def _printable(text: str, limit: int) -> str:
+    """Client-supplied text, with control characters replaced, cut to limit."""
+    return "".join(ch if ch.isprintable() else "?" for ch in text)[:limit]
+
+
+def _close_detail(exc: Exception | None, client_host_key_algs: list[str] | None) -> str | None:
+    """The reason a connection failed, for the session record.
+
+    A plain close carries no detail. asyncssh's host key mismatch message
+    doesn't name the client's types, so they are added from what the
+    client offered.
+    """
+    if exc is None:
+        return None
+    text = str(exc)
+    if isinstance(exc, asyncssh.ConnectionLost) and text == "Connection lost":
+        return None
+    if isinstance(exc, asyncssh.KeyExchangeFailed) and "host key" in text and client_host_key_algs:
+        text += f"; client offered {','.join(client_host_key_algs)}"
+    return _printable(text, _END_ERROR_LIMIT) or None
+
+
 # Ranks used to send a live alert only when the session's level rises, so
 # the 30-second live check doesn't call the alert path on every pass.
 # classifier/alerts.py applies the same rule again at session end.
@@ -79,6 +105,9 @@ class HoneypotSSHServer(asyncssh.SSHServer):
         self._on_connection_lost = on_connection_lost
         self._admitted = False
         self._conn: asyncssh.SSHServerConnection | None = None
+        self._auth_started = False
+        self._password_sent = False
+        self._client_host_key_algs: list[str] | None = None
 
     def connection_made(self, conn: asyncssh.SSHServerConnection) -> None:
         self._conn = conn
@@ -92,15 +121,74 @@ class HoneypotSSHServer(asyncssh.SSHServer):
         self.session = SessionState(peer, persona=get_active_persona())
         conn.set_extra_info(honeypot_server=self)
 
+        # asyncssh's "Unable to find compatible server host key" doesn't say
+        # what the client asked for, so note the client's host key types as
+        # asyncssh picks a key.
+        choose_server_host_key = conn.choose_server_host_key
+
+        def note_client_host_key_algs(peer_host_key_algs):
+            self._client_host_key_algs = [
+                _printable(alg.decode("ascii", "replace"), 100) for alg in peer_host_key_algs[:30]
+            ]
+            return choose_server_host_key(peer_host_key_algs)
+
+        conn.choose_server_host_key = note_client_host_key_algs
+
     def connection_lost(self, exc: Exception | None) -> None:
         if self._admitted and self._on_connection_lost is not None:
             self._on_connection_lost(self._conn)
-        self._finalize("error" if exc else self.end_reason)
+        if self.session is not None and self.session.end_stage is None:
+            # The connection ended before a shell opened.
+            self.record_client_version()
+            self.session.end_stage = self._stage_at_close(exc)
+            self.session.end_error = _close_detail(exc, self._client_host_key_algs)
+        self._finalize(self._end_reason_at_close(exc))
+
+    def record_client_version(self) -> None:
+        """Copy the client's SSH version line into the session, once it has one."""
+        if self.session is None or self.session.client_version or self._conn is None:
+            return
+        version = self._conn.get_extra_info("client_version")
+        if version:
+            self.session.client_version = _printable(version, _CLIENT_VERSION_LIMIT)
+
+    def _stage_at_close(self, exc: Exception | None) -> str:
+        if isinstance(exc, asyncssh.ProtocolNotSupported):
+            return "not_ssh"
+        if isinstance(exc, asyncssh.KeyExchangeFailed):
+            return "key_exchange_failed"
+        if self.session.client_version is None:
+            return "no_version"
+        if self._password_sent:
+            return "after_password"
+        if self._auth_started:
+            return "auth_without_password"
+        return "before_auth"
+
+    def _end_reason_at_close(self, exc: Exception | None) -> str:
+        """A failed handshake or broken protocol is an error; a client
+        closing the connection or giving up on logging in is a disconnect."""
+        if exc is None:
+            return self.end_reason
+        if isinstance(exc, asyncssh.ConnectionLost) and "timeout" in str(exc).lower():
+            return "timeout"
+        if not isinstance(exc, asyncssh.DisconnectError) or isinstance(
+            exc,
+            (asyncssh.KeyExchangeFailed, asyncssh.ProtocolNotSupported, asyncssh.ProtocolError),
+        ):
+            return "error"
+        return self.end_reason
+
+    def begin_auth(self, username: str) -> bool:
+        self._auth_started = True
+        self.record_client_version()
+        return True
 
     def password_auth_supported(self) -> bool:
         return True
 
     async def validate_password(self, username: str, password: str) -> bool:
+        self._password_sent = True
         username = username.strip()
         if username:
             self.session.log_command(f"login: {username}")
@@ -131,6 +219,8 @@ async def handle_shell(process: asyncssh.SSHServerProcess) -> None:
     """Drive one authenticated SSH session through the fake shell."""
     server: HoneypotSSHServer = process.get_extra_info("honeypot_server")
     session = server.session
+    session.end_stage = "shell"
+    server.record_client_version()
     engine = InteractionEngine()
 
     state = {"response_delay_seconds": 0.0, "highest_alerted_rank": -1}

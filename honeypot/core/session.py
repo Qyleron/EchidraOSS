@@ -23,6 +23,12 @@ class SessionState:
         self.end_reason = None
         self.persona = persona or get_persona()
 
+        # SSH only: the client's version line, how far the connection got,
+        # and the reason given when it failed.
+        self.client_version: str | None = None
+        self.end_stage: str | None = None
+        self.end_error: str | None = None
+
         # Activity tracking
         self.commands = []  
         self.command_count = 0  
@@ -98,7 +104,7 @@ class SessionState:
 
         peer_ip, peer_port = self._peer_ip_and_port()
 
-        return {
+        record = {
             "schema_version": 1,
             "session_id": self.session_id,
             "protocol": "tcp_shell",
@@ -113,6 +119,11 @@ class SessionState:
             "commands": list(self.commands),
             "decoy_files_surfaced": list(self.decoy_files_surfaced),
         }
+        for name in ("client_version", "end_stage", "end_error"):
+            value = getattr(self, name)
+            if value is not None:
+                record[name] = value
+        return record
 
     def active_record(self) -> dict:
         """Return a consistent point-in-time record for live classification."""

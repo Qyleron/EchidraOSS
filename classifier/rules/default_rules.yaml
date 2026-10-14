@@ -262,6 +262,26 @@ rules:
       - field: command_count
         operator: gte
         value: 1
+      - field: ftp_other_protocol_probe
+        operator: equals
+        value: false
+
+  - id: ftp_other_protocol_probe
+    name: Another protocol sent to the FTP port
+    actor_label: automated_scanner
+    confidence: 0.8
+    risk_score: 20
+    mitre_tags:
+      - T1046
+    evidence:
+      - Opened with another protocol (a web request, an SSH version line, or a TLS or remote-desktop handshake) instead of FTP, which is how scanners find services running on unexpected ports.
+    conditions:
+      - field: protocol
+        operator: equals
+        value: ftp
+      - field: ftp_other_protocol_probe
+        operator: equals
+        value: true
 
   - id: ftp_automated_credential_burst
     name: Automated FTP credential submission

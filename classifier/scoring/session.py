@@ -403,8 +403,9 @@ def _behavior_stage_and_intent(
     if "T1190" in tag_set:
         return "execution", "vulnerability_exploitation"
     # Checking for a product (T1595.002), reading Windows host details
-    # (T1592) and testing for an open proxy (T1090) all look before acting.
-    if tag_set & {"T1087", "T1082", "T1595", "T1595.002", "T1592", "T1090"}:
+    # (T1592), testing for an open proxy (T1090) and trying other protocols
+    # on a port (T1046) all look before acting.
+    if tag_set & {"T1087", "T1082", "T1595", "T1595.002", "T1592", "T1090", "T1046"}:
         return "discovery", "reconnaissance"
     if "T1059" in tag_set:
         return "execution", "interactive_operation"

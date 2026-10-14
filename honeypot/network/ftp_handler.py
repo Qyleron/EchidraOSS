@@ -4,12 +4,34 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 
 from honeypot.logging.session_logger import SessionLogger, finalize_and_schedule
 from honeypot.network.config import READ_TIMEOUT, SESSION_LOG_PATH, get_active_persona
 from honeypot.network.protocol_session import ProtocolSession
 
 logger = logging.getLogger(__name__)
+
+# First bytes of a TLS handshake (0x16) and a remote-desktop connection
+# request (0x03, a TPKT header). Neither is text, so neither ends with a
+# line break the way an FTP command does.
+_BINARY_FIRST_BYTES = {0x16, 0x03}
+# How long to wait for the rest of a binary opening once its first byte is in.
+BINARY_READ_SECONDS = 2.0
+_RDP_COOKIE_PATTERN = re.compile(rb"mstshash=([\x21-\x7e]{1,64})")
+
+
+def _describe_first_message(data: bytes) -> str:
+    """The first message as a log line; TLS and remote-desktop openings
+    become a readable marker instead of binary noise."""
+    if data[:1] == b"\x16" and data[1:2] in (b"\x03", b""):
+        return f"[TLS handshake] {data[:16].hex(' ')}"
+    if data[:2] == b"\x03\x00":
+        cookie = _RDP_COOKIE_PATTERN.search(data)
+        return "[RDP connection request]" + (
+            f" mstshash={cookie.group(1).decode('ascii')}" if cookie else ""
+        )
+    return data.decode(errors="ignore").rstrip("\r\n")
 
 
 class FtpHandler:
@@ -40,7 +62,7 @@ class FtpHandler:
         try:
             await self._send("220 (vsFTPd 3.0.3)\r\n")
 
-            username = await self._read_command()
+            username = await self._read_first_message()
             if not username:
                 return
 
@@ -87,6 +109,25 @@ class FtpHandler:
     async def _send(self, text: str) -> None:
         self.writer.write(text.encode())
         await self.writer.drain()
+
+    async def _read_first_message(self) -> str | None:
+        """Read the client's first message, which is not always FTP.
+
+        Scanners send web requests, TLS handshakes and remote-desktop
+        requests to every open port. A binary opening has no line break, so
+        waiting for one would sit until the read timeout and record nothing.
+        """
+        first = await asyncio.wait_for(self.reader.read(1), timeout=READ_TIMEOUT)
+        if not first:
+            return None
+        if first[0] in _BINARY_FIRST_BYTES:
+            try:
+                rest = await asyncio.wait_for(self.reader.read(4096), timeout=BINARY_READ_SECONDS)
+            except asyncio.TimeoutError:
+                rest = b""
+        else:
+            rest = await asyncio.wait_for(self.reader.readline(), timeout=READ_TIMEOUT)
+        return _describe_first_message(first + rest)
 
     async def _read_command(self) -> str | None:
         try:

@@ -355,3 +355,170 @@ async def test_ten_concurrent_clients_complete_independently(running_server):
         asyncio.gather(*(one_client(n) for n in range(10))),
         timeout=15,
     )
+
+
+# ---------------------------------------------------------------------------
+# how far a connection got, and the client's version line
+# ---------------------------------------------------------------------------
+
+
+async def wait_for_record(log_path):
+    for _ in range(150):
+        if log_path.exists() and log_path.read_text(encoding="utf-8").strip():
+            return read_records(log_path)[0]
+        await asyncio.sleep(0.02)
+    raise AssertionError("the session was not logged")
+
+
+@pytest.mark.asyncio
+async def test_a_shell_session_records_the_client_version(running_server):
+    port, _, log_path = running_server
+
+    conn = await connect(port)
+    await conn.run("whoami")
+    conn.close()
+    await conn.wait_closed()
+
+    record = await wait_for_record(log_path)
+    assert record["end_stage"] == "shell"
+    assert record["client_version"].startswith("SSH-2.0-AsyncSSH")
+    assert "end_error" not in record
+
+
+@pytest.mark.asyncio
+async def test_closing_after_the_password_without_a_shell(running_server):
+    port, _, log_path = running_server
+
+    conn = await connect(port, username="root", password="admin")
+    conn.close()
+    await conn.wait_closed()
+
+    record = await wait_for_record(log_path)
+    assert record["end_stage"] == "after_password"
+    assert record["end_reason"] == "disconnect"
+    assert record["client_version"].startswith("SSH-2.0-AsyncSSH")
+    assert [c["cmd"] for c in record["commands"]] == ["login: root", "password: admin"]
+
+
+@pytest.mark.asyncio
+async def test_closing_before_sending_a_version_line(running_server):
+    port, _, log_path = running_server
+
+    reader, writer = await asyncio.open_connection("127.0.0.1", port)
+    banner = await asyncio.wait_for(reader.readline(), timeout=3)
+    assert banner.startswith(b"SSH-2.0-")
+    writer.close()
+    await writer.wait_closed()
+
+    record = await wait_for_record(log_path)
+    assert record["end_stage"] == "no_version"
+    assert record["end_reason"] == "disconnect"
+    assert "client_version" not in record
+    assert "end_error" not in record
+
+
+@pytest.mark.asyncio
+async def test_traffic_that_is_not_ssh(running_server):
+    port, _, log_path = running_server
+
+    reader, writer = await asyncio.open_connection("127.0.0.1", port)
+    writer.write(b"GET / HTTP/1.1\r\nHost: example\r\n\r\n")
+    await writer.drain()
+    await asyncio.wait_for(reader.read(), timeout=3)
+    writer.close()
+
+    record = await wait_for_record(log_path)
+    assert record["end_stage"] == "not_ssh"
+    assert record["end_reason"] == "error"
+    assert record["end_error"] == "Unsupported SSH version"
+
+
+@pytest.mark.asyncio
+async def test_a_host_key_mismatch_records_what_the_client_offered(running_server):
+    port, _, log_path = running_server
+
+    with pytest.raises((asyncssh.Error, OSError)):
+        await asyncio.wait_for(
+            asyncssh.connect(
+                "127.0.0.1",
+                port,
+                username="root",
+                password="admin",
+                known_hosts=None,
+                server_host_key_algs=["rsa-sha2-256"],
+            ),
+            timeout=5,
+        )
+
+    record = await wait_for_record(log_path)
+    assert record["end_stage"] == "key_exchange_failed"
+    assert record["end_reason"] == "error"
+    assert record["end_error"].startswith(
+        "Unable to find compatible server host key; client offered rsa-sha2-256"
+    )
+    assert record["commands"] == []
+
+
+@pytest.mark.asyncio
+async def test_a_login_without_a_password(running_server):
+    port, _, log_path = running_server
+
+    with pytest.raises((asyncssh.Error, OSError)):
+        await asyncio.wait_for(
+            asyncssh.connect(
+                "127.0.0.1",
+                port,
+                username="root",
+                known_hosts=None,
+                agent_path=None,
+                client_keys=[asyncssh.generate_private_key("ssh-ed25519")],
+                preferred_auth="publickey",
+            ),
+            timeout=5,
+        )
+
+    record = await wait_for_record(log_path)
+    assert record["end_stage"] == "auth_without_password"
+    assert record["end_reason"] == "disconnect"
+    assert record["commands"] == []
+
+
+def _server_with_session(**flags):
+    from honeypot.core.session import SessionState
+
+    server = ssh_server_module.HoneypotSSHServer(session_logger=SessionLogger("unused.jsonl"))
+    server.session = SessionState(("198.51.100.7", 40000))
+    for name, value in flags.items():
+        setattr(server, name, value)
+    return server
+
+
+def test_closing_after_the_handshake_before_logging_in():
+    server = _server_with_session()
+    server.session.client_version = "SSH-2.0-Go"
+
+    assert server._stage_at_close(None) == "before_auth"
+
+
+@pytest.mark.parametrize(
+    "exc, expected_reason",
+    [
+        (None, "disconnect"),
+        (asyncssh.ConnectionLost("Connection lost"), "disconnect"),
+        (asyncssh.ConnectionLost("Login timeout expired"), "timeout"),
+        (asyncssh.PermissionDenied("No more authentication methods available"), "disconnect"),
+        (asyncssh.ProtocolNotSupported("Unsupported SSH version"), "error"),
+        (asyncssh.KeyExchangeFailed("Unable to find compatible server host key"), "error"),
+        (RuntimeError("unexpected"), "error"),
+    ],
+)
+def test_end_reason_when_the_connection_closes_before_a_shell(exc, expected_reason):
+    assert _server_with_session()._end_reason_at_close(exc) == expected_reason
+
+
+def test_close_detail_is_printable_and_bounded():
+    detail = ssh_server_module._close_detail(asyncssh.ProtocolError("bad\x00" + "x" * 2000), None)
+
+    assert detail.startswith("bad?x")
+    assert len(detail) == 1000
+    assert ssh_server_module._close_detail(asyncssh.ConnectionLost("Connection lost"), None) is None

@@ -4,6 +4,7 @@ import json
 import pytest
 
 import honeypot.logging.session_logger as session_logger_module
+import honeypot.network.ftp_handler as ftp_handler_module
 from honeypot.logging.session_logger import SessionLogger
 from honeypot.network.ftp_handler import FtpHandler
 
@@ -38,20 +39,40 @@ class FakeWriter:
         pass
 
 
-class FakeReader:
-    """Small stand-in for asyncio's StreamReader that yields one line per call."""
+class BufferReader:
+    """Small stand-in for asyncio's StreamReader over bytes the client sent.
 
-    def __init__(self, messages):
-        self.messages = [m.encode() + b"\r\n" for m in messages]
+    The handler reads the first byte on its own (to spot TLS and
+    remote-desktop openings) and the rest line by line, so this supports
+    both read(n) and readline() over one buffer.
+    """
+
+    def __init__(self, data: bytes):
+        self.data = data
+
+    async def read(self, n=-1):
+        await asyncio.sleep(0)
+        if n < 0:
+            n = len(self.data)
+        chunk, self.data = self.data[:n], self.data[n:]
+        return chunk
 
     async def readline(self):
         await asyncio.sleep(0)
-        if self.messages:
-            return self.messages.pop(0)
-        return b""
+        index = self.data.find(b"\n")
+        end = len(self.data) if index < 0 else index + 1
+        line, self.data = self.data[:end], self.data[end:]
+        return line
 
 
-class OverrunReader:
+class FakeReader(BufferReader):
+    """A client sending these text lines."""
+
+    def __init__(self, messages):
+        super().__init__(b"".join(m.encode() + b"\r\n" for m in messages))
+
+
+class OverrunReader(BufferReader):
     """Reader that simulates a too-long line arriving from the client.
 
     Real asyncio.StreamReader.readline() catches its own internal
@@ -60,21 +81,32 @@ class OverrunReader:
     instead of leaking the internal LimitOverrunError type.
     """
 
+    def __init__(self):
+        super().__init__(b"A")
+
     async def readline(self):
         await asyncio.sleep(0)
         raise ValueError("line too long")
 
 
-class RawLineReader:
+class RawLineReader(BufferReader):
     """Reader that serves exact raw bytes lines, bypassing str encoding."""
 
     def __init__(self, lines: list[bytes]):
-        self.lines = list(lines)
+        super().__init__(b"".join(lines))
 
-    async def readline(self):
-        await asyncio.sleep(0)
-        if self.lines:
-            return self.lines.pop(0)
+
+class StalledReader:
+    """A client that sends its first bytes, then nothing more."""
+
+    def __init__(self, first: bytes):
+        self.first = first
+
+    async def read(self, n=-1):
+        if self.first:
+            chunk, self.first = self.first, b""
+            return chunk
+        await asyncio.sleep(10)
         return b""
 
 
@@ -218,3 +250,51 @@ async def test_ftp_undecodable_bytes_are_still_captured(tmp_path):
     assert records[0]["end_reason"] == "disconnect"
     assert records[0]["command_count"] == 1
     assert records[0]["commands"][0]["cmd"] == "garbage-command"
+
+
+async def _first_command(tmp_path, reader):
+    writer = FakeWriter()
+    log_path = tmp_path / "sessions.jsonl"
+    handler = FtpHandler(reader, writer, session_logger=SessionLogger(str(log_path)))
+
+    await handler.handle()
+
+    assert "530 Login incorrect." in writer.buffer.decode()
+    record = read_records(log_path)[0]
+    assert record["command_count"] == 1
+    return record
+
+
+@pytest.mark.asyncio
+async def test_a_tls_handshake_is_logged_as_a_marker(tmp_path):
+    hello = bytes.fromhex("16 03 01 02 00 01 00 01 fc 03 03") + bytes(40)
+
+    record = await _first_command(tmp_path, BufferReader(hello))
+
+    assert record["commands"][0]["cmd"] == "[TLS handshake] 16 03 01 02 00 01 00 01 fc 03 03 00 00 00 00 00"
+
+
+@pytest.mark.asyncio
+async def test_a_remote_desktop_request_is_logged_with_its_cookie(tmp_path):
+    request = b"\x03\x00\x00\x2b\x26\xe0\x00\x00\x00\x00\x00Cookie: mstshash=hello\r\n\x01\x00\x08\x00\x03\x00\x00\x00"
+
+    record = await _first_command(tmp_path, BufferReader(request))
+
+    assert record["commands"][0]["cmd"] == "[RDP connection request] mstshash=hello"
+
+
+@pytest.mark.asyncio
+async def test_a_binary_opening_without_a_line_break_does_not_wait_for_one(tmp_path, monkeypatch):
+    monkeypatch.setattr(ftp_handler_module, "BINARY_READ_SECONDS", 0.05)
+
+    record = await asyncio.wait_for(_first_command(tmp_path, StalledReader(b"\x16")), timeout=2)
+
+    assert record["commands"][0]["cmd"] == "[TLS handshake] 16"
+    assert record["end_reason"] == "disconnect"
+
+
+@pytest.mark.asyncio
+async def test_a_web_request_is_logged_as_sent(tmp_path):
+    record = await _first_command(tmp_path, FakeReader(["GET / HTTP/1.1", "Host: example"]))
+
+    assert record["commands"][0]["cmd"] == "GET / HTTP/1.1"

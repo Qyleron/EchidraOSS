@@ -123,6 +123,14 @@ _HTTP_PROBE_TARGETS = (
     ("/api/tags", "ai_model_api"),
     ("/wsman", "winrm"),
 )
+# Another protocol's opening sent to the FTP port: a web request line, an
+# SSH version line, or the markers the FTP decoy logs for TLS and
+# remote-desktop handshakes. "mstshash=" also finds remote-desktop requests
+# in logs written before those markers existed.
+_FTP_OTHER_PROTOCOL_PATTERN = re.compile(
+    r"^(?:[a-z]{3,7} \S+ http/\d|ssh-\d|\[tls handshake\]|\[rdp connection request\])"
+    r"|mstshash="
+)
 # A download tool invoked as a command ("wget http://...", "/usr/bin/curl -s
 # ...", "busybox tftp ..."), not merely mentioned inside another word or a
 # filename ("out_wget", "mycurl").
@@ -203,6 +211,9 @@ class SessionFeatures(BaseModel):
     ssh_credentials_tried: list[str] = Field(default_factory=list)
     # Same idea as telnet_credentials_tried, for FTP's USER/PASS exchange.
     ftp_credentials_tried: list[str] = Field(default_factory=list)
+    # True if the FTP port received another protocol's opening: a web
+    # request, an SSH version line, or a TLS or remote-desktop handshake.
+    ftp_other_protocol_probe: bool = False
     # Same idea again, for credentials found in an HTTP POST body.
     http_credentials_tried: list[str] = Field(default_factory=list)
     # Request-line paths observed over HTTP, in the order requested (eg.
@@ -274,6 +285,7 @@ def extract_session_features(
     telnet_credentials_tried: list[str] = []
     ssh_credentials_tried: list[str] = []
     ftp_credentials_tried: list[str] = []
+    ftp_other_protocol_probe = False
     http_credentials_tried: list[str] = []
     http_paths_requested: list[str] = []
     http_user_agents: list[str] = []
@@ -316,6 +328,8 @@ def extract_session_features(
                 ssh_credentials_tried.append(f"{_pending_ssh_username}:{password}")
                 _pending_ssh_username = None
         elif session.protocol == "ftp":
+            if _FTP_OTHER_PROTOCOL_PATTERN.search(normalized):
+                ftp_other_protocol_probe = True
             if command_name == "user" and args:
                 _pending_ftp_username = args[0].strip().lower()
             elif command_name == "pass" and args and _pending_ftp_username is not None:
@@ -439,6 +453,7 @@ def extract_session_features(
         telnet_credentials_tried=telnet_credentials_tried,
         ssh_credentials_tried=ssh_credentials_tried,
         ftp_credentials_tried=ftp_credentials_tried,
+        ftp_other_protocol_probe=ftp_other_protocol_probe,
         http_credentials_tried=http_credentials_tried,
         http_paths_requested=http_paths_requested,
         http_user_agents=http_user_agents,

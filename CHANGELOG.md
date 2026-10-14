@@ -28,6 +28,16 @@ All notable changes to Echidra are documented here. The format follows
   OpenAI-style APIs), and WinRM and Windows sign-in probes. More secret
   and configuration files count as sensitive (`.aws/credentials`,
   `config.json`, `terraform.tfstate` and others).
+- SSH session records include the client's version line and how far the
+  connection got (`end_stage`: before the version line, not SSH, key
+  exchange failed, before login, login without a password, after the
+  password, or shell), with the reason in `end_error` when one was given,
+  including the host key types a client asked for when none matched.
+- The FTP decoy recognises other protocols sent to its port. TLS and
+  remote-desktop openings are logged as readable markers, and a classifier
+  rule labels web, SSH, TLS and remote-desktop openings as a scan for
+  services on unexpected ports (T1046, Network Service Discovery), with a
+  recommended fix.
 - The fake shell answers `echo`, including `-n`, `-e` and its escapes;
   runs several commands on one line (`;`, `&&`, `||`) and pipelines, with
   `grep`, `head`, `tail`, `wc`, `base64` and `sh -c`; accepts programs by
@@ -85,6 +95,8 @@ All notable changes to Echidra are documented here. The format follows
   scrollbars and autofill styling; empty pages explain what happens next.
 
 ### Fixed
+- An SSH client that closes the connection before logging in is recorded
+  as a disconnect, not an error; a login timeout is recorded as a timeout.
 - Alerts sent while an SSH session is still open are recorded in the alert
   history, and with "both" routing each channel is sent and recorded on its
   own.

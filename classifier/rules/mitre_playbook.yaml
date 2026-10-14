@@ -15,6 +15,11 @@ T1005:
   recommended_fix: Tune decoy file placement so sensitive-looking files are the ones being read, and alert on any read of a real credential or configuration file.
   impact: Confirms which local files attract attacker attention and where equivalent monitoring is worth adding on real systems.
 
+T1046:
+  name: Network Service Discovery
+  recommended_fix: Close every port you don't use, and keep the services you do run on their usual ports behind a firewall that only admits the addresses that need them.
+  impact: Leaves scanners less to find, so fewer of your services end up on the target lists bots work from.
+
 T1059:
   name: Command and Scripting Interpreter
   recommended_fix: Flag interactive, low-and-slow shell sessions for manual review and keep the session open long enough to observe further behavior before disconnecting.

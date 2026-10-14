@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 
 from classifier.pipeline import schedule_auto_classification
-from classifier.schemas.session import SessionRecord
+from classifier.schemas.session import SSH_DETAIL_FIELDS, SessionRecord
 from honeypot.core.session import SessionState
 
 
@@ -23,7 +23,8 @@ class SessionLogger:
         """
         self.path.parent.mkdir(parents=True, exist_ok=True)
         record = SessionRecord.model_validate(session.to_record())
-        line = json.dumps(json.loads(record.model_dump_json()), sort_keys=True) + "\n"
+        unset = {name for name in SSH_DETAIL_FIELDS if getattr(record, name) is None}
+        line = json.dumps(json.loads(record.model_dump_json(exclude=unset)), sort_keys=True) + "\n"
 
         # 0o600: this file accumulates captured FTP/Telnet credentials and
         # HTTP Authorization headers, so it must not be world/group-readable.
