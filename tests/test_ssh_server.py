@@ -190,6 +190,27 @@ async def test_interactive_exit_produces_logout_reason(running_server):
 
 
 @pytest.mark.asyncio
+async def test_output_before_exit_on_the_same_line_is_sent(running_server):
+    port, _, log_path = running_server
+
+    conn = await connect(port)
+    process = await conn.create_process(term_type="ansi")
+    await asyncio.wait_for(process.stdout.readuntil("# "), timeout=5)
+
+    # Escaped, so "bye" can only come from the output, not the typed line
+    process.stdin.write('echo -e "\\x62\\x79\\x65"; exit\n')
+    tail = await asyncio.wait_for(process.stdout.read(), timeout=5)
+    assert "bye" in tail
+    assert "logout" in tail
+
+    conn.close()
+    await conn.wait_closed()
+    await asyncio.sleep(0.1)
+
+    assert read_records(log_path)[0]["end_reason"] == "logout"
+
+
+@pytest.mark.asyncio
 async def test_client_disconnect_without_exit_produces_disconnect_reason(running_server):
     port, _, log_path = running_server
 
@@ -231,7 +252,8 @@ async def test_non_interactive_exec_runs_one_command_without_a_shell_loop(runnin
 
     conn = await connect(port, username="admin", password="admin")
     result = await conn.run("whoami", check=True)
-    assert "root" in result.stdout
+    # Just the output: `ssh host cmd` never prints a shell prompt
+    assert result.stdout == "root\n"
 
     conn.close()
     await conn.wait_closed()

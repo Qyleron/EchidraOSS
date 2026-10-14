@@ -21,7 +21,11 @@ All notable changes to Echidra are documented here. The format follows
   high and come with a recommended fix. Two more cover reading a system
   program to learn the CPU type and confirming a guessed password with a
   test command (T1110.001, Password Guessing), both rated medium.
-- The fake shell answers `echo`, including `-n`, `-e` and its escapes.
+- The fake shell answers `echo`, including `-n`, `-e` and its escapes;
+  runs several commands on one line (`;`, `&&`, `||`); accepts programs
+  by full path (`/bin/echo`) and BusyBox applets on the router persona;
+  and prints a program file header that matches the persona's CPU.
+  Non-interactive `ssh host cmd` output no longer ends with a prompt.
 - GitHub Actions: tests on Python 3.11–3.13, CodeQL, and OpenSSF Scorecard; Dependabot for pip,
   Docker, and Actions.
 
