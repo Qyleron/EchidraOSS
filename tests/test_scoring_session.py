@@ -142,7 +142,7 @@ def test_summary_aggregates_risk_evidence_and_mitre_tags():
     assert summary.feature_summary.sensitive_file_read_count == 1
     assert summary.feature_summary.decoy_files_surfaced_count == 1
     assert summary.feature_summary.exit_command_present is False
-    assert summary.mitre_tags == ["T1087", "T1082", "T1005", "T1552.001"]
+    assert summary.mitre_tags == ["T1552.001", "T1005", "T1082", "T1087"]
     assert [item.text for item in summary.evidence] == [
         "High command rate.",
         "Sensitive file read.",

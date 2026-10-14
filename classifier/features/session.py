@@ -115,6 +115,10 @@ _AUTHORIZED_KEYS_WRITE_PATTERN = re.compile(
 _SYSTEM_BINARY_READ_PATTERN = re.compile(
     r"(?<![A-Za-z0-9_.-])cat\s+(?:-\S+\s+)*['\"]?/(?:usr/)?s?bin/[a-z0-9_.+-]+(?![\w./-])"
 )
+# Anything that sends echo's output somewhere other than the screen, or
+# runs a second command on the same line. A login check is a bare echo.
+_NOT_A_PLAIN_ECHO_PATTERN = re.compile(r"[|;&<>`]|\$\(")
+_ECHO_COMMAND_NAMES = {"echo", "/bin/echo", "/usr/bin/echo"}
 # Bounds for normalizing average_inter_command_interval_seconds into a 0-1
 # human_timing_score. Below BOT_SPEED, commands are indistinguishable from
 # automation (matches the ftp/telnet automated-credential-burst rules'
@@ -191,6 +195,10 @@ class SessionFeatures(BaseModel):
     # (/bin, /sbin, /usr/bin, /usr/sbin) with cat, which is how a malware
     # loader learns the CPU type. A dedicated boolean for the same reason.
     system_binary_read_attempt: bool = False
+    # True if, after logging in, the session only ran plain echo commands
+    # (eg. echo OK, echo -e "\x6F\x6B"): a bot confirming the guessed
+    # password works, then leaving. A closing exit doesn't change that.
+    login_check_only: bool = False
     # Cross-session feature — only populated by the store-time path when the DB
     # is available; None in the stateless /classify/session endpoint by design.
     connection_count_from_same_ip: int | None = None
@@ -221,6 +229,8 @@ def extract_session_features(
     _run_fetched_seen = False
     authorized_keys_write_attempt = False
     system_binary_read_attempt = False
+    _plain_echo_seen = False
+    _other_command_seen = False
     _pending_telnet_username: str | None = None
     _pending_ssh_username: str | None = None
     _pending_ftp_username: str | None = None
@@ -287,6 +297,13 @@ def extract_session_features(
                 authorized_keys_write_attempt = True
             if _SYSTEM_BINARY_READ_PATTERN.search(normalized):
                 system_binary_read_attempt = True
+            if (
+                command_name in _ECHO_COMMAND_NAMES
+                and not _NOT_A_PLAIN_ECHO_PATTERN.search(normalized)
+            ):
+                _plain_echo_seen = True
+            elif command_name not in EXIT_COMMANDS:
+                _other_command_seen = True
 
         if command_name in DISCOVERY_COMMANDS:
             discovery_command_count += 1
@@ -347,6 +364,9 @@ def extract_session_features(
         remote_fetch_and_run_attempt=_remote_fetch_seen and _run_fetched_seen,
         authorized_keys_write_attempt=authorized_keys_write_attempt,
         system_binary_read_attempt=system_binary_read_attempt,
+        login_check_only=(
+            bool(ssh_credentials_tried) and _plain_echo_seen and not _other_command_seen
+        ),
         connection_count_from_same_ip=connection_count_from_same_ip,
     )
 

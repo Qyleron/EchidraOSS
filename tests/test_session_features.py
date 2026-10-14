@@ -607,6 +607,46 @@ def test_reading_other_files_is_not_flagged_as_a_system_program_read():
     assert features.system_binary_read_attempt is False
 
 
+def test_login_followed_only_by_echo_checks_is_flagged():
+    session = create_session([
+        ("login: root", 0.0),
+        ("password: admin", 0.0),
+        (r'echo -e "\x6F\x6B"', 1.0),
+        ("echo OK", 1.5),
+        ("exit", 2.0),
+    ])
+
+    features = extract_session_features(session)
+
+    assert features.login_check_only is True
+
+
+def test_echo_check_is_not_flagged_without_a_login_or_with_more_commands():
+    """No login, a second real command, or an echo that writes a file or
+    runs something else is not a bare login check."""
+    no_login = create_session([("echo OK", 1.0)])
+    more_commands = create_session([
+        ("login: root", 0.0),
+        ("password: admin", 0.0),
+        ("echo OK", 1.0),
+        ("uname -a", 2.0),
+    ])
+    redirected = create_session([
+        ("login: root", 0.0),
+        ("password: admin", 0.0),
+        ("echo ssh-rsa AAAA >> ~/.ssh/authorized_keys", 1.0),
+    ])
+    chained = create_session([
+        ("login: root", 0.0),
+        ("password: admin", 0.0),
+        ("echo OK; cat /proc/cpuinfo", 1.0),
+    ])
+    login_only = create_session([("login: root", 0.0), ("password: admin", 0.0)])
+
+    for session in (no_login, more_commands, redirected, chained, login_only):
+        assert extract_session_features(session).login_check_only is False
+
+
 def test_handles_malformed_shell_input_as_observed_command():
     """Malformed input should remain measurable without crashing extraction."""
     session = create_session([

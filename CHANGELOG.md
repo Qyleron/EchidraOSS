@@ -18,12 +18,16 @@ All notable changes to Echidra are documented here. The format follows
 - Classifier rules for what an SSH session does after logging in:
   downloading and running a program (intent "Payload Delivery") and adding
   a login key to `authorized_keys` (intent "Persistence"). Both are rated
-  high and come with a recommended fix. A third rule covers reading a
-  system program to learn the CPU type, rated medium.
+  high and come with a recommended fix. Two more cover reading a system
+  program to learn the CPU type and confirming a guessed password with a
+  test command (T1110.001, Password Guessing), both rated medium.
+- The fake shell answers `echo`, including `-n`, `-e` and its escapes.
 - GitHub Actions: tests on Python 3.11–3.13, CodeQL, and OpenSSF Scorecard; Dependabot for pip,
   Docker, and Actions.
 
 ### Changed
+- A session's ATT&CK techniques are listed most serious first, so alerts
+  lead with the fix for the most serious thing the session did.
 - The Telnet Mirai rule matches only device-specific factory passwords and
   is tagged T1078.001 (Default Accounts), with its own recommended fix.
   Generic pairs such as `admin:admin` are labelled as brute-force.

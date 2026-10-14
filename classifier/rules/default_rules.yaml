@@ -170,6 +170,23 @@ rules:
         operator: equals
         value: true
 
+  - id: ssh_login_check
+    name: Guessed SSH password confirmed with a test command
+    actor_label: brute_force_bot
+    confidence: 0.8
+    risk_score: 60
+    mitre_tags:
+      - T1110.001
+    evidence:
+      - After logging in with a guessed password, the session only ran a test command such as echo OK, which a bot does to confirm the password works before reporting it or coming back.
+    conditions:
+      - field: protocol
+        operator: equals
+        value: tcp_shell
+      - field: login_check_only
+        operator: equals
+        value: true
+
   - id: scripted_probe_with_clean_exit
     name: Scripted probe with clean exit
     actor_label: script_kiddie

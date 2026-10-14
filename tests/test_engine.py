@@ -349,6 +349,45 @@ def test_errors_echo_the_operand_as_typed():
     assert "bash: cd: nope: No such file or directory" in engine.process("cd nope", session)
 
 
+def test_echo_answers_the_login_checks_bots_send():
+    """The three checks seen most often right after an SSH login."""
+    engine = InteractionEngine()
+    session = create_session()
+    prompt = session.prompt()
+
+    assert engine.process(r'echo -e "\x6F\x6B"', session) == f"ok\n{prompt}"
+    assert engine.process("echo OK", session) == f"OK\n{prompt}"
+    assert engine.process("echo -n login_success", session) == f"login_success{prompt}"
+
+
+def test_echo_handles_options_and_escapes_like_bash():
+    engine = InteractionEngine()
+    session = create_session()
+    prompt = session.prompt()
+
+    # Without -e, backslashes are printed as typed
+    assert engine.process(r'echo "a\tb"', session) == f"a\\tb\n{prompt}"
+    assert engine.process(r'echo -e "a\tb\n"', session) == f"a\tb\n\n{prompt}"
+    assert engine.process(r'echo -ne "\0101\u00e9"', session) == f"Aé{prompt}"
+    assert engine.process(r'echo -e "stop\cnot shown"', session) == f"stop{prompt}"
+    assert engine.process(r'echo -e "\x"', session) == f"\\x\n{prompt}"
+    # Not an option: printed as text
+    assert engine.process("echo -x hi", session) == f"-x hi\n{prompt}"
+    assert engine.process("echo", session) == f"\n{prompt}"
+    assert engine.process("/bin/echo hi", session) == f"hi\n{prompt}"
+
+
+def test_echo_into_a_file_or_pipe_prints_nothing():
+    engine = InteractionEngine()
+    session = create_session()
+    prompt = session.prompt()
+
+    assert engine.process("echo ssh-rsa AAAA >> .ssh/authorized_keys", session) == prompt
+    assert engine.process("echo aGk= | base64 -d", session) == prompt
+    assert engine.process("echo hi 2>/dev/null", session) == f"hi\n{prompt}"
+    assert session.commands[-1]["cmd"] == "echo hi 2>/dev/null"
+
+
 def test_banner_last_login_is_not_a_fixed_placeholder():
     engine = InteractionEngine()
     session = create_session()

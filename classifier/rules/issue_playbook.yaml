@@ -34,6 +34,10 @@ fixes:
       title: The same source IP is reconnecting far more often than normal, consistent with automated credential or access testing.
       recommended_fix: Rate-limit or temporarily block source IPs that exceed a connection threshold within a short window (fail2ban-style), and watch for the same IP touching multiple personas.
       impact: Catches automated hammering even though this honeypot has no password prompt to literally brute-force.
+    T1110.001:
+      title: Brute-force bots are confirming that a guessed SSH password works, then leaving.
+      recommended_fix: Disable password login over SSH and use keys. Change any password that appears in these sessions if it is used on a real system, since a confirmed password is usually used later from a different address.
+      impact: Stops a confirmed password from being reused, which is the step that usually follows from a different address.
 
   automated_scanner:
     T1087:
@@ -58,11 +62,8 @@ fixes:
       title: Commodity bots are searching for credentials stored in files.
       recommended_fix: Remove plaintext credentials from disk, rotate decoy credentials periodically, and alert on credential-file access.
       impact: Closes a common, low-effort path to lateral movement.
-    # No commodity_bot/T1110 entry on purpose: a commodity bot that logged
-    # in over SSH carries T1110 next to the tag for what it did afterwards
-    # (T1105, T1098.004), and alerts take the first entry found in tag
-    # order -- an entry here would put the login fix ahead of the fix for
-    # the download or the planted key.
+    # No commodity_bot/T1110 entry: a commodity bot's finding names what it
+    # did after logging in over SSH (T1105, T1098.004, T1082), not the login.
     T1078.001:
       title: A known Mirai-family default credential was submitted over Telnet, consistent with an IoT botnet's fixed wordlist rather than generic brute-forcing.
       recommended_fix: Treat these hits as an IoT botnet campaign indicator distinct from ordinary brute-force traffic -- cross-reference the source IP against known Mirai C2/scanner ranges and prioritize alerting over rate-limiting alone, since these bots don't back off.

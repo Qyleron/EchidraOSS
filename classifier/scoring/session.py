@@ -175,9 +175,7 @@ def summarize_rule_evaluation(
     risk_score = _combined_risk_score(matched_rules)
     actor_label, confidence = _actor_vote(matched_rules)
     risk_level = _risk_level(risk_score)
-    mitre_tags = _unique_ordered(
-        tag for match in matched_rules for tag in match.mitre_tags
-    )
+    mitre_tags = _tags_by_seriousness(matched_rules)
     behavior_stage, intent = _behavior_stage_and_intent(
         matched_rules,
         mitre_tags,
@@ -385,7 +383,7 @@ def _behavior_stage_and_intent(
     # fell through to behavior_stage="none"/intent="unknown" despite being
     # unambiguously credential-access activity. T1078.001 (Default Accounts)
     # is a factory password being tried, so it belongs here too.
-    if "T1552.001" in tag_set or "T1110" in tag_set or "T1078.001" in tag_set:
+    if tag_set & {"T1552.001", "T1110", "T1110.001", "T1078.001"}:
         return "credential_access", "credential_theft"
     if "T1005" in tag_set:
         return "collection", "data_access"
@@ -538,6 +536,23 @@ def _analyst_recommendation(
             ),
             supporting_evidence=supporting_evidence,
     )
+
+
+def _tags_by_seriousness(matches: list[RuleMatch]) -> list[str]:
+    """MITRE tags, most serious first.
+
+    Alerts show the fix for the first tag, so a session that logged in and
+    then downloaded a program must lead with the download, not the login.
+    Order: the risk score of the rule that produced the tag, then a
+    sub-technique (T1110.001) ahead of its general form (T1110), then rule
+    file order.
+    """
+    ranked = sorted(
+        (-match.risk_score, "." not in tag, rule_position, tag_position, tag)
+        for rule_position, match in enumerate(matches)
+        for tag_position, tag in enumerate(match.mitre_tags)
+    )
+    return _unique_ordered(tag for *_, tag in ranked)
 
 
 def _unique_ordered(values) -> list[str]:

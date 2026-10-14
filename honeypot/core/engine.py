@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import random
+import re
 import shlex
 import time
 from pathlib import PurePosixPath
@@ -119,6 +120,12 @@ class InteractionEngine:
 
         if cmd == "curl":
             return f"{self._curl(args)}{session.prompt()}"
+
+        # Bots confirm a guessed login works with `echo OK` or
+        # `echo -e "\x6F\x6B"` before doing anything else; "command not
+        # found" here ends the session before the real payload is sent.
+        if cmd in ("echo", "/bin/echo", "/usr/bin/echo"):
+            return f"{_echo(args)}{session.prompt()}"
 
         if cmd == "hostname":
             return f"{session.persona.hostname}\n{session.prompt()}"
@@ -349,6 +356,96 @@ def _url_host(url: str) -> str:
     host = urlsplit(url if "://" in url else f"http://{url}").hostname
     return host or url
 
+
+def _echo(args: list[str]) -> str:
+    """Output of bash's `echo` builtin (xpg_echo off) for already-split words."""
+    newline = True
+    escapes = False
+    index = 0
+    # Only leading words made entirely of n/e/E flags are options; bash
+    # prints anything else ("-x", "--", "-ne5") as text.
+    while index < len(args) and _ECHO_OPTIONS.fullmatch(args[index]):
+        for flag in args[index][1:]:
+            if flag == "n":
+                newline = False
+            else:
+                escapes = flag == "e"
+        index += 1
+
+    words = []
+    rest = args[index:]
+    skip_next = False
+    for word in rest:
+        if skip_next:
+            skip_next = False
+            continue
+        # Output sent to a file or another program shows nothing on screen.
+        if word == "|" or _STDOUT_REDIRECT.match(word):
+            return ""
+        # A stderr redirect doesn't change what echo prints.
+        if word.startswith("2>"):
+            skip_next = word in ("2>", "2>>")
+            continue
+        words.append(word)
+
+    text = " ".join(words)
+    if escapes:
+        text, stopped = _expand_echo_escapes(text)
+        if stopped:
+            return text
+    return text + ("\n" if newline else "")
+
+
+def _expand_echo_escapes(text: str) -> tuple[str, bool]:
+    """Apply `echo -e` backslash escapes. True means `\\c` cut the output short."""
+    out = []
+    index = 0
+    while index < len(text):
+        char = text[index]
+        if char != "\\" or index + 1 >= len(text):
+            out.append(char)
+            index += 1
+            continue
+
+        code = text[index + 1]
+        if code in _ECHO_SIMPLE_ESCAPES:
+            out.append(_ECHO_SIMPLE_ESCAPES[code])
+            index += 2
+        elif code == "c":
+            return "".join(out), True
+        elif code == "0":
+            digits = _leading(text[index + 2:], "01234567", 3)
+            out.append(chr(int(digits or "0", 8) & 0xFF))
+            index += 2 + len(digits)
+        elif code in _ECHO_HEX_WIDTH:
+            digits = _leading(text[index + 2:], "0123456789abcdefABCDEF", _ECHO_HEX_WIDTH[code])
+            value = int(digits, 16) if digits else None
+            if value is None or value > 0x10FFFF or 0xD800 <= value <= 0xDFFF:
+                # bash prints "\x" as typed when no valid digits follow
+                out.append("\\" + code + digits)
+            else:
+                out.append(chr(value))
+            index += 2 + len(digits)
+        else:
+            out.append("\\" + code)
+            index += 2
+    return "".join(out), False
+
+
+def _leading(text: str, allowed: str, limit: int) -> str:
+    count = 0
+    while count < limit and count < len(text) and text[count] in allowed:
+        count += 1
+    return text[:count]
+
+
+_ECHO_OPTIONS = re.compile(r"-[neE]+")
+_STDOUT_REDIRECT = re.compile(r"(?:1|&)?>")
+_ECHO_SIMPLE_ESCAPES = {
+    "\\": "\\", "a": "\a", "b": "\b", "e": "\x1b", "E": "\x1b",
+    "f": "\f", "n": "\n", "r": "\r", "t": "\t", "v": "\v",
+}
+_ECHO_HEX_WIDTH = {"x": 2, "u": 4, "U": 8}
 
 _MACHINE_NAMES = ("x86_64", "aarch64", "armv7l", "i686", "mips", "mipsel")
 
