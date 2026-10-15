@@ -1,3 +1,4 @@
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from uuid import uuid4
 
@@ -28,6 +29,7 @@ from classifier.storage.models import (
 from classifier.storage.repository import (
     DatabaseDriverMissingError,
     DatabaseNotConfiguredError,
+    IssueSyncStore,
     PersonaConfigAlreadyExistsError,
     PostgresClassifierRepository,
     _alert_password_key,
@@ -358,7 +360,9 @@ def test_classifier_run_statements_include_parent_and_child_writes():
         + ["INSERT INTO session_events ("] * event_count
         + ["INSERT INTO classifier_runs ("]
         + ["INSERT INTO classifier_signals ("] * signal_count
+        + ["INSERT INTO issue_sync_queue (classifier_run_id)"]
     )
+    assert statements[-1][1] == {"classifier_run_id": record.id}
 
 
 def test_manual_label_insert_params_match_storage_columns():
@@ -875,29 +879,190 @@ def test_issue_upsert_statements_includes_parent_and_child_writes():
     assert statements[3][1]["technique_id"] == "T1078"
     assert "DELETE FROM issue_sessions" in statements[4][0]
     assert statements[4][1] == {"issue_id": issue.id}
-    assert statements[5][1] == {"issue_id": issue.id, "session_id": session_id_1}
-    assert statements[6][1] == {"issue_id": issue.id, "session_id": session_id_2}
-    assert len(statements) == 7
+    # All linked sessions in one statement, not one INSERT per session.
+    assert "unnest(%(session_ids)s::uuid[])" in statements[5][0]
+    assert statements[5][1] == {"issue_id": issue.id, "session_ids": [session_id_1, session_id_2]}
+    assert len(statements) == 6
 
 
-def test_repository_aggregate_classifier_runs_by_actor_and_technique_queries_signals(monkeypatch):
-    rows = [{"actor_label": "automated_scanner", "mitre_tag": "T1087", "session_count": 24, "persona_count": 3, "max_risk_rank": 2}]
-    calls = []
+def test_issue_upsert_statements_skips_session_insert_when_issue_has_none():
+    issue = make_issue(session_ids=[])
 
-    def fake_fetch_all(database_url, sql, params):
-        calls.append(sql)
-        return rows
+    statements = issue_upsert_statements(issue)
 
-    monkeypatch.setattr("classifier.storage.repository._fetch_all", fake_fetch_all)
+    assert "DELETE FROM issue_sessions" in statements[-1][0]
 
-    result = PostgresClassifierRepository(
-        "postgresql://example/echidra"
-    ).aggregate_classifier_runs_by_actor_and_technique()
 
-    assert result == rows
-    assert "classifier_signals" in calls[0]
-    assert "signal_type = 'mitre_tag'" in calls[0]
-    assert "classifier_runs.actor_label" in calls[0]
+class RecordingCursor:
+    """Records each execute() and answers fetchall() from a queue of
+    canned results, one per query that returns rows."""
+
+    def __init__(self, results=None):
+        self.executed = []
+        self.results = list(results or [])
+
+    def execute(self, sql, params=None):
+        self.executed.append((sql, params))
+
+    def fetchall(self):
+        return self.results.pop(0)
+
+
+def test_issue_sync_store_loads_only_the_queued_runs():
+    run_ids = [uuid4(), uuid4()]
+    aggregates = [{"actor_label": "automated_scanner", "mitre_tag": "T1087", "max_risk_rank": 2}]
+    cursor = RecordingCursor([aggregates])
+
+    result = IssueSyncStore(cursor).load_runs(run_ids=run_ids)
+
+    assert result == aggregates
+    create_sql, fill = cursor.executed[0][0], cursor.executed[1]
+    assert "CREATE TEMP TABLE issue_sync_runs" in create_sql
+    assert "ON COMMIT DROP" in create_sql
+    assert "signal_type = 'mitre_tag'" in fill[0]
+    assert "classifier_runs.id = ANY(%(run_ids)s::uuid[])" in fill[0]
+    assert fill[1] == {"run_ids": run_ids}
+    assert cursor.executed[2][0] == "ANALYZE issue_sync_runs"
+    # Evidence is read once for every pair and ranked, not re-read per pair.
+    aggregate_sql = cursor.executed[3][0]
+    assert "ROW_NUMBER() OVER (PARTITION BY actor_label, mitre_tag" in aggregate_sql
+    assert "ranked_evidence.rn <= 5" in aggregate_sql
+
+
+def test_issue_sync_store_loads_every_run_or_one_pair():
+    cursor = RecordingCursor([[], []])
+    store = IssueSyncStore(cursor)
+
+    store.load_runs()
+    every_run = cursor.executed[1]
+    assert "ANY(%(run_ids)s" not in every_run[0]
+    assert every_run[1] is None
+
+    cursor.executed.clear()
+    store.load_runs(pair=("brute_force_bot", "T1110"))
+    one_pair = cursor.executed[1]
+    assert "mitre_signals.signal_value = %(mitre_tag)s" in one_pair[0]
+    assert one_pair[1] == {"actor_label": "brute_force_bot", "mitre_tag": "T1110"}
+
+    with pytest.raises(ValueError):
+        store.load_runs(run_ids=[uuid4()], pair=("brute_force_bot", "T1110"))
+
+
+def test_issue_sync_store_merge_counts_only_newly_linked_rows():
+    issue_id = uuid4()
+    cursor = RecordingCursor(
+        [
+            [{"issue_id": issue_id, "added": 3}],
+            [],
+            [{"issue_id": issue_id, "added": 1}],
+        ]
+    )
+
+    added = IssueSyncStore(cursor).merge_pairs(
+        {("automated_scanner", "T1087"): issue_id},
+        reset_issue_ids=[issue_id],
+    )
+
+    assert added == {issue_id: {"sessions": 3, "personas": 0, "source_ips": 1}}
+    statements = [sql for sql, _params in cursor.executed]
+    assert "CREATE TEMP TABLE issue_sync_pairs" in statements[0]
+    assert cursor.executed[1][1] == {
+        "actor_labels": ["automated_scanner"],
+        "mitre_tags": ["T1087"],
+        "issue_ids": [issue_id],
+    }
+    assert "ON CONFLICT (id) DO NOTHING" in statements[2]
+    assert "DELETE FROM issue_source_ips" in statements[3]
+    assert cursor.executed[3][1] == {"issue_ids": [issue_id]}
+    for sql in statements[4:]:
+        assert "ON CONFLICT" in sql
+        assert "DO NOTHING" in sql
+        assert "RETURNING issue_id" in sql
+
+
+def test_issue_sync_store_merge_without_reset_keeps_existing_links():
+    issue_id = uuid4()
+    cursor = RecordingCursor([[], [], []])
+
+    IssueSyncStore(cursor).merge_pairs({("automated_scanner", "T1087"): issue_id}, reset_issue_ids=[])
+
+    assert not any("DELETE FROM" in sql for sql, _params in cursor.executed)
+
+
+def test_issue_sync_store_write_rollup_issue_keeps_stored_status():
+    issue = make_issue(status="open", actor_label="automated_scanner")
+    cursor = RecordingCursor([[{"status": "closed"}]])
+    rollup = {
+        "source_ip_count": 2,
+        "first_seen": 1.0,
+        "last_seen": 2.0,
+        "max_risk_rank": 3,
+        "sample_evidence": ["whoami"],
+    }
+
+    result = IssueSyncStore(cursor).write_rollup_issue(issue, rollup)
+
+    assert result.status == "closed"
+    update_sql, params = cursor.executed[0]
+    assert "WHEN %(session_count)s > issues.session_count THEN 'open'" in update_sql
+    assert "rollup_source = 'classifier'" in update_sql
+    assert params["sample_evidence"] == ["whoami"]
+    assert params["source_ip_count"] == 2
+    assert "DELETE FROM issue_mitre_techniques" in cursor.executed[1][0]
+    assert cursor.executed[2][1]["technique_id"] == "T1110"
+
+
+def test_repository_issue_sync_transaction_uses_longer_timeout_and_lock(monkeypatch):
+    executed = []
+    connect_kwargs = {}
+
+    class FakeCursor(RecordingCursor):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def fetchone(self):
+            return {"locked": locked}
+
+    class FakeConnection:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        @contextmanager
+        def transaction(self):
+            yield
+
+        def cursor(self, row_factory=None):
+            cursor = FakeCursor()
+            cursor.executed = executed
+            return cursor
+
+    class FakePsycopg:
+        class rows:
+            dict_row = object()
+
+        @staticmethod
+        def connect(database_url, **kwargs):
+            connect_kwargs.update(kwargs)
+            return FakeConnection()
+
+    monkeypatch.setattr("classifier.storage.repository._load_psycopg", lambda: FakePsycopg)
+    repository = PostgresClassifierRepository("postgresql://example/echidra")
+
+    locked = True
+    with repository.issue_sync_transaction() as store:
+        assert isinstance(store, IssueSyncStore)
+    assert connect_kwargs["options"] == "-c statement_timeout=300000"
+    assert "pg_try_advisory_xact_lock" in executed[0][0]
+
+    locked = False
+    with repository.issue_sync_transaction() as store:
+        assert store is None
 
 
 def test_repository_upsert_issue_refetches_persisted_status(monkeypatch):
@@ -1410,8 +1575,41 @@ def test_storage_cli_sync_issues_runs_sync_and_prints_count(monkeypatch, capsys)
     captured = capsys.readouterr()
     assert exit_code == 0
     assert calls[0]["database_url"] == database_url
+    assert calls[0]["full"] is False
     assert captured.out == "synced 2 issue(s)\n"
     assert "secret" not in captured.out
+
+
+def test_storage_cli_sync_issues_full_flag_requests_a_rebuild(monkeypatch, capsys):
+    calls = []
+
+    def fake_sync(**kwargs):
+        calls.append(kwargs)
+        return []
+
+    monkeypatch.setenv("ECHIDRA_DATABASE_URL", "postgresql://user:secret@example.local:5432/echidra")
+    monkeypatch.setattr(storage_cli, "sync_issues_from_classifier_runs", fake_sync)
+
+    exit_code = storage_cli.main(["sync-issues", "--full"])
+
+    assert exit_code == 0
+    assert calls[0]["full"] is True
+
+
+def test_storage_cli_sync_issues_reports_a_sync_already_running(monkeypatch, capsys):
+    from classifier.storage.issue_sync import IssueSyncInProgressError
+
+    def busy_sync(**kwargs):
+        raise IssueSyncInProgressError("another issue sync is running")
+
+    monkeypatch.setenv("ECHIDRA_DATABASE_URL", "postgresql://user:secret@example.local:5432/echidra")
+    monkeypatch.setattr(storage_cli, "sync_issues_from_classifier_runs", busy_sync)
+
+    exit_code = storage_cli.main(["sync-issues"])
+
+    captured = capsys.readouterr()
+    assert exit_code == 2
+    assert "another issue sync is running" in captured.err
 
 
 def test_storage_cli_sync_issues_redacts_database_url_in_errors(monkeypatch, capsys):

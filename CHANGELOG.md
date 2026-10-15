@@ -54,6 +54,12 @@ All notable changes to Echidra are documented here. The format follows
   Docker, and Actions.
 
 ### Changed
+- Intelligence issues update incrementally. Each sync merges only the
+  classifier runs stored since the previous sync, so its cost stays the
+  same however much data is stored. Counts stay exact, and the honeypot
+  and API processes never sync at the same time. The first sync after
+  upgrading rebuilds every issue once, and `sync-issues --full` rebuilds
+  them on demand.
 - Alerts are grouped: a session alerts once for each risk level it reaches,
   and repeat alerts for the same source address and technique within an
   hour are held, then sent as one follow-up with the count. A higher risk

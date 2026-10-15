@@ -402,10 +402,15 @@ psql "$ECHIDRA_DATABASE_URL" -c "\dt"
 ```
 Expect: `dashboard_users`, `login_failures`, `sessions`, `session_events`,
 `classifier_runs`, `classifier_signals`, `manual_labels`, `issues`,
-`issue_mitre_techniques`, `issue_sessions`, `persona_configs`, `alert_config`,
-`alert_events` (13 tables — `login_failures` backs the dashboard login rate
-limit; `issue_sessions` bridges an issue to the exact sessions aggregated
-into it).
+`issue_mitre_techniques`, `issue_sessions`, `issue_personas`,
+`issue_source_ips`, `issue_sync_queue`, `issue_sync_state`,
+`persona_configs`, `alert_config`, `alert_events` (17 tables).
+- **`login_failures`:** backs the dashboard login rate limit.
+- **`issue_sessions`, `issue_personas`, `issue_source_ips`:** link an issue
+  to its distinct sessions, personas and source IPs.
+- **`issue_sync_queue`:** classifier runs not yet merged into issues.
+- **`issue_sync_state`:** has one row once every issue has been rebuilt
+  from all stored runs.
 
 **Docker Compose**: `db`'s `5432` isn't published to the host, and neither
 the `honeypot` nor `api` image has the `psql` client installed — every
@@ -443,8 +448,34 @@ Roll up real captured sessions into issues:
 ```bash
 python -m classifier.storage.cli sync-issues
 ```
-Expect stdout confirming how many issues were created/updated; rerunning is
-idempotent (counts refresh, but analyst open/closed status is preserved).
+Expect `synced N issue(s)`. N counts the issues this pass created or
+updated:
+- **First sync on a database:** rebuilds every issue from all stored runs,
+  so N is every issue.
+- **Later syncs:** merge only the runs stored since the last pass. With
+  nothing new, expect `synced 0 issue(s)`.
+
+Rerunning is safe: counts don't double, and an analyst's open/closed status
+is kept.
+
+The honeypot and the API sync on their own every 30 seconds while
+sessions arrive. If one of them is syncing at that moment, the command
+prints `another issue sync is running` and exits with code 2. Run it again
+a minute later.
+
+Rebuild every issue from all stored runs:
+```bash
+python -m classifier.storage.cli sync-issues --full
+```
+Check that nothing is waiting to be merged:
+```bash
+psql "$ECHIDRA_DATABASE_URL" -c "SELECT count(*) FROM issue_sync_queue;"
+```
+Docker Compose:
+```bash
+docker compose exec db psql -U echidra -d echidra -c "SELECT count(*) FROM issue_sync_queue;"
+```
+Expect `0` right after a sync.
 
 ---
 

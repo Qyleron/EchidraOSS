@@ -100,15 +100,37 @@ recommended fix.
 
 `classifier/rules/issue_playbook.yaml` maps an `(actor, technique)` pair to
 a title, recommended fix, and impact (falling back to a generic entry if the
-pair isn't catalogued). `sync_issues_from_classifier_runs()` aggregates
-stored classifier runs by that pair, looks up the playbook entry, and
-upserts an `IssueRecord` with a deterministic id — so re-running sync
-refreshes counts without resetting an analyst's open/closed status. A
-second pass independently detects brute-force behavior from raw connection
-frequency by peer IP and consolidates into the same issue id.
+pair isn't catalogued). `sync_issues_from_classifier_runs()` groups
+classifier runs by that pair, looks up the playbook entry, and writes an
+`IssueRecord` with a deterministic id, so syncing again refreshes counts
+without resetting an analyst's open/closed status. A closed issue that
+picks up new sessions reopens. A second check detects brute-force
+behavior from raw connection frequency by peer IP and writes to the same
+issue id.
+
+The sync is incremental. Storing a classifier run also adds it to
+`issue_sync_queue`, in the same transaction. Each sync pass reads only the
+queued runs and merges them into each issue's stored totals:
+- **Bridge tables:** `issue_sessions`, `issue_personas` and
+  `issue_source_ips` hold each issue's distinct sessions, personas and
+  source IPs. A count grows only by rows that weren't there yet, so
+  merging the same run twice changes nothing.
+- **Running values:** first and last seen, the highest risk, and the first
+  five evidence samples are kept on the issue and combined with each new
+  batch.
+
+A pass costs the same however many runs are stored. Passes run in the
+background, at most every 30 seconds. A Postgres advisory lock keeps the
+honeypot and API processes from syncing at the same time.
+
+The first sync on a new database, or after upgrading from a version
+without the queue, rebuilds every issue from all stored runs.
+`sync-issues --full` does the same rebuild on demand.
 
 - `classifier/rules/issue_playbook.yaml`
 - `classifier/storage/issue_sync.py` — `sync_issues_from_classifier_runs()`
+- `classifier/storage/repository.py` — `IssueSyncStore` and the "Issue
+  sync" SQL
 
 ---
 

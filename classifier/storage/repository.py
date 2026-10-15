@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import base64
 import os
+from collections.abc import Generator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
@@ -47,6 +49,19 @@ from classifier.storage.models import (
 _DB_CONNECT_TIMEOUT_SECONDS = 10
 _DB_STATEMENT_TIMEOUT_SECONDS = 10
 
+# The issue sync (classifier/storage/issue_sync.py) runs on its own
+# background thread or from the CLI, never on a classification worker or an
+# HTTP request, so it gets a longer per-statement cap than the 10 s above.
+# Steady-state passes only read classifier runs stored since the previous
+# pass and finish well inside 10 s; the cap is sized for the one-time
+# rebuild that reads every stored run (first start after an upgrade, or
+# `sync-issues --full`).
+_ISSUE_SYNC_STATEMENT_TIMEOUT_SECONDS = 300
+
+# Arbitrary constant advisory-lock key serializing issue-sync transactions
+# across processes -- the honeypot and the API process both start syncs.
+_ISSUE_SYNC_LOCK_KEY = 78_234_917
+
 # connect_timeout only bounds the initial handshake, and statement_timeout is
 # enforced server-side -- neither helps once a connection is already
 # established and the network then dies silently (a partition, a middlebox
@@ -67,7 +82,12 @@ _DB_KEEPALIVES_INTERVAL_SECONDS = 5
 _DB_KEEPALIVES_COUNT = 3
 
 
-def _connect(psycopg, database_url: str):
+def _connect(
+    psycopg,
+    database_url: str,
+    *,
+    statement_timeout_seconds: int = _DB_STATEMENT_TIMEOUT_SECONDS,
+):
     """psycopg.connect(), bounded by a connect timeout, a per-statement timeout,
     and TCP keepalives so an established connection can't hang forever after
     the underlying network dies. The keepalive guarantee only holds for a TCP
@@ -76,7 +96,7 @@ def _connect(psycopg, database_url: str):
     return psycopg.connect(
         database_url,
         connect_timeout=_DB_CONNECT_TIMEOUT_SECONDS,
-        options=f"-c statement_timeout={_DB_STATEMENT_TIMEOUT_SECONDS * 1000}",
+        options=f"-c statement_timeout={statement_timeout_seconds * 1000}",
         keepalives=1,
         keepalives_idle=_DB_KEEPALIVES_IDLE_SECONDS,
         keepalives_interval=_DB_KEEPALIVES_INTERVAL_SECONDS,
@@ -483,8 +503,8 @@ WHERE issue_id = ANY(%(issue_ids)s)
 ORDER BY issue_id, technique_index
 """
 
-# issue_sessions itself holds every real association (see
-# issue_upsert_statements) -- the cap here is purely on what's serialized
+# issue_sessions itself holds every real association (see the "Issue sync"
+# SQL below) -- the cap here is purely on what's serialized
 # back out over the API. Windowed per issue_id (not a flat LIMIT) so a
 # batch fetch across many issues can't let one issue's rows crowd out
 # another's.
@@ -587,82 +607,305 @@ DELETE FROM issue_sessions
 WHERE issue_id = %(issue_id)s
 """
 
-INSERT_ISSUE_SESSION_SQL = """
+# One statement for all of an issue's sessions, not one per session -- the
+# repeat-connection issue is rewritten on every sync pass.
+INSERT_ISSUE_SESSIONS_SQL = """
 INSERT INTO issue_sessions (issue_id, session_id)
-VALUES (%(issue_id)s, %(session_id)s)
+SELECT %(issue_id)s, session_id
+FROM unnest(%(session_ids)s::uuid[]) AS session_id
 ON CONFLICT (issue_id, session_id) DO NOTHING
 """
 
-SELECT_ACTOR_MITRE_AGGREGATES_SQL = """
-WITH run_groups AS (
+# --- Issue sync (see classifier/storage/issue_sync.py) ---------------------
+#
+# Every classifier run is queued for the issue sync in the same transaction
+# that stores it (classifier_run_statements). A sync pass copies only the
+# queued runs into the issue_sync_runs temporary table, merges them into each
+# issue's stored totals, and clears them from the queue -- so a pass costs the
+# same whether the database holds a hundred runs or millions. Filling
+# issue_sync_runs with every stored run instead rebuilds every issue with the
+# same statements (first sync after an upgrade, or `sync-issues --full`).
+#
+# Per-issue totals stay exact without re-reading old runs: issue_sessions,
+# issue_personas and issue_source_ips hold each issue's distinct sessions,
+# personas and source IPs, and a count only grows by the rows a merge
+# actually inserted (ON CONFLICT DO NOTHING ... RETURNING). Merging the same
+# run twice therefore changes nothing.
+
+INSERT_ISSUE_SYNC_QUEUE_SQL = """
+INSERT INTO issue_sync_queue (classifier_run_id)
+VALUES (%(classifier_run_id)s)
+ON CONFLICT (classifier_run_id) DO NOTHING
+"""
+
+SELECT_ISSUE_SYNC_REBUILT_SQL = """
+SELECT rebuilt_at FROM issue_sync_state WHERE singleton
+"""
+
+MARK_ISSUE_SYNC_REBUILT_SQL = """
+INSERT INTO issue_sync_state (singleton, rebuilt_at)
+VALUES (TRUE, now())
+ON CONFLICT (singleton) DO UPDATE SET rebuilt_at = EXCLUDED.rebuilt_at
+"""
+
+CLEAR_ISSUE_SYNC_QUEUE_SQL = """
+DELETE FROM issue_sync_queue
+"""
+
+SELECT_ISSUE_SYNC_QUEUE_BATCH_SQL = """
+SELECT classifier_run_id
+FROM issue_sync_queue
+LIMIT %(limit)s
+"""
+
+DELETE_ISSUE_SYNC_QUEUE_BATCH_SQL = """
+DELETE FROM issue_sync_queue
+WHERE classifier_run_id = ANY(%(run_ids)s::uuid[])
+"""
+
+# Temporary tables are dropped at commit, so each sync transaction creates
+# each of them at most once (see IssueSyncStore).
+CREATE_ISSUE_SYNC_RUNS_SQL = """
+CREATE TEMP TABLE issue_sync_runs (
+    run_id UUID NOT NULL,
+    session_id UUID NOT NULL,
+    actor_label TEXT NOT NULL,
+    mitre_tag TEXT NOT NULL,
+    risk_rank INTEGER NOT NULL,
+    persona_id TEXT NOT NULL,
+    peer_ip TEXT,
+    started_at DOUBLE PRECISION NOT NULL
+) ON COMMIT DROP
+"""
+
+# {scope} is "" (every stored run), ISSUE_SYNC_RUNS_BATCH_SCOPE or
+# ISSUE_SYNC_RUNS_PAIR_SCOPE.
+FILL_ISSUE_SYNC_RUNS_SQL = """
+INSERT INTO issue_sync_runs
+SELECT
+    classifier_runs.id,
+    classifier_runs.session_id,
+    classifier_runs.actor_label,
+    mitre_signals.signal_value,
+    CASE classifier_runs.risk_level
+        WHEN 'critical' THEN 4
+        WHEN 'high' THEN 3
+        WHEN 'medium' THEN 2
+        WHEN 'low' THEN 1
+        ELSE 0
+    END,
+    sessions.persona_id,
+    sessions.peer_ip,
+    sessions.started_at
+FROM classifier_runs
+JOIN sessions ON sessions.id = classifier_runs.session_id
+JOIN classifier_signals AS mitre_signals
+    ON mitre_signals.classifier_run_id = classifier_runs.id
+    AND mitre_signals.signal_type = 'mitre_tag'
+WHERE classifier_runs.actor_label IS NOT NULL
+{scope}
+"""
+
+ISSUE_SYNC_RUNS_BATCH_SCOPE = "AND classifier_runs.id = ANY(%(run_ids)s::uuid[])"
+ISSUE_SYNC_RUNS_PAIR_SCOPE = (
+    "AND classifier_runs.actor_label = %(actor_label)s "
+    "AND mitre_signals.signal_value = %(mitre_tag)s"
+)
+
+# Temporary tables get no automatic statistics; without these the planner
+# guesses badly for a rebuild that fills issue_sync_runs with every run.
+ANALYZE_ISSUE_SYNC_RUNS_SQL = "ANALYZE issue_sync_runs"
+
+# One row per (actor, technique) pair in issue_sync_runs. Evidence is read
+# once for all pairs and ranked with a window function, keeping the first 5
+# distinct samples per pair -- they feed the issue's Evidence text as a
+# handful of real matched commands, not a transcript dump. COLLATE "C" sorts
+# by code point, the same order issue_sync.py uses when it merges these with
+# an issue's stored samples.
+SELECT_ISSUE_SYNC_PAIR_AGGREGATES_SQL = """
+WITH pair_stats AS (
     SELECT
-        classifier_runs.id AS run_id,
-        classifier_runs.session_id AS session_id,
-        classifier_runs.actor_label AS actor_label,
-        classifier_runs.risk_level AS risk_level,
-        mitre_signals.signal_value AS mitre_tag,
-        sessions.persona_id AS persona_id,
-        sessions.peer_ip AS peer_ip,
-        sessions.started_at AS started_at
-    FROM classifier_runs
-    JOIN sessions ON sessions.id = classifier_runs.session_id
-    JOIN classifier_signals AS mitre_signals
-        ON mitre_signals.classifier_run_id = classifier_runs.id
-        AND mitre_signals.signal_type = 'mitre_tag'
-    WHERE classifier_runs.actor_label IS NOT NULL
+        actor_label,
+        mitre_tag,
+        MAX(risk_rank) AS max_risk_rank,
+        MIN(started_at) AS first_seen,
+        MAX(started_at) AS last_seen
+    FROM issue_sync_runs
+    GROUP BY actor_label, mitre_tag
 ),
-actor_mitre_pairs AS (
-    SELECT DISTINCT actor_label, mitre_tag FROM run_groups
+pair_evidence AS (
+    SELECT DISTINCT
+        issue_sync_runs.actor_label,
+        issue_sync_runs.mitre_tag,
+        evidence_signals.signal_value COLLATE "C" AS sample
+    FROM issue_sync_runs
+    JOIN classifier_signals AS evidence_signals
+        ON evidence_signals.classifier_run_id = issue_sync_runs.run_id
+        AND evidence_signals.signal_type = 'evidence'
 ),
--- Capped at 5 per (actor, technique) pair -- these feed the issue's
--- Evidence text as a handful of real matched commands, not an unbounded
--- transcript dump.
-evidence_samples AS (
+ranked_evidence AS (
     SELECT
-        pairs.actor_label,
-        pairs.mitre_tag,
-        ARRAY(
-            SELECT DISTINCT evidence_signals.signal_value
-            FROM run_groups
-            JOIN classifier_signals AS evidence_signals
-                ON evidence_signals.classifier_run_id = run_groups.run_id
-                AND evidence_signals.signal_type = 'evidence'
-            WHERE run_groups.actor_label = pairs.actor_label
-                AND run_groups.mitre_tag = pairs.mitre_tag
-            ORDER BY evidence_signals.signal_value
-            LIMIT 5
-        ) AS sample_evidence
-    FROM actor_mitre_pairs AS pairs
+        actor_label,
+        mitre_tag,
+        sample,
+        ROW_NUMBER() OVER (PARTITION BY actor_label, mitre_tag ORDER BY sample) AS rn
+    FROM pair_evidence
 )
 SELECT
-    run_groups.actor_label AS actor_label,
-    run_groups.mitre_tag AS mitre_tag,
-    COUNT(DISTINCT run_groups.session_id) AS session_count,
-    COUNT(DISTINCT run_groups.persona_id) AS persona_count,
-    COUNT(DISTINCT run_groups.peer_ip) AS source_ip_count,
-    MIN(run_groups.started_at) AS first_seen,
-    MAX(run_groups.started_at) AS last_seen,
-    MAX(
-        CASE run_groups.risk_level
-            WHEN 'critical' THEN 4
-            WHEN 'high' THEN 3
-            WHEN 'medium' THEN 2
-            WHEN 'low' THEN 1
-            ELSE 0
-        END
-    ) AS max_risk_rank,
-    -- Uncapped and full on purpose -- this feeds issue_upsert_statements,
-    -- which must persist every real (issue, session) association into
-    -- issue_sessions for the reverse lookup (GET /sessions/{id}/issues) to
-    -- be correct for any session, not just the first N. The response-size
-    -- concern is bounded separately, on read, by SELECT_ISSUE_SESSIONS_SQL.
-    ARRAY_AGG(DISTINCT run_groups.session_id) AS session_ids,
-    MIN(evidence_samples.sample_evidence) AS sample_evidence
-FROM run_groups
-LEFT JOIN evidence_samples
-    ON evidence_samples.actor_label = run_groups.actor_label
-    AND evidence_samples.mitre_tag = run_groups.mitre_tag
-GROUP BY run_groups.actor_label, run_groups.mitre_tag
+    pair_stats.actor_label,
+    pair_stats.mitre_tag,
+    pair_stats.max_risk_rank,
+    pair_stats.first_seen,
+    pair_stats.last_seen,
+    COALESCE(
+        ARRAY_AGG(ranked_evidence.sample ORDER BY ranked_evidence.sample)
+            FILTER (WHERE ranked_evidence.sample IS NOT NULL),
+        ARRAY[]::text[]
+    ) AS sample_evidence
+FROM pair_stats
+LEFT JOIN ranked_evidence
+    ON ranked_evidence.actor_label = pair_stats.actor_label
+    AND ranked_evidence.mitre_tag = pair_stats.mitre_tag
+    AND ranked_evidence.rn <= 5
+GROUP BY
+    pair_stats.actor_label,
+    pair_stats.mitre_tag,
+    pair_stats.max_risk_rank,
+    pair_stats.first_seen,
+    pair_stats.last_seen
+ORDER BY pair_stats.actor_label, pair_stats.mitre_tag
+"""
+
+SELECT_ISSUE_ROLLUP_STATES_SQL = """
+SELECT
+    id,
+    session_count,
+    persona_count,
+    source_ip_count,
+    first_seen,
+    last_seen,
+    max_risk_rank,
+    sample_evidence,
+    rollup_source
+FROM issues
+WHERE id = ANY(%(issue_ids)s::uuid[])
+"""
+
+CREATE_ISSUE_SYNC_PAIRS_SQL = """
+CREATE TEMP TABLE issue_sync_pairs (
+    actor_label TEXT NOT NULL,
+    mitre_tag TEXT NOT NULL,
+    issue_id UUID NOT NULL
+) ON COMMIT DROP
+"""
+
+FILL_ISSUE_SYNC_PAIRS_SQL = """
+INSERT INTO issue_sync_pairs (actor_label, mitre_tag, issue_id)
+SELECT *
+FROM unnest(%(actor_labels)s::text[], %(mitre_tags)s::text[], %(issue_ids)s::uuid[])
+"""
+
+# The bridge tables reference issues(id), so a pair seen for the first time
+# needs its issues row before the merge inserts into them. The placeholder
+# never outlives the transaction: UPDATE_ISSUE_ROLLUP_SQL fills it in before
+# commit.
+INSERT_ISSUE_PLACEHOLDERS_SQL = """
+INSERT INTO issues (
+    id,
+    title,
+    severity,
+    evidence,
+    recommended_fix,
+    impact,
+    session_count,
+    persona_count,
+    status,
+    actor_label,
+    created_at
+)
+SELECT issue_id, '', 'low', '', '', '', 0, 0, 'open', actor_label, now()
+FROM issue_sync_pairs
+ON CONFLICT (id) DO NOTHING
+"""
+
+DELETE_ISSUE_ROLLUP_BRIDGES_SQL = """
+WITH cleared_sessions AS (
+    DELETE FROM issue_sessions WHERE issue_id = ANY(%(issue_ids)s::uuid[])
+),
+cleared_personas AS (
+    DELETE FROM issue_personas WHERE issue_id = ANY(%(issue_ids)s::uuid[])
+)
+DELETE FROM issue_source_ips WHERE issue_id = ANY(%(issue_ids)s::uuid[])
+"""
+
+MERGE_ISSUE_SESSIONS_SQL = """
+WITH inserted AS (
+    INSERT INTO issue_sessions (issue_id, session_id)
+    SELECT DISTINCT issue_sync_pairs.issue_id, issue_sync_runs.session_id
+    FROM issue_sync_runs
+    JOIN issue_sync_pairs USING (actor_label, mitre_tag)
+    ON CONFLICT (issue_id, session_id) DO NOTHING
+    RETURNING issue_id
+)
+SELECT issue_id, COUNT(*) AS added FROM inserted GROUP BY issue_id
+"""
+
+MERGE_ISSUE_PERSONAS_SQL = """
+WITH inserted AS (
+    INSERT INTO issue_personas (issue_id, persona_id)
+    SELECT DISTINCT issue_sync_pairs.issue_id, issue_sync_runs.persona_id
+    FROM issue_sync_runs
+    JOIN issue_sync_pairs USING (actor_label, mitre_tag)
+    ON CONFLICT (issue_id, persona_id) DO NOTHING
+    RETURNING issue_id
+)
+SELECT issue_id, COUNT(*) AS added FROM inserted GROUP BY issue_id
+"""
+
+MERGE_ISSUE_SOURCE_IPS_SQL = """
+WITH inserted AS (
+    INSERT INTO issue_source_ips (issue_id, peer_ip)
+    SELECT DISTINCT issue_sync_pairs.issue_id, issue_sync_runs.peer_ip
+    FROM issue_sync_runs
+    JOIN issue_sync_pairs USING (actor_label, mitre_tag)
+    WHERE issue_sync_runs.peer_ip IS NOT NULL
+    ON CONFLICT (issue_id, peer_ip) DO NOTHING
+    RETURNING issue_id
+)
+SELECT issue_id, COUNT(*) AS added FROM inserted GROUP BY issue_id
+"""
+
+# SET expressions see the row's old values, so the CASE compares the new
+# session_count against the stored one: a closed finding that picks up new
+# sessions reopens (same rule as UPSERT_ISSUE_SQL).
+UPDATE_ISSUE_ROLLUP_SQL = """
+UPDATE issues SET
+    title = %(title)s,
+    severity = %(severity)s,
+    evidence = %(evidence)s,
+    recommended_fix = %(recommended_fix)s,
+    impact = %(impact)s,
+    session_count = %(session_count)s,
+    persona_count = %(persona_count)s,
+    actor_label = %(actor_label)s,
+    source_ip_count = %(source_ip_count)s,
+    first_seen = %(first_seen)s,
+    last_seen = %(last_seen)s,
+    max_risk_rank = %(max_risk_rank)s,
+    sample_evidence = %(sample_evidence)s,
+    rollup_source = 'classifier',
+    status = CASE
+        WHEN %(session_count)s > issues.session_count THEN 'open'
+        ELSE issues.status
+    END
+WHERE id = %(id)s
+RETURNING status
+"""
+
+MARK_ISSUE_REPEAT_CONNECTIONS_SQL = """
+UPDATE issues SET rollup_source = 'repeat_connections'
+WHERE id = %(id)s
+RETURNING status
 """
 
 SELECT_REPEAT_CONNECTION_AGGREGATE_SQL = """
@@ -678,8 +921,10 @@ SELECT
     COUNT(*) AS session_count,
     COUNT(DISTINCT sessions.persona_id) AS persona_count,
     COUNT(DISTINCT sessions.peer_ip) AS source_ip_count,
-    -- Uncapped for the same reason as SELECT_ACTOR_MITRE_AGGREGATES_SQL's
-    -- session_ids -- see that comment.
+    -- Uncapped on purpose -- every real (issue, session) association goes
+    -- into issue_sessions, so the reverse lookup (GET /sessions/{id}/issues)
+    -- is correct for any session, not just the first N. The response-size
+    -- concern is bounded separately, on read, by SELECT_ISSUE_SESSIONS_SQL.
     ARRAY_AGG(DISTINCT sessions.id) AS session_ids
 FROM sessions
 JOIN offending_ips ON offending_ips.peer_ip = sessions.peer_ip
@@ -1719,9 +1964,28 @@ class PostgresClassifierRepository:
             unclassified_sessions=int((coverage_row or {}).get("unclassified_sessions") or 0),
         )
 
-    def aggregate_classifier_runs_by_actor_and_technique(self) -> list[dict[str, Any]]:
-        """Aggregate stored classifier runs by (actor_label, MITRE technique)."""
-        return _fetch_all(self.database_url, SELECT_ACTOR_MITRE_AGGREGATES_SQL, {})
+    @contextmanager
+    def issue_sync_transaction(self) -> Generator[IssueSyncStore | None, None, None]:
+        """One issue-sync transaction on its own connection, with the issue
+        sync's longer statement cap. Yields None when another process holds
+        the issue-sync lock: a merge reads an issue's stored totals and then
+        writes new ones, so two syncs must never merge at the same time."""
+        psycopg = _load_psycopg()
+        with _connect(
+            psycopg,
+            self.database_url,
+            statement_timeout_seconds=_ISSUE_SYNC_STATEMENT_TIMEOUT_SECONDS,
+        ) as conn:
+            with conn.transaction():
+                with conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
+                    cur.execute(
+                        "SELECT pg_try_advisory_xact_lock(%s) AS locked",
+                        (_ISSUE_SYNC_LOCK_KEY,),
+                    )
+                    if not cur.fetchone()["locked"]:
+                        yield None
+                        return
+                    yield IssueSyncStore(cur)
 
     def aggregate_repeat_connections_by_peer_ip(
         self,
@@ -1992,6 +2256,169 @@ class PostgresClassifierRepository:
         return int(row["total"]) if row else 0
 
 
+class IssueSyncStore:
+    """The issue sync's reads and writes inside one transaction (see
+    PostgresClassifierRepository.issue_sync_transaction and the "Issue sync"
+    SQL above). Call load_runs() and merge_pairs() at most once per
+    transaction: each creates a temporary table that lives until commit."""
+
+    def __init__(self, cursor):
+        self._cursor = cursor
+
+    def _execute(self, sql: str, params: dict[str, Any] | None = None) -> None:
+        self._cursor.execute(sql, params)
+
+    def _rows(self, sql: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+        self._cursor.execute(sql, params)
+        return list(self._cursor.fetchall())
+
+    def is_rebuilt(self) -> bool:
+        """Whether every issue has been rebuilt from all stored runs at least
+        once -- until then, runs stored before the queue existed are missing."""
+        return bool(self._rows(SELECT_ISSUE_SYNC_REBUILT_SQL))
+
+    def mark_rebuilt(self) -> None:
+        self._execute(MARK_ISSUE_SYNC_REBUILT_SQL)
+
+    def clear_queue(self) -> None:
+        self._execute(CLEAR_ISSUE_SYNC_QUEUE_SQL)
+
+    def next_queued_run_ids(self, limit: int) -> list[UUID]:
+        rows = self._rows(SELECT_ISSUE_SYNC_QUEUE_BATCH_SQL, {"limit": limit})
+        return [row["classifier_run_id"] for row in rows]
+
+    def dequeue(self, run_ids: list[UUID]) -> None:
+        self._execute(DELETE_ISSUE_SYNC_QUEUE_BATCH_SQL, {"run_ids": run_ids})
+
+    def load_runs(
+        self,
+        *,
+        run_ids: list[UUID] | None = None,
+        pair: tuple[str, str] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Copy classifier runs into issue_sync_runs -- the given run IDs,
+        every run of one (actor_label, mitre_tag) pair, or every stored run
+        when neither is given -- and return one aggregate per pair in them."""
+        if run_ids is not None and pair is not None:
+            raise ValueError("pass run_ids or pair, not both")
+        if run_ids is not None:
+            scope, params = ISSUE_SYNC_RUNS_BATCH_SCOPE, {"run_ids": run_ids}
+        elif pair is not None:
+            scope = ISSUE_SYNC_RUNS_PAIR_SCOPE
+            params = {"actor_label": pair[0], "mitre_tag": pair[1]}
+        else:
+            scope, params = "", None
+        self._execute(CREATE_ISSUE_SYNC_RUNS_SQL)
+        self._execute(FILL_ISSUE_SYNC_RUNS_SQL.format(scope=scope), params)
+        self._execute(ANALYZE_ISSUE_SYNC_RUNS_SQL)
+        return self._rows(SELECT_ISSUE_SYNC_PAIR_AGGREGATES_SQL)
+
+    def issue_states(self, issue_ids: list[UUID]) -> dict[UUID, dict[str, Any]]:
+        """Each existing issue's stored totals, keyed by issue ID."""
+        if not issue_ids:
+            return {}
+        rows = self._rows(SELECT_ISSUE_ROLLUP_STATES_SQL, {"issue_ids": issue_ids})
+        return {row["id"]: row for row in rows}
+
+    def merge_pairs(
+        self,
+        pairs: dict[tuple[str, str], UUID],
+        *,
+        reset_issue_ids: list[UUID],
+    ) -> dict[UUID, dict[str, int]]:
+        """Add the sessions, personas and source IPs in issue_sync_runs to
+        each pair's issue, first clearing them for reset_issue_ids. Returns,
+        per issue, how many of each were not already linked to it."""
+        keys = list(pairs)
+        self._execute(CREATE_ISSUE_SYNC_PAIRS_SQL)
+        self._execute(
+            FILL_ISSUE_SYNC_PAIRS_SQL,
+            {
+                "actor_labels": [actor_label for actor_label, _ in keys],
+                "mitre_tags": [mitre_tag for _, mitre_tag in keys],
+                "issue_ids": [pairs[key] for key in keys],
+            },
+        )
+        self._execute(INSERT_ISSUE_PLACEHOLDERS_SQL)
+        if reset_issue_ids:
+            self._execute(DELETE_ISSUE_ROLLUP_BRIDGES_SQL, {"issue_ids": reset_issue_ids})
+
+        added = {
+            issue_id: {"sessions": 0, "personas": 0, "source_ips": 0}
+            for issue_id in pairs.values()
+        }
+        for key, sql in (
+            ("sessions", MERGE_ISSUE_SESSIONS_SQL),
+            ("personas", MERGE_ISSUE_PERSONAS_SQL),
+            ("source_ips", MERGE_ISSUE_SOURCE_IPS_SQL),
+        ):
+            for row in self._rows(sql):
+                added[row["issue_id"]][key] = int(row["added"])
+        return added
+
+    def write_rollup_issue(self, issue: IssueRecord, rollup: dict[str, Any]) -> IssueRecord:
+        """Store a merged classifier issue and return it with its stored
+        status (an analyst's status is kept unless the issue reopens)."""
+        rows = self._rows(
+            UPDATE_ISSUE_ROLLUP_SQL,
+            {
+                "id": issue.id,
+                "title": issue.title,
+                "severity": issue.severity,
+                "evidence": issue.evidence,
+                "recommended_fix": issue.recommended_fix,
+                "impact": issue.impact,
+                "session_count": issue.session_count,
+                "persona_count": issue.persona_count,
+                "actor_label": issue.actor_label,
+                "source_ip_count": rollup["source_ip_count"],
+                "first_seen": rollup["first_seen"],
+                "last_seen": rollup["last_seen"],
+                "max_risk_rank": rollup["max_risk_rank"],
+                "sample_evidence": rollup["sample_evidence"],
+            },
+        )
+        self._replace_mitre_techniques(issue)
+        return issue.model_copy(update={"status": rows[0]["status"]})
+
+    def write_repeat_connection_issue(self, issue: IssueRecord) -> IssueRecord:
+        """Store the repeat-connection issue in full, replacing its linked
+        sessions, and return it with its stored status."""
+        for sql, params in issue_upsert_statements(issue):
+            self._execute(sql, params)
+        rows = self._rows(MARK_ISSUE_REPEAT_CONNECTIONS_SQL, {"id": issue.id})
+        return issue.model_copy(update={"status": rows[0]["status"]})
+
+    def aggregate_repeat_connections(
+        self,
+        *,
+        window_seconds: int,
+        min_sessions: int,
+    ) -> dict[str, Any] | None:
+        """Same as PostgresClassifierRepository.aggregate_repeat_connections_by_peer_ip,
+        inside this transaction."""
+        rows = self._rows(
+            SELECT_REPEAT_CONNECTION_AGGREGATE_SQL,
+            {"window_seconds": window_seconds, "min_sessions": min_sessions},
+        )
+        if not rows or rows[0]["session_count"] == 0:
+            return None
+        return rows[0]
+
+    def _replace_mitre_techniques(self, issue: IssueRecord) -> None:
+        self._execute(DELETE_ISSUE_MITRE_TECHNIQUES_SQL, {"issue_id": issue.id})
+        for index, technique in enumerate(issue.mitre):
+            self._execute(
+                INSERT_ISSUE_MITRE_TECHNIQUE_SQL,
+                {
+                    "issue_id": issue.id,
+                    "technique_index": index,
+                    "technique_id": technique.id,
+                    "technique_name": technique.name,
+                },
+            )
+
+
 def classifier_run_insert_params(record: ClassifierRunRecord) -> dict[str, Any]:
     """Return SQL parameters for the compact classifier_runs row."""
     return {
@@ -2026,6 +2453,11 @@ def classifier_run_statements(
     statements.extend(
         (INSERT_CLASSIFIER_SIGNAL_SQL, params)
         for params in classifier_signal_insert_params(record)
+    )
+    # Same transaction as the run itself, so the issue sync can never miss a
+    # stored run (see the "Issue sync" SQL above).
+    statements.append(
+        (INSERT_ISSUE_SYNC_QUEUE_SQL, {"classifier_run_id": record.id})
     )
     return statements
 
@@ -2239,13 +2671,13 @@ def issue_upsert_statements(issue: IssueRecord) -> list[tuple[str, dict[str, Any
         for index, technique in enumerate(issue.mitre)
     )
     statements.append((DELETE_ISSUE_SESSIONS_SQL, {"issue_id": issue.id}))
-    statements.extend(
-        (
-            INSERT_ISSUE_SESSION_SQL,
-            {"issue_id": issue.id, "session_id": session_id},
+    if issue.session_ids:
+        statements.append(
+            (
+                INSERT_ISSUE_SESSIONS_SQL,
+                {"issue_id": issue.id, "session_ids": list(issue.session_ids)},
+            )
         )
-        for session_id in issue.session_ids
-    )
     return statements
 
 

@@ -18,7 +18,7 @@ from classifier.rules.issue_playbook import (
 from classifier.rules.mitre_playbook import get_playbook_entry
 from classifier.storage.config import redact_database_url
 from classifier.storage.models import IssueRecord, MitreTechnique
-from classifier.storage.repository import PostgresClassifierRepository
+from classifier.storage.repository import IssueSyncStore, PostgresClassifierRepository
 
 
 DEFAULT_ISSUE_PLAYBOOK_PATH = Path(__file__).resolve().parents[1] / "rules" / "issue_playbook.yaml"
@@ -40,6 +40,18 @@ _REPEAT_CONNECTION_MITRE_TAG = "T1110"
 _REPEAT_CONNECTION_WINDOW_SECONDS = 86_400
 _REPEAT_CONNECTION_MIN_SESSIONS = 5
 
+# Queued classifier runs merged per transaction. Each batch commits on its
+# own, so a large backlog is worked through in bounded steps.
+_ISSUE_SYNC_BATCH_SIZE = 1_000
+_SAMPLE_EVIDENCE_LIMIT = 5
+
+_ROLLUP_SOURCE_CLASSIFIER = "classifier"
+_ROLLUP_SOURCE_REPEAT_CONNECTIONS = "repeat_connections"
+
+
+class IssueSyncInProgressError(RuntimeError):
+    """Raised when another process is running the issue sync right now."""
+
 
 def sync_issues_from_classifier_runs(
     *,
@@ -48,51 +60,195 @@ def sync_issues_from_classifier_runs(
     mitre_catalog_path: str | Path = DEFAULT_MITRE_CATALOG_PATH,
     repeat_connection_window_seconds: int = _REPEAT_CONNECTION_WINDOW_SECONDS,
     repeat_connection_min_sessions: int = _REPEAT_CONNECTION_MIN_SESSIONS,
+    full: bool = False,
+    batch_size: int = _ISSUE_SYNC_BATCH_SIZE,
 ) -> list[IssueRecord]:
-    """Aggregate stored classifier runs by (actor_label, MITRE technique).
+    """Roll stored classifier runs up into one issue per (actor_label, MITRE
+    technique) pair, and return the issues this pass created or updated.
 
-    Each pair maps to a stable issue id, so re-running this is idempotent:
-    counts get refreshed from real captured sessions and an analyst's
-    open/closed status is kept -- unless a closed issue picks up new
-    sessions, which reopens it (see UPSERT_ISSUE_SQL). Unlike a rule-id rollup, this reads
-    directly off classifier_runs/classifier_signals -- any actor/technique
-    combination your classifier actually produces shows up here, even
-    without a dedicated rule written just for it. Repeat-connection
-    brute-force detection runs alongside it, off raw session counts instead.
+    Incremental: every stored run is queued for this sync (see "Issue sync"
+    in repository.py), and a pass merges only the queued runs into each
+    issue's stored totals, so its cost follows how much arrived since the
+    last pass, not how much is stored. The first pass on a database that has
+    never been rebuilt -- and every pass with full=True -- rebuilds every
+    issue from all stored runs instead.
+
+    Each pair maps to a stable issue id, and merging is idempotent: a
+    re-merged run changes nothing, and an analyst's open/closed status is
+    kept -- unless a closed issue picks up new sessions, which reopens it.
+    Unlike a rule-id rollup, this reads directly off classifier_runs/
+    classifier_signals -- any actor/technique combination your classifier
+    actually produces shows up here, even without a dedicated rule written
+    just for it. Repeat-connection brute-force detection runs alongside it,
+    off raw session counts instead.
+
+    Raises IssueSyncInProgressError if another process holds the sync lock.
     """
     playbook = load_issue_playbook(playbook_path)
     mitre_catalog = load_mitre_technique_catalog(mitre_catalog_path)
 
     repository = PostgresClassifierRepository(database_url)
-    synced: list[IssueRecord] = []
-    for aggregate in repository.aggregate_classifier_runs_by_actor_and_technique():
-        issue = _build_issue(aggregate, playbook, mitre_catalog)
-        synced.append(repository.upsert_issue(issue))
+    synced: dict[UUID, IssueRecord] = {}
 
-    repeat_connections = repository.aggregate_repeat_connections_by_peer_ip(
-        window_seconds=repeat_connection_window_seconds,
-        min_sessions=repeat_connection_min_sessions,
+    with repository.issue_sync_transaction() as store:
+        _require_lock(store)
+        if full or not store.is_rebuilt():
+            # Clear the queue before reading every run: a run stored after
+            # the clear stays queued and is merged again below, which
+            # changes nothing, so no run can be missed.
+            store.clear_queue()
+            _merge_runs(store, store.load_runs(), playbook, mitre_catalog, synced, rebuild=True)
+            store.mark_rebuilt()
+
+    while True:
+        with repository.issue_sync_transaction() as store:
+            _require_lock(store)
+            run_ids = store.next_queued_run_ids(batch_size)
+            if not run_ids:
+                break
+            _merge_runs(store, store.load_runs(run_ids=run_ids), playbook, mitre_catalog, synced)
+            store.dequeue(run_ids)
+
+    with repository.issue_sync_transaction() as store:
+        _require_lock(store)
+        _sync_repeat_connection_issue(
+            store,
+            playbook,
+            mitre_catalog,
+            synced,
+            window_seconds=repeat_connection_window_seconds,
+            min_sessions=repeat_connection_min_sessions,
+        )
+
+    return list(synced.values())
+
+
+def _require_lock(store: IssueSyncStore | None) -> IssueSyncStore:
+    if store is None:
+        raise IssueSyncInProgressError("another issue sync is running")
+    return store
+
+
+def _merge_runs(
+    store: IssueSyncStore,
+    aggregates: list[dict[str, Any]],
+    playbook: IssuePlaybook,
+    mitre_catalog: dict[str, str],
+    synced: dict[UUID, IssueRecord],
+    *,
+    rebuild: bool = False,
+) -> None:
+    """Merge the per-pair aggregates of the runs just loaded into each
+    pair's issue. With rebuild=True those runs are every run of each pair,
+    so each issue's stored totals are replaced instead of added to."""
+    pairs = {
+        (aggregate["actor_label"], aggregate["mitre_tag"]): _issue_id_for_pair(
+            aggregate["actor_label"], aggregate["mitre_tag"]
+        )
+        for aggregate in aggregates
+    }
+    states = store.issue_states(list(pairs.values()))
+    if not rebuild:
+        # The repeat-connection check currently owns this issue and rewrites
+        # it every pass; its classifier totals are rebuilt from all runs if
+        # that check stops matching (see _sync_repeat_connection_issue).
+        pairs = {
+            key: issue_id
+            for key, issue_id in pairs.items()
+            if (states.get(issue_id) or {}).get("rollup_source") != _ROLLUP_SOURCE_REPEAT_CONNECTIONS
+        }
+    if not pairs:
+        return
+
+    # Start from zero when rebuilding, for a new issue, and for an issue
+    # whose stored totals didn't come from classifier runs.
+    fresh_ids = [
+        issue_id
+        for issue_id in pairs.values()
+        if rebuild or (states.get(issue_id) or {}).get("rollup_source") != _ROLLUP_SOURCE_CLASSIFIER
+    ]
+    added = store.merge_pairs(pairs, reset_issue_ids=fresh_ids)
+
+    for aggregate in aggregates:
+        issue_id = pairs.get((aggregate["actor_label"], aggregate["mitre_tag"]))
+        if issue_id is None:
+            continue
+        base = None if issue_id in fresh_ids else states.get(issue_id)
+        rollup = _merge_rollup(base, aggregate, added[issue_id])
+        issue = _build_issue({**aggregate, **rollup}, playbook, mitre_catalog)
+        synced[issue_id] = store.write_rollup_issue(issue, rollup)
+
+
+def _merge_rollup(
+    base: dict[str, Any] | None,
+    batch: dict[str, Any],
+    added: dict[str, int],
+) -> dict[str, Any]:
+    """An issue's new totals: its stored totals (None to start from zero)
+    plus the runs just merged. Counts grow only by sessions, personas and
+    source IPs the issue didn't already have."""
+    base = base or {}
+    samples = set(base.get("sample_evidence") or []) | set(batch.get("sample_evidence") or [])
+    return {
+        "session_count": (base.get("session_count") or 0) + added["sessions"],
+        "persona_count": (base.get("persona_count") or 0) + added["personas"],
+        "source_ip_count": (base.get("source_ip_count") or 0) + added["source_ips"],
+        "first_seen": _combine(min, base.get("first_seen"), batch.get("first_seen")),
+        "last_seen": _combine(max, base.get("last_seen"), batch.get("last_seen")),
+        "max_risk_rank": _combine(max, base.get("max_risk_rank"), batch.get("max_risk_rank")),
+        # Python's str order is code point order, matching the COLLATE "C"
+        # sort the samples were picked with.
+        "sample_evidence": sorted(samples)[:_SAMPLE_EVIDENCE_LIMIT],
+    }
+
+
+def _combine(pick, first: Any, second: Any) -> Any:
+    values = [value for value in (first, second) if value is not None]
+    return pick(values) if values else None
+
+
+def _sync_repeat_connection_issue(
+    store: IssueSyncStore,
+    playbook: IssuePlaybook,
+    mitre_catalog: dict[str, str],
+    synced: dict[UUID, IssueRecord],
+    *,
+    window_seconds: int,
+    min_sessions: int,
+) -> None:
+    """Write the repeat-connection issue when the check matches. When it
+    stops matching, give the shared brute_force_bot/T1110 issue back to the
+    classifier, rebuilt from all of that pair's runs."""
+    issue_id = _issue_id_for_pair(_REPEAT_CONNECTION_ACTOR_LABEL, _REPEAT_CONNECTION_MITRE_TAG)
+    repeat_connections = store.aggregate_repeat_connections(
+        window_seconds=window_seconds,
+        min_sessions=min_sessions,
     )
     if repeat_connections is not None:
         issue = _build_repeat_connection_issue(
             repeat_connections,
             playbook,
             mitre_catalog,
-            window_seconds=repeat_connection_window_seconds,
-            min_sessions=repeat_connection_min_sessions,
+            window_seconds=window_seconds,
+            min_sessions=min_sessions,
         )
-        synced.append(repository.upsert_issue(issue))
+        synced[issue_id] = store.write_repeat_connection_issue(issue)
+        return
 
-    return synced
+    state = store.issue_states([issue_id]).get(issue_id)
+    if state is None or state.get("rollup_source") != _ROLLUP_SOURCE_REPEAT_CONNECTIONS:
+        return
+    aggregates = store.load_runs(pair=(_REPEAT_CONNECTION_ACTOR_LABEL, _REPEAT_CONNECTION_MITRE_TAG))
+    _merge_runs(store, aggregates, playbook, mitre_catalog, synced, rebuild=True)
 
 
 # Debounce/single-flight state for maybe_sync_issues_from_classifier_runs() --
 # process-local only, like the login rate limiter's in-memory fallback path:
 # fine for the single honeypot process and the single API process this runs
-# in today (no `--workers` flag documented anywhere for uvicorn), but a
-# multi-worker/multi-replica deployment would need this moved to something
-# shared (eg. a DB timestamp/advisory lock) to actually coordinate across
-# processes instead of once per process.
+# in today (no `--workers` flag documented anywhere for uvicorn). Passes in
+# different processes never overlap either way: each sync transaction takes
+# a Postgres advisory lock (see issue_sync_transaction in repository.py), and
+# a process that can't get it skips its pass.
 _ISSUE_SYNC_MIN_INTERVAL_SECONDS = 30.0
 _issue_sync_lock = threading.Lock()
 _last_issue_sync_monotonic: float | None = None
@@ -114,20 +270,23 @@ def maybe_sync_issues_from_classifier_runs(
     sync was started, False if this call skipped (debounced, or one was
     already running).
 
-    sync_issues_from_classifier_runs() re-aggregates *all* stored classifier
-    runs every call -- cheap at low session volume, but its cost (and runtime)
-    grows with total session count over time. Two things follow from that:
+    A pass normally merges only the runs stored since the previous one, but
+    the first pass after an upgrade (or on a database never rebuilt)
+    rebuilds every issue from all stored runs, which can take minutes on a
+    large database. Two things follow from that:
 
     1. Debouncing on elapsed time alone isn't enough to prevent overlap: if a
        run takes longer than min_interval_seconds, a second caller arriving
        after that window would see the debounce as expired and start a
        concurrent second run. _issue_sync_running is checked and set inside
        the same locked section as the elapsed-time check, so only one sync is
-       ever in flight regardless of how long it takes.
+       ever in flight regardless of how long it takes. Across processes (the
+       honeypot and the API both call this), a Postgres advisory lock does
+       the same job: the process that doesn't get it skips its pass.
     2. This must never run inline on the caller's own thread. Both call
        sites are latency-sensitive in different ways -- auto_classify_and_store
        runs on one of a small fixed pool of classification workers (see
-       _CLASSIFICATION_WORKER_COUNT), so an inline full-table resync there
+       _CLASSIFICATION_WORKER_COUNT), so an inline rebuild there
        would stall that worker from picking up the next queued session for
        as long as the resync takes; classify_and_store_session_endpoint would
        have an external caller's HTTP request hang open for the same
@@ -158,6 +317,10 @@ def maybe_sync_issues_from_classifier_runs(
                 playbook_path=playbook_path,
                 mitre_catalog_path=mitre_catalog_path,
             )
+        except IssueSyncInProgressError:
+            # The other process is syncing; whatever this pass would have
+            # merged stays queued for the next one.
+            logger.debug("Issue sync skipped: another process is running it")
         except Exception as exc:
             # Not logger.exception(): some drivers/paths embed the raw DSN
             # (including the password) in an exception's own message, and a

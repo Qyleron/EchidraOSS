@@ -181,8 +181,9 @@ CREATE INDEX IF NOT EXISTS issue_mitre_techniques_issue_id_idx
 -- Bridges an issue to the exact sessions that were aggregated into it (see
 -- issue_sync.py), so the dashboard can link Intelligence -> a specific
 -- session and Sessions -> the specific issue(s) it belongs to, instead of
--- only knowing session_count/persona_count as bare numbers. Rebuilt in full
--- (delete+reinsert) on every issue upsert, same as issue_mitre_techniques.
+-- only knowing session_count/persona_count as bare numbers. Classifier
+-- issues gain rows as new runs are merged; the repeat-connection issue is
+-- rewritten in full on every sync pass.
 CREATE TABLE IF NOT EXISTS issue_sessions (
     issue_id UUID NOT NULL REFERENCES issues(id) ON DELETE CASCADE,
     session_id UUID NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
@@ -191,6 +192,47 @@ CREATE TABLE IF NOT EXISTS issue_sessions (
 
 CREATE INDEX IF NOT EXISTS issue_sessions_session_id_idx
     ON issue_sessions (session_id);
+
+-- The issue sync merges newly stored classifier runs into each issue
+-- instead of re-reading every run (see "Issue sync" in repository.py).
+-- These columns and the two bridge tables below hold what a merge needs to
+-- keep an issue's totals exact: distinct personas and source IPs, the
+-- first/last session start time, the highest risk seen, and up to 5
+-- evidence samples. rollup_source says which computation last wrote the
+-- issue: 'classifier' (classifier runs) or 'repeat_connections' (the
+-- repeat-connection check in issue_sync.py); NULL for demo issues.
+ALTER TABLE issues ADD COLUMN IF NOT EXISTS source_ip_count INTEGER;
+ALTER TABLE issues ADD COLUMN IF NOT EXISTS first_seen DOUBLE PRECISION;
+ALTER TABLE issues ADD COLUMN IF NOT EXISTS last_seen DOUBLE PRECISION;
+ALTER TABLE issues ADD COLUMN IF NOT EXISTS max_risk_rank INTEGER;
+ALTER TABLE issues ADD COLUMN IF NOT EXISTS sample_evidence TEXT[];
+ALTER TABLE issues ADD COLUMN IF NOT EXISTS rollup_source TEXT;
+
+CREATE TABLE IF NOT EXISTS issue_personas (
+    issue_id UUID NOT NULL REFERENCES issues(id) ON DELETE CASCADE,
+    persona_id TEXT NOT NULL,
+    PRIMARY KEY (issue_id, persona_id)
+);
+
+CREATE TABLE IF NOT EXISTS issue_source_ips (
+    issue_id UUID NOT NULL REFERENCES issues(id) ON DELETE CASCADE,
+    peer_ip TEXT NOT NULL,
+    PRIMARY KEY (issue_id, peer_ip)
+);
+
+-- Classifier runs not yet merged into issues. A run is queued in the same
+-- transaction that stores it, and removed once a sync pass has merged it.
+CREATE TABLE IF NOT EXISTS issue_sync_queue (
+    classifier_run_id UUID PRIMARY KEY REFERENCES classifier_runs(id) ON DELETE CASCADE
+);
+
+-- One row once every issue has been rebuilt from all stored runs. Until
+-- then (a new database, or the first start after upgrading from a version
+-- without the queue) the next sync pass rebuilds before merging.
+CREATE TABLE IF NOT EXISTS issue_sync_state (
+    singleton BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (singleton),
+    rebuilt_at TIMESTAMPTZ NOT NULL
+);
 
 CREATE TABLE IF NOT EXISTS persona_configs (
     id TEXT PRIMARY KEY,

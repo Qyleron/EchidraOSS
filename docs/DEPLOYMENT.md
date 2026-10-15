@@ -225,6 +225,13 @@ SSH host keys (an RSA, an ECDSA and an Ed25519 key, generated on first
 start and kept owner-readable only). The manual step is still the one to run yourself the first
 time, since `logs/` isn't auto-provisioned the same way.
 
+When you upgrade, run the same `init-db` command before restarting the
+services. It adds any new tables and columns and keeps your data. After the
+restart, the first issue sync rebuilds every Intelligence issue from all
+stored classifier runs, in the background. On a large database this takes a
+few minutes, and the Intelligence page shows the previous issues until the
+rebuild finishes. Later syncs merge only new runs.
+
 Check status:
 
 ```bash
