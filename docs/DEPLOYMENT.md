@@ -136,7 +136,7 @@ service in `docker-compose.yml` and it falls back to UTC. The Dockerfile
 installs the `tzdata` apt package for this, since the
 `python:3.11-slim` base image doesn't include it.
 
-Ports published on the host: `2222` (SSH-style shell), `8080` (HTTP),
+Ports published on the host: `2222` (SSH shell), `8080` (HTTP),
 `2121` (FTP), `2323` (Telnet). Adjust the `ports:` mappings in
 `docker-compose.yml` if any of those collide with something else already
 running on the host. `8000` (dashboard/API) is bound to `127.0.0.1` only —

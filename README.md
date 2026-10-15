@@ -41,7 +41,7 @@ into your firewall.
 
 ## What Is Echidra?
 
-Echidra pretends to be a Linux server. Attackers connect over SSH-style TCP,
+Echidra pretends to be a Linux server. Attackers connect over SSH,
 HTTP, FTP, or Telnet and see a believable, persona-driven system: real-looking
 banners, users, files, running processes, and (for the shell) an interactive
 fake command set. Nothing they type touches the real host or filesystem.
@@ -52,10 +52,10 @@ if PostgreSQL isn't configured — for review in the dashboard.
 
 ## Features
 
-- **Honeypot listeners** — SSH-style fake shell, HTTP (fake Apache/nginx/WordPress/phpMyAdmin), and FTP and Telnet login prompts that record every credential tried, each independently enabled/disabled by port
+- **Honeypot listeners** — SSH server with an interactive fake shell, matching the OpenSSH version it announces, HTTP (fake Apache/nginx/WordPress/phpMyAdmin), and FTP and Telnet login prompts that record every credential tried, each independently enabled/disabled by port
 - **Classification** — deterministic YAML rules turn session features into an actor label, risk score, behavior stage, intent, and MITRE ATT&CK tags, plus a knowledge-base of recommended fixes
 - **Storage & API** — PostgreSQL schema for sessions/events/classifier runs, always mirrored to `logs/sessions.jsonl`; FastAPI backend serves the classifier endpoints and dashboard
-- **Dashboard** — Intelligence (recurring issues + fixes), Sessions, Analytics, Personas, and Alerts (email/Slack)
+- **Dashboard** — Intelligence (recurring issues + fixes), Sessions, Analytics, Personas, and Alerts (email/Slack) that lead with the recommended fix, with repeats grouped
 - **Blocklist export** — `echidra blocklist` or Analytics → Export Blocklist lists attacker IPs for your firewall, fail2ban, or Cloudflare
 
 See the [Console guide](https://qyleron.com/console-guide/) for a full field-by-field reference.
@@ -149,7 +149,7 @@ Container CPU Footprints](https://qyleron.com/blog/defending-botnet-floods-conta
 
 ## Tech Stack
 
-Python 3.11 (`asyncio`) · FastAPI · YAML rule engine · Pydantic · PostgreSQL
+Python 3.11+ (`asyncio`) · FastAPI · YAML rule engine · Pydantic · PostgreSQL
 (optional) · `geoip2fast` · HTML/CSS/JS dashboard
 
 ## Get in Touch

@@ -49,7 +49,7 @@ system Python instead, which doesn't have `classifier` installed.
 
 ## 1. The four honeypot services
 
-### SSH-style fake shell (port 2222)
+### SSH fake shell (port 2222)
 
 This is a real SSH handshake (via `asyncssh`), not a raw text socket -- use an
 actual `ssh` client, not `nc`, or the connection will just sit there with no
