@@ -68,7 +68,8 @@ Type these one at a time:
 | `pwd` | `/home/admin` |
 | `id` | `uid=0(root) gid=0(root) groups=0(root)` |
 | `uname -a` | `Linux ip-10-0-0-12 5.15.0-91-generic #101-Ubuntu SMP x86_64 GNU/Linux` |
-| `ls` | `bin  boot  dev  etc  home  tmp  var` |
+| `ls` | `notes.txt  readme.txt` |
+| `ls /` | `bin  boot  dev  etc  home  tmp  usr  var` |
 | `ls /home/admin` | `notes.txt  readme.txt` |
 | `cat /home/admin/readme.txt` | `Welcome to the system.` |
 | `cat /etc/passwd` | `root:x:0:0:root:/root:/bin/bash` / `admin:x:1000:1000:admin:/home/admin:/bin/bash` |
@@ -78,6 +79,11 @@ Type these one at a time:
 | `cd /nope` | `bash: cd: /nope: No such file or directory` |
 | `cd /etc/passwd` | `bash: cd: /etc/passwd: Not a directory` |
 | `ps` | header row + `sshd`, `cron`, `rsyslogd` as fake PIDs |
+| `echo 'echo ok' > /tmp/t.sh` | (nothing printed) |
+| `/tmp/t.sh` | `bash: /tmp/t.sh: Permission denied` |
+| `chmod +x /tmp/t.sh; /tmp/t.sh` | `ok` |
+| `mkdir /tmp/d; ls /tmp` | `d  t.sh` |
+| `rm -rf /tmp/d /tmp/t.sh; ls /tmp` | (nothing printed) |
 | `whatever123` | `bash: whatever123: command not found` |
 | `exit` | connection closes |
 
