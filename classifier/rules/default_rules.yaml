@@ -396,7 +396,7 @@ rules:
     mitre_tags:
       - T1110
     evidence:
-      - Submitted a username and password over HTTP, in a login form or a Basic authentication header.
+      - Submitted a username and password over HTTP, in a login form, a login link's query string or a Basic authentication header.
     conditions:
       - field: protocol
         operator: equals

@@ -62,7 +62,9 @@ _HTTP_REQUEST_COMMANDS = {"get", "post", "head", "put", "delete"}
 # ("POST /wp-login.php: log=admin&pwd=hunter2") -- unlike Telnet/FTP's
 # USER/PASS exchange, there's no fixed field name to match on, so this
 # looks for common login-form field names in the body text instead.
-_HTTP_CREDENTIAL_BODY_MARKERS = ("pwd=", "passwd=", "password=", "log=", "user=", "username=")
+_HTTP_CREDENTIAL_BODY_MARKERS = (
+    "pwd=", "psd=", "passwd=", "password=", "log=", "user=", "username="
+)
 # Bare substring matching misclassifies benign fields whose name merely ends
 # with a marker ("catalog=" containing "log=", "browser=" never actually
 # containing "user=" but e.g. "poweruser=" would). Form fields are delimited
@@ -72,10 +74,11 @@ _HTTP_CREDENTIAL_BODY_PATTERN = re.compile(
     "|".join(r"(?<![A-Za-z0-9])" + re.escape(marker) for marker in _HTTP_CREDENTIAL_BODY_MARKERS)
 )
 # Login forms don't agree on field names ("log"/"pwd" is WordPress; "username"/
-# "password" is generic; "email"/"pass" shows up too) -- check each known
-# alias rather than assuming one fixed pair of field names.
+# "password" is generic; "email"/"pass" shows up too; "psd" is the Realtek
+# router login at /boaform/admin/formLogin) -- check each known alias rather
+# than assuming one fixed pair of field names.
 _HTTP_USERNAME_FIELD_NAMES = ("log", "user", "username", "email", "uname")
-_HTTP_PASSWORD_FIELD_NAMES = ("pwd", "pass", "passwd", "password")
+_HTTP_PASSWORD_FIELD_NAMES = ("pwd", "psd", "pass", "passwd", "password")
 # Product names of well-known vulnerability/recon scanners that identify
 # themselves in their User-Agent header. Deliberately conservative (no
 # "curl"/"python-requests"/etc.) -- those are used by huge amounts of benign
@@ -345,6 +348,17 @@ def extract_session_features(
             pair = _extract_http_credential_pair(body)
             if pair:
                 http_credentials_tried.append(pair)
+        elif session.protocol == "http" and command_name == "get":
+            # Router bots also log in with GET, the pair in the query string
+            # (/boaform/admin/formLogin?username=admin&psd=...). Unlike a POST
+            # body, a query string alone is no sign of a login, so it counts
+            # only when it carries both a username and a password.
+            target = _http_request_target(event.cmd)
+            if target is not None and "?" in target:
+                pair = _extract_http_credential_pair(target.split("?", 1)[1])
+                if pair:
+                    auth_attempt_count += 1
+                    http_credentials_tried.append(pair)
 
         if session.protocol == "http" and command_name in _HTTP_REQUEST_COMMANDS and args:
             http_paths_requested.append(args[0])

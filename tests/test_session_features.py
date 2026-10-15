@@ -415,6 +415,39 @@ def test_http_post_with_only_username_field_produces_no_credential_pair():
     assert features.http_credentials_tried == []
 
 
+def test_http_post_with_realtek_psd_field_becomes_credential():
+    session = create_http_session(
+        [("POST /boaform/admin/formLogin: username=admin&psd=Feefifofum", 1.0)]
+    )
+
+    features = extract_session_features(session)
+
+    assert features.auth_attempt_count == 1
+    assert features.http_credentials_tried == ["admin:feefifofum"]
+
+
+def test_http_get_with_credentials_in_query_string_counts_as_auth_attempt():
+    """Realtek router bots send the login as a GET, the pair in the query
+    string rather than a body."""
+    session = create_http_session(
+        [("GET /boaform/admin/formLogin?username=admin&psd=Feefifofum HTTP/1.1", 1.0)]
+    )
+
+    features = extract_session_features(session)
+
+    assert features.auth_attempt_count == 1
+    assert features.http_credentials_tried == ["admin:feefifofum"]
+
+
+def test_http_get_with_only_username_in_query_string_is_not_auth_attempt():
+    session = create_http_session([("GET /profile?user=admin HTTP/1.1", 1.0)])
+
+    features = extract_session_features(session)
+
+    assert features.auth_attempt_count == 0
+    assert features.http_credentials_tried == []
+
+
 def test_http_post_without_credential_fields_produces_no_credential_pair():
     session = create_http_session([("POST /api/contact: message=hello", 1.0)])
 
