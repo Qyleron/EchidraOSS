@@ -41,6 +41,18 @@ class SessionState:
         # Per-session copy of persona files
         self.files = self.persona.file_map()
 
+        # What the visitor changes lives only in this session: directories
+        # (the usual ones start out present and can be removed), the files
+        # they wrote, which are never counted as decoys, and the files
+        # they made runnable with chmod.
+        home = self.persona.home_dir
+        self.dirs = {
+            "/boot", "/dev", "/dev/shm", "/etc", "/home", "/tmp", "/var",
+            "/var/run", "/var/tmp", home, f"{home}/.ssh",
+        }
+        self.written_files: set[str] = set()
+        self.executable_files: set[str] = set()
+
 
     def log_command(self, command: str) -> None:
         """Record a command and refresh session activity metadata."""

@@ -46,6 +46,8 @@ class InteractionEngine:
         The engine logs the whole line once, splits it into commands at `;`,
         `&&` and `||` and into pipelines at `|` the way a shell does, runs
         each supported fake command, and falls back to the shell's own error.
+        Output sent to a file with `>` or `>>` is kept in the session's
+        files, never written to the host.
         When a command ends the session, the output so far is followed by
         CLOSE_SIGNAL instead of a prompt.
         """
@@ -119,8 +121,58 @@ class InteractionEngine:
         """Output and success of one simple command; None means close the session.
 
         `stdin` is the previous command's output inside a pipeline, None
-        when nothing is piped in.
+        when nothing is piped in. Redirects are handled here: the files are
+        opened first, as the shell does, so `>.d` alone makes an empty file
+        and a redirect into a missing directory stops the command.
         """
+        split = _split_redirects(command)
+        if split is None:
+            if _is_busybox(session):
+                return f"{_shell_name(session)}: syntax error: unexpected newline\n", False
+            return "bash: syntax error near unexpected token `newline'\n", False
+        command, redirects = split
+        if not redirects:
+            return self._run_command(command, session, stdin, depth)
+
+        # Where stdout ("1") and stderr ("2") go: None is the screen
+        targets: dict[str, str | None] = {"1": None, "2": None}
+        for fd, append, target in redirects:
+            if target.startswith("&"):
+                # `2>&1` sends stderr wherever stdout goes at this point
+                if fd in targets and target[1:] in targets:
+                    targets[fd] = targets[target[1:]]
+                continue
+            path = self._resolve_path(session, target)
+            if path != "/dev/null":
+                error = self._open_for_writing(session, target, path, append)
+                if error:
+                    return error, False
+            for stream in (("1", "2") if fd == "&" else (fd,)):
+                if stream in targets:
+                    targets[stream] = path
+
+        result = self._run_command(command, session, stdin, depth)
+        if result is None:
+            return None
+        text, succeeded = result
+        # A failed command's text is its error message
+        streams = {"1": text if succeeded else "", "2": "" if succeeded else text}
+        screen = []
+        for stream, data in streams.items():
+            path = targets[stream]
+            if path is None:
+                screen.append(data)
+            elif data and path != "/dev/null" and not self._store(session, path, data, append=True):
+                name = command.split()[0] if command.split() else ""
+                prefix = f"{_shell_name(session)}: " if name == "echo" else ""
+                screen.append(f"{prefix}{name}: write error: No space left on device\n")
+                succeeded = False
+        return "".join(screen), succeeded
+
+    def _run_command(
+        self, command: str, session: SessionState, stdin: str | None, depth: int,
+    ) -> tuple[str, bool] | None:
+        """Output and success of one simple command with its redirects taken out."""
         shell = _shell_name(session)
         # Parse shell-style quoting and spacing
         try:
@@ -138,13 +190,11 @@ class InteractionEngine:
         args = tokens[1:]
 
         # A program run by its full path ("/bin/echo", "/usr/bin/uname") is
-        # the same command; a path to nothing installed fails like the shell.
+        # the same command; any other path is a file the visitor runs.
         if "/" in cmd:
             path = self._resolve_path(session, cmd)
-            if path not in self._system_programs(session):
-                if _is_busybox(session):
-                    return f"{shell}: {cmd}: not found\n", False
-                return f"bash: {cmd}: No such file or directory\n", False
+            if path not in self._system_programs(session) or path in session.files:
+                return self._run_file(session, cmd, path, depth)
             cmd = PurePosixPath(path).name
 
         # On a BusyBox device every command is an applet of one program.
@@ -264,8 +314,31 @@ class InteractionEngine:
         if cmd == "ls":
             # Use the current directory when no explicit target is provided
             target = self._extract_ls_target(args)
-            text = self._ls(session, target or session.cwd, shown=target)
+            show_all = any(
+                arg in ("--all", "--almost-all")
+                or (arg.startswith("-") and not arg.startswith("--") and ("a" in arg or "A" in arg))
+                for arg in args
+            )
+            text = self._ls(session, target or session.cwd, shown=target, show_all=show_all)
             return text, not text.startswith("ls: ")
+
+        # Download scripts run `chmod 777 x; ./x; rm -rf x`. A shell that
+        # says "chmod: not found" is no real server; these change only the
+        # session's own files.
+        if cmd == "chmod":
+            return self._chmod(session, args)
+
+        if cmd == "mkdir":
+            return self._mkdir(session, args)
+
+        if cmd == "touch":
+            return self._touch(session, args)
+
+        if cmd == "rm":
+            return self._rm(session, args)
+
+        if cmd == "cp":
+            return self._cp(session, args)
 
         # File reads are served only from persona-backed fake files
         if cmd == "cat":
@@ -300,7 +373,8 @@ class InteractionEngine:
         target = self._resolve_path(session, operand)
         content = session.files.get(target)
         if content is not None:
-            session.record_decoy_file_surfaced(target)
+            if target not in session.written_files:
+                session.record_decoy_file_surfaced(target)
             # Match normal terminal output formatting
             return (content if content.endswith("\n") else content + "\n"), ""
         # A loader prints a program to read its header and learn the CPU
@@ -504,7 +578,10 @@ class InteractionEngine:
         else:
             # An interactive subshell would just show another prompt
             return "", True
+        return self._run_script(session, script, depth)
 
+    def _run_script(self, session: SessionState, script: str, depth: int) -> tuple[str, bool]:
+        """Run a script's lines one by one through this same fake shell."""
         output = []
         succeeded = True
         for line in script.splitlines():
@@ -516,6 +593,285 @@ class InteractionEngine:
             if closed:
                 break
         return "".join(output), succeeded
+
+    def _run_file(
+        self, session: SessionState, cmd: str, path: str, depth: int,
+    ) -> tuple[str, bool]:
+        """`./x` or `/tmp/x`: a file from this session, never anything on the host."""
+        shell = _shell_name(session)
+        busybox = _is_busybox(session)
+        content = session.files.get(path)
+        if content is not None:
+            if path not in session.executable_files:
+                return f"{shell}: {cmd}: Permission denied\n", False
+            # A program starts and goes on in the background, as bots'
+            # programs do, so it prints nothing.
+            if content.startswith("\x7fELF"):
+                return "", True
+            if depth >= _MAX_SUBSHELL_DEPTH:
+                return "", True
+            return self._run_script(session, content, depth)
+        if path in self._build_listings(session):
+            if busybox:
+                return f"{shell}: {cmd}: Permission denied\n", False
+            return f"bash: {cmd}: Is a directory\n", False
+        if busybox:
+            return f"{shell}: {cmd}: not found\n", False
+        return f"bash: {cmd}: No such file or directory\n", False
+
+    def _kind(self, session: SessionState, path: str) -> str | None:
+        """"dir", "file", or None when nothing is at the path."""
+        if path in self._build_listings(session):
+            return "dir"
+        if path in session.files or path in self._system_programs(session):
+            return "file"
+        return None
+
+    def _open_for_writing(
+        self, session: SessionState, operand: str, path: str, append: bool,
+    ) -> str | None:
+        """Create or empty a redirect's file; the shell's error if it can't."""
+        parent = self._kind(session, str(PurePosixPath(path).parent))
+        if self._kind(session, path) == "dir":
+            reason = "Is a directory"
+        elif parent == "file":
+            reason = "Not a directory"
+        elif parent is None:
+            reason = "No such file or directory"
+        else:
+            if self._store(session, path, "", append):
+                return None
+            reason = "No space left on device"
+        if _is_busybox(session):
+            if reason == "No such file or directory":
+                reason = "nonexistent directory"
+            return f"{_shell_name(session)}: can't create {operand}: {reason}\n"
+        return f"bash: {operand}: {reason}\n"
+
+    def _store(self, session: SessionState, path: str, text: str, append: bool) -> bool:
+        """Write text to a session file; False once the session's files are full."""
+        content = (session.files.get(path, "") if append else "") + text
+        used = sum(
+            len(session.files[written])
+            for written in session.written_files
+            if written != path and written in session.files
+        )
+        if used + len(content) > _MAX_WRITTEN_CHARS:
+            return False
+        session.files[path] = content
+        session.written_files.add(path)
+        return True
+
+    def _remove(self, session: SessionState, path: str) -> None:
+        """Delete a file or a whole directory from the session."""
+        inside = "/" if path == "/" else f"{path}/"
+        for collection in (session.files, session.dirs, session.written_files, session.executable_files):
+            for item in [item for item in collection if item == path or item.startswith(inside)]:
+                if isinstance(collection, dict):
+                    del collection[item]
+                else:
+                    collection.discard(item)
+
+    def _chmod(self, session: SessionState, args: list[str]) -> tuple[str, bool]:
+        busybox = _is_busybox(session)
+        recursive = False
+        words = []
+        for arg in args:
+            # "-x" and "-w" are modes, not options
+            if not words and re.fullmatch(r"-[Rcfv]+|--recursive|--changes|--silent|--quiet|--verbose", arg):
+                recursive = recursive or "R" in arg or arg == "--recursive"
+                continue
+            words.append(arg)
+        if not words:
+            return _missing_operand(session, "chmod", "chmod: missing operand"), False
+        mode, operands = words[0], words[1:]
+        if not operands:
+            return _missing_operand(session, "chmod", f"chmod: missing operand after '{mode}'"), False
+        if _chmod_executable(mode, False) is None:
+            if busybox:
+                return f"chmod: invalid mode '{mode}'\n", False
+            return f"chmod: invalid mode: '{mode}'\nTry 'chmod --help' for more information.\n", False
+
+        errors = []
+        for operand in operands:
+            path = self._resolve_path(session, operand)
+            kind = self._kind(session, path)
+            if kind is None:
+                if busybox:
+                    errors.append(f"chmod: {operand}: No such file or directory\n")
+                else:
+                    errors.append(f"chmod: cannot access '{operand}': No such file or directory\n")
+                continue
+            inside = "/" if path == "/" else f"{path}/"
+            paths = [path] if kind == "file" else []
+            if kind == "dir" and recursive:
+                paths = [item for item in session.files if item.startswith(inside)]
+            for item in paths:
+                if _chmod_executable(mode, item in session.executable_files):
+                    session.executable_files.add(item)
+                else:
+                    session.executable_files.discard(item)
+        return "".join(errors), not errors
+
+    def _mkdir(self, session: SessionState, args: list[str]) -> tuple[str, bool]:
+        busybox = _is_busybox(session)
+        flags, operands = _options(args, {"--parents": "p"}, takes_value="m")
+        if not operands:
+            return _missing_operand(session, "mkdir", "mkdir: missing operand"), False
+
+        errors = []
+        for operand in operands:
+            path = self._resolve_path(session, operand)
+            reason = None
+            if "p" in flags:
+                current = ""
+                for part in path.strip("/").split("/") if path != "/" else []:
+                    current = f"{current}/{part}"
+                    kind = self._kind(session, current)
+                    if kind == "file":
+                        reason = "File exists" if current == path else "Not a directory"
+                        break
+                    if kind is None:
+                        session.dirs.add(current)
+            else:
+                parent = self._kind(session, str(PurePosixPath(path).parent))
+                if self._kind(session, path) is not None:
+                    reason = "File exists"
+                elif parent == "file":
+                    reason = "Not a directory"
+                elif parent is None:
+                    reason = "No such file or directory"
+                else:
+                    session.dirs.add(path)
+            if reason:
+                verb = "can't" if busybox else "cannot"
+                errors.append(f"mkdir: {verb} create directory '{operand}': {reason}\n")
+        return "".join(errors), not errors
+
+    def _touch(self, session: SessionState, args: list[str]) -> tuple[str, bool]:
+        busybox = _is_busybox(session)
+        flags, operands = _options(args, {"--no-create": "c"}, takes_value="dtr")
+        if not operands:
+            return _missing_operand(session, "touch", "touch: missing file operand"), False
+
+        errors = []
+        for operand in operands:
+            path = self._resolve_path(session, operand)
+            if self._kind(session, path) is not None or "c" in flags:
+                continue
+            parent = self._kind(session, str(PurePosixPath(path).parent))
+            if parent == "dir":
+                if self._store(session, path, "", append=False):
+                    continue
+                reason = "No space left on device"
+            elif parent == "file":
+                reason = "Not a directory"
+            else:
+                reason = "No such file or directory"
+            if busybox:
+                errors.append(f"touch: {operand}: {reason}\n")
+            else:
+                errors.append(f"touch: cannot touch '{operand}': {reason}\n")
+        return "".join(errors), not errors
+
+    def _rm(self, session: SessionState, args: list[str]) -> tuple[str, bool]:
+        busybox = _is_busybox(session)
+        flags, operands = _options(args, {"--recursive": "r", "--force": "f"})
+        force = "f" in flags
+        recursive = "r" in flags or "R" in flags
+        if not operands:
+            if force:
+                return "", True
+            return _missing_operand(session, "rm", "rm: missing operand"), False
+
+        errors = []
+        for operand in operands:
+            path = self._resolve_path(session, operand)
+            if path == "/" and recursive and not busybox:
+                errors.append(
+                    "rm: it is dangerous to operate recursively on '/'\n"
+                    "rm: use --no-preserve-root to override this failsafe\n"
+                )
+                continue
+            kind = self._kind(session, path)
+            if kind is None:
+                if not force:
+                    verb = "can't" if busybox else "cannot"
+                    errors.append(f"rm: {verb} remove '{operand}': No such file or directory\n")
+                continue
+            if kind == "dir" and not recursive:
+                if busybox:
+                    errors.append(f"rm: '{operand}' is a directory\n")
+                else:
+                    errors.append(f"rm: cannot remove '{operand}': Is a directory\n")
+                continue
+            self._remove(session, path)
+        return "".join(errors), not errors
+
+    def _cp(self, session: SessionState, args: list[str]) -> tuple[str, bool]:
+        busybox = _is_busybox(session)
+        flags, operands = _options(args, {"--recursive": "r", "--archive": "a"})
+        recursive = bool(flags & {"r", "R", "a"})
+        if not operands:
+            return _missing_operand(session, "cp", "cp: missing file operand"), False
+        if len(operands) == 1:
+            return _missing_operand(
+                session, "cp", f"cp: missing destination file operand after '{operands[0]}'"
+            ), False
+
+        *sources, destination = operands
+        dest_path = self._resolve_path(session, destination)
+        dest_is_dir = self._kind(session, dest_path) == "dir"
+        if len(sources) > 1 and not dest_is_dir:
+            if busybox:
+                return f"cp: '{destination}' is not a directory\n", False
+            return f"cp: target '{destination}' is not a directory\n", False
+
+        errors = []
+        for source in sources:
+            path = self._resolve_path(session, source)
+            kind = self._kind(session, path)
+            if kind is None:
+                verb = "can't" if busybox else "cannot"
+                errors.append(f"cp: {verb} stat '{source}': No such file or directory\n")
+                continue
+            name = PurePosixPath(path).name
+            target = (f"{dest_path.rstrip('/')}/{name}") if dest_is_dir else dest_path
+            shown = f"{destination.rstrip('/')}/{name}" if dest_is_dir else destination
+            if kind == "dir":
+                if not recursive:
+                    if busybox:
+                        errors.append(f"cp: omitting directory '{source}'\n")
+                    else:
+                        errors.append(f"cp: -r not specified; omitting directory '{source}'\n")
+                    continue
+                session.dirs.add(target)
+                inside = "/" if path == "/" else f"{path}/"
+                for item in [item for item in session.dirs if item.startswith(inside)]:
+                    session.dirs.add(target + item[len(path):])
+                copies = [(item, target + item[len(path):]) for item in session.files if item.startswith(inside)]
+            else:
+                if self._kind(session, str(PurePosixPath(target).parent)) != "dir":
+                    if busybox:
+                        errors.append(f"cp: can't create '{shown}': No such file or directory\n")
+                    else:
+                        errors.append(
+                            f"cp: cannot create regular file '{shown}': No such file or directory\n"
+                        )
+                    continue
+                copies = [(path, target)]
+            for origin, copy in copies:
+                # `cp /bin/busybox .x` gives a bot a runnable file to overwrite
+                if origin in session.files:
+                    content = session.files[origin]
+                else:
+                    content = _elf_header(session.persona.uname_output)
+                if not self._store(session, copy, content, append=False):
+                    errors.append(f"cp: error writing '{shown}': No space left on device\n")
+                    break
+                if origin in session.executable_files or origin not in session.files:
+                    session.executable_files.add(copy)
+        return "".join(errors), not errors
 
     def _extract_ls_target(self, args: list[str]) -> str | None:
         """Return the first non-flag ls argument, if one was provided."""
@@ -549,15 +905,23 @@ class InteractionEngine:
 
         return "/" + "/".join(parts)
 
-    def _ls(self, session: SessionState, path: str, shown: str | None = None) -> str:
+    def _ls(
+        self, session: SessionState, path: str, shown: str | None = None, show_all: bool = False,
+    ) -> str:
         """Return a directory listing from the session's virtual filesystem."""
 
         resolved = self._resolve_path(session, path)
         listings = self._build_listings(session)
 
         if resolved in listings:
-            self._record_listed_decoy_files(session, resolved)
-            return listings[resolved] + "\n"
+            # Names starting with "." show only with -a
+            names = sorted(
+                name for name in listings[resolved] if show_all or not name.startswith(".")
+            )
+            if show_all:
+                names = [".", "..", *names]
+            self._record_listed_decoy_files(session, resolved, names)
+            return "  ".join(names) + "\n" if names else ""
 
         if resolved in session.files:
             # ls on a file prints the operand back, like real ls
@@ -666,7 +1030,8 @@ class InteractionEngine:
             return ""
         return f"curl: (6) Could not resolve host: {_url_host(url)}\n"
 
-    def _build_listings(self, session: SessionState) -> dict[str, str]:
+    def _build_listings(self, session: SessionState) -> dict[str, set[str]]:
+        """Each directory and the names in it."""
         programs = _BUSYBOX_PROGRAMS if _is_busybox(session) else _SYSTEM_PROGRAMS
         directories: dict[str, set[str]] = {
             "/": {"bin", "boot", "dev", "etc", "home", "tmp", "usr", "var"},
@@ -675,15 +1040,20 @@ class InteractionEngine:
             "/usr/bin": set(programs),
         }
 
-        for file_path in session.files:
+        # A file's path makes its directories; so does each directory made
+        # with mkdir, even while it's empty.
+        for file_path, is_file in [
+            *((file_path, True) for file_path in session.files),
+            *((directory, False) for directory in session.dirs),
+        ]:
             parts = [part for part in file_path.strip("/").split("/") if part]
             current = "/"
 
             for index, part in enumerate(parts):
-                is_file = index == len(parts) - 1
+                last = index == len(parts) - 1
                 directories.setdefault(current, set()).add(part)
 
-                if not is_file:
+                if not (last and is_file):
                     current = (
                         f"/{part}"
                         if current == "/"
@@ -691,15 +1061,19 @@ class InteractionEngine:
                     )
                     directories.setdefault(current, set())
 
-        return {
-            path: "  ".join(sorted(children))
-            for path, children in directories.items()
-        }
+        return directories
 
-    def _record_listed_decoy_files(self, session: SessionState, directory: str) -> None:
+    def _record_listed_decoy_files(
+        self, session: SessionState, directory: str, names: list[str],
+    ) -> None:
         """Track direct child files whose names were exposed by a listing."""
         for file_path in session.files:
-            if str(PurePosixPath(file_path).parent) == directory:
+            path = PurePosixPath(file_path)
+            if (
+                str(path.parent) == directory
+                and path.name in names
+                and file_path not in session.written_files
+            ):
                 session.record_decoy_file_surfaced(file_path)
 
     def _ps(self, session: SessionState) -> str:
@@ -726,6 +1100,163 @@ CLOSE_SIGNAL = "__CLOSE__"
 
 _LIST_SEPARATORS = ("&&", "||", ";;", ";")
 _MAX_SUBSHELL_DEPTH = 3
+# Everything one session writes together, so a bot can't fill the memory
+_MAX_WRITTEN_CHARS = 1_000_000
+
+
+def _split_redirects(command: str) -> tuple[str, list[tuple[str, bool, str]]] | None:
+    """Take `>`, `>>`, `2>`, `&>` and `2>&1` out of one simple command.
+
+    Returns the command without them and, in order, (stream, append,
+    target) for each: stream is "1", "2", another descriptor's number, or
+    "&" for both; a target "&1" means "where stream 1 goes". None when a
+    redirect has no target, which the shell reports as a syntax error.
+    """
+    rest: list[str] = []
+    redirects = []
+    quote = None
+    index = 0
+    while index < len(command):
+        char = command[index]
+        if quote:
+            rest.append(char)
+            if char == "\\" and quote == '"' and index + 1 < len(command):
+                rest.append(command[index + 1])
+                index += 2
+                continue
+            if char == quote:
+                quote = None
+            index += 1
+            continue
+        if char in "'\"":
+            quote = char
+        elif char == "\\" and index + 1 < len(command):
+            rest.append(command[index:index + 2])
+            index += 2
+            continue
+        if char != ">":
+            rest.append(char)
+            index += 1
+            continue
+
+        # "2>" names a stream only when the number is a word of its own
+        start = len(rest)
+        while start and not rest[start - 1].isspace():
+            start -= 1
+        word = "".join(rest[start:])
+        stream = "1"
+        if word.isdigit() or word == "&":
+            stream = word
+            del rest[start:]
+        index += 1
+        append = command.startswith(">", index)
+        duplicate = not append and command.startswith("&", index)
+        if append or duplicate or command.startswith("|", index):
+            index += 1
+        while index < len(command) and command[index] in " \t":
+            index += 1
+
+        # The target is the next word, quotes and all
+        begin = index
+        target_quote = None
+        while index < len(command):
+            char = command[index]
+            if target_quote:
+                if char == "\\" and target_quote == '"':
+                    index += 1
+                elif char == target_quote:
+                    target_quote = None
+            elif char in "'\"":
+                target_quote = char
+            elif char == "\\":
+                index += 1
+            elif char.isspace() or char in "<>":
+                break
+            index += 1
+        raw = command[begin:index]
+        if not raw:
+            return None
+        try:
+            words = shlex.split(raw)
+        except ValueError:
+            words = [raw]
+        target = words[0] if len(words) == 1 else raw
+        if duplicate:
+            if target.isdigit() or target == "-":
+                target = "&" + target
+            else:
+                # `>& file` is `&> file`
+                stream = "&"
+        redirects.append((stream, append, target))
+    return "".join(rest).strip(), redirects
+
+
+def _options(
+    args: list[str], long_names: dict[str, str], takes_value: str = "",
+) -> tuple[set[str], list[str]]:
+    """The option letters given and the operands; "--" ends the options.
+
+    A letter in takes_value uses the rest of its word or the next word as
+    its value (`mkdir -m 755 dir`).
+    """
+    flags: set[str] = set()
+    operands = []
+    index = 0
+    while index < len(args):
+        arg = args[index]
+        index += 1
+        if arg == "--":
+            operands.extend(args[index:])
+            break
+        if arg == "-" or not arg.startswith("-"):
+            operands.append(arg)
+            continue
+        if arg.startswith("--"):
+            flags.add(long_names.get(arg.split("=", 1)[0], arg))
+            continue
+        for position, letter in enumerate(arg[1:], start=1):
+            flags.add(letter)
+            if letter in takes_value:
+                if position == len(arg) - 1:
+                    index += 1
+                break
+    return flags, operands
+
+
+# BusyBox prints its usage line when an operand is missing
+_BUSYBOX_USAGE = {
+    "chmod": "chmod [-Rcvf] MODE[,MODE]... FILE...",
+    "cp": "cp [-arPLHpfinlsTu] SOURCE... DEST",
+    "mkdir": "mkdir [-m MODE] [-p] DIRECTORY...",
+    "rm": "rm [-irf] FILE...",
+    "touch": "touch [-c] [-d DATE] [-t DATE] [-r FILE] FILE...",
+}
+
+
+def _missing_operand(session: SessionState, cmd: str, message: str) -> str:
+    """The error a coreutils program, or BusyBox, gives for a missing operand."""
+    if _is_busybox(session):
+        version = session.persona.os_banner.replace(
+            "built-in shell (ash)", "multi-call binary."
+        )
+        return f"{version}\n\nUsage: {_BUSYBOX_USAGE[cmd]}\n"
+    return f"{message}\nTry '{cmd} --help' for more information.\n"
+
+
+def _chmod_executable(mode: str, executable: bool) -> bool | None:
+    """Whether a file can be run after `chmod mode`; None for a bad mode."""
+    if re.fullmatch(r"[0-7]{1,4}", mode):
+        return any(int(digit) & 1 for digit in mode[-3:])
+    for clause in mode.split(","):
+        if not re.fullmatch(r"[ugoa]*(?:[-+=][rwxXstugo]*)+", clause):
+            return None
+        for operator, permissions in re.findall(r"([-+=])([rwxXstugo]*)", clause):
+            has_x = "x" in permissions or "X" in permissions
+            if operator == "=":
+                executable = has_x
+            elif has_x:
+                executable = operator == "+"
+    return executable
 
 
 def _split_unquoted(
@@ -889,13 +1420,14 @@ _ELF_CPUS = {
 # What /bin and /usr/bin list: the programs this shell answers, plus the
 # shells every system has.
 _SYSTEM_PROGRAMS = (
-    "base64", "bash", "cat", "clear", "curl", "echo", "grep", "head",
-    "hostname", "id", "ls", "netstat", "ps", "pwd", "sh", "ss", "tail",
-    "uname", "wc", "wget", "whoami",
+    "base64", "bash", "cat", "chmod", "clear", "cp", "curl", "echo", "grep",
+    "head", "hostname", "id", "ls", "mkdir", "netstat", "ps", "pwd", "rm",
+    "sh", "ss", "tail", "touch", "uname", "wc", "wget", "whoami",
 )
 _BUSYBOX_APPLETS = (
-    "base64", "cat", "clear", "echo", "grep", "head", "hostname", "id", "ls",
-    "netstat", "ps", "pwd", "sh", "tail", "uname", "wc", "wget", "whoami",
+    "base64", "cat", "chmod", "clear", "cp", "echo", "grep", "head",
+    "hostname", "id", "ls", "mkdir", "netstat", "ps", "pwd", "rm", "sh",
+    "tail", "touch", "uname", "wc", "wget", "whoami",
 )
 _BUSYBOX_PROGRAMS = ("busybox", *_BUSYBOX_APPLETS)
 _ASH_BUILTINS = ("cd", "echo", "exit", "help", "logout", "pwd", "quit")
@@ -916,24 +1448,8 @@ def _echo(args: list[str]) -> str:
                 escapes = flag == "e"
         index += 1
 
-    words = []
-    rest = args[index:]
-    skip_next = False
-    for word in rest:
-        if skip_next:
-            skip_next = False
-            continue
-        # Output sent to a file shows nothing on screen. (Pipes are split
-        # off before this, so a "|" here was quoted and is plain text.)
-        if _STDOUT_REDIRECT.match(word):
-            return ""
-        # A stderr redirect doesn't change what echo prints.
-        if word.startswith("2>"):
-            skip_next = word in ("2>", "2>>")
-            continue
-        words.append(word)
-
-    text = " ".join(words)
+    # Redirects were taken out before this, so every word is text
+    text = " ".join(args[index:])
     if escapes:
         text, stopped = _expand_echo_escapes(text)
         if stopped:
@@ -985,7 +1501,6 @@ def _leading(text: str, allowed: str, limit: int) -> str:
 
 
 _ECHO_OPTIONS = re.compile(r"-[neE]+")
-_STDOUT_REDIRECT = re.compile(r"(?:1|&)?>")
 _ECHO_SIMPLE_ESCAPES = {
     "\\": "\\", "a": "\a", "b": "\b", "e": "\x1b", "E": "\x1b",
     "f": "\f", "n": "\n", "r": "\r", "t": "\t", "v": "\v",

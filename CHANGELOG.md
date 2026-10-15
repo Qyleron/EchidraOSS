@@ -49,7 +49,10 @@ All notable changes to Echidra are documented here. The format follows
   full path (`/bin/echo`); and prints a program file header that matches
   the persona's CPU. The router persona answers with BusyBox applets and
   BusyBox's own messages. Non-interactive `ssh host cmd` output no longer
-  ends with a prompt.
+  ends with a prompt. Output can be sent to files with `>`, `>>` and `2>`;
+  `touch`, `mkdir`, `cp`, `rm` and `chmod` work, with GNU or BusyBox
+  messages; and a file made runnable can be run as `./file`. What a
+  session writes is kept in that session only, never on the host.
 - GitHub Actions: tests on Python 3.11–3.13, CodeQL, and OpenSSF Scorecard; Dependabot for pip,
   Docker, and Actions.
 

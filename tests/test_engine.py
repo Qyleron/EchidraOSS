@@ -1,5 +1,6 @@
 import dataclasses
 
+from honeypot.core import engine as engine_module
 from honeypot.core.engine import InteractionEngine
 from honeypot.core.persona import get_persona
 from honeypot.core.session import SessionState
@@ -608,3 +609,156 @@ def test_invalid_utf8_in_a_command_is_logged_as_visible_text():
     engine.process("echo \udcff", session)
 
     assert session.commands[-1]["cmd"] == "echo \\xff"
+
+
+def test_a_download_script_writes_runs_and_removes_its_file():
+    """`cd /tmp; ...; chmod 777 x; ./x; rm -rf x` gets a real shell's answers."""
+    engine = InteractionEngine()
+    session = create_session()
+
+    assert engine.process("cd /tmp && echo 'echo hi' > run.sh", session) == session.prompt()
+    assert engine.process("./run.sh", session) == f"bash: ./run.sh: Permission denied\n{session.prompt()}"
+    assert engine.process("chmod 777 run.sh; ./run.sh", session) == f"hi\n{session.prompt()}"
+    assert engine.process("sh run.sh", session) == f"hi\n{session.prompt()}"
+    assert engine.process("rm -rf run.sh; ls", session) == session.prompt()
+    assert "/tmp/run.sh" not in session.files
+
+
+def test_an_echo_loader_builds_and_runs_a_program_on_the_router():
+    """Mirai-style loaders write their program with `echo -ne '\\x..' >> .d`."""
+    engine = InteractionEngine()
+    session = SessionState(("127.0.0.1", 4444), persona=get_persona("busybox_router"))
+
+    response = engine.process(
+        "cd /tmp; >.d; echo -ne '\\x7f\\x45\\x4c\\x46' >> .d; ./.d", session
+    )
+    assert response == f"-sh: ./.d: Permission denied\n{session.prompt()}"
+    assert session.files["/tmp/.d"] == "\x7fELF"
+    assert engine.process("chmod 777 .d; ./.d", session) == session.prompt()
+    # A copied program stays runnable after it's emptied for rewriting
+    assert engine.process("cp /bin/busybox .x; >.x; ./.x", session) == session.prompt()
+    assert engine.process("echo x > /nope/f", session) == (
+        f"-sh: can't create /nope/f: nonexistent directory\n{session.prompt()}"
+    )
+
+
+def test_redirects_send_output_to_session_files():
+    engine = InteractionEngine()
+    session = create_session()
+    prompt = session.prompt()
+
+    assert engine.process("uname -a > /tmp/u", session) == prompt
+    assert engine.process("echo a >> /tmp/u; echo b>>/tmp/u", session) == prompt
+    assert engine.process("cat /tmp/u", session) == (
+        f"{session.persona.uname_output}\na\nb\n{prompt}"
+    )
+    assert engine.process("nosuch 2>/dev/null", session) == prompt
+    assert engine.process("nosuch > /tmp/e 2>&1; cat /tmp/e", session) == (
+        f"bash: nosuch: command not found\n{prompt}"
+    )
+    assert engine.process("echo x > /nope/f", session) == (
+        f"bash: /nope/f: No such file or directory\n{prompt}"
+    )
+    assert engine.process("echo x > /tmp", session) == f"bash: /tmp: Is a directory\n{prompt}"
+    assert engine.process("echo '>' x", session) == f"> x\n{prompt}"
+    assert "syntax error near unexpected token `newline'" in engine.process("echo >", session)
+
+
+def test_ssh_key_persistence_script_works():
+    """The common `rm -rf .ssh && mkdir .ssh && echo key >> ...` chain runs to the end."""
+    engine = InteractionEngine()
+    session = create_session()
+
+    response = engine.process(
+        "cd ~ && rm -rf .ssh && mkdir .ssh && "
+        "echo 'ssh-rsa AAAA x' >> .ssh/authorized_keys && chmod -R go= ~/.ssh",
+        session,
+    )
+
+    assert response == session.prompt()
+    assert session.files["/home/admin/.ssh/authorized_keys"] == "ssh-rsa AAAA x\n"
+
+
+def test_new_directories_list_and_dot_files_need_ls_a():
+    engine = InteractionEngine()
+    session = create_session()
+
+    assert engine.process("mkdir -p /tmp/a/b && cd /tmp/a/b && pwd", session) == (
+        f"/tmp/a/b\n{session.prompt()}"
+    )
+    assert engine.process("ls /tmp", session) == f"a\n{session.prompt()}"
+    assert engine.process("touch /tmp/a/f; ls /tmp/a", session) == f"b  f\n{session.prompt()}"
+    assert ".ssh" not in engine.process("ls ~", session)
+    assert ".ssh" in engine.process("ls -a ~", session)
+    assert "chmod" in engine.process("ls /bin", session)
+
+
+def test_file_commands_fail_with_coreutils_messages():
+    engine = InteractionEngine()
+    session = create_session()
+
+    def run(command):
+        return engine.process(command, session).removesuffix(session.prompt())
+
+    assert run("mkdir /tmp") == "mkdir: cannot create directory '/tmp': File exists\n"
+    assert run("mkdir /nope/x") == (
+        "mkdir: cannot create directory '/nope/x': No such file or directory\n"
+    )
+    assert run("rm /nope") == "rm: cannot remove '/nope': No such file or directory\n"
+    assert run("rm /tmp") == "rm: cannot remove '/tmp': Is a directory\n"
+    assert run("rm -f /nope") == ""
+    assert run("rm -rf /") == (
+        "rm: it is dangerous to operate recursively on '/'\n"
+        "rm: use --no-preserve-root to override this failsafe\n"
+    )
+    assert run("chmod +x /nope") == "chmod: cannot access '/nope': No such file or directory\n"
+    assert run("chmod") == "chmod: missing operand\nTry 'chmod --help' for more information.\n"
+    assert run("chmod 9z /tmp") == (
+        "chmod: invalid mode: '9z'\nTry 'chmod --help' for more information.\n"
+    )
+    assert run("touch /nope/x") == "touch: cannot touch '/nope/x': No such file or directory\n"
+    assert run("cp /nope /tmp") == "cp: cannot stat '/nope': No such file or directory\n"
+    assert run("cp /etc /tmp") == "cp: -r not specified; omitting directory '/etc'\n"
+
+
+def test_file_commands_fail_with_busybox_messages():
+    engine = InteractionEngine()
+    session = SessionState(("127.0.0.1", 4444), persona=get_persona("busybox_router"))
+
+    def run(command):
+        return engine.process(command, session).removesuffix(session.prompt())
+
+    assert run("mkdir /tmp") == "mkdir: can't create directory '/tmp': File exists\n"
+    assert run("rm /nope") == "rm: can't remove '/nope': No such file or directory\n"
+    assert run("rm /tmp") == "rm: '/tmp' is a directory\n"
+    assert run("chmod +x /nope") == "chmod: /nope: No such file or directory\n"
+    assert run("touch /nope/x") == "touch: /nope/x: No such file or directory\n"
+    assert run("cp /nope /tmp") == "cp: can't stat '/nope': No such file or directory\n"
+    assert run("mkdir").startswith(
+        "BusyBox v1.31.1 (2019-09-18 10:25:30 UTC) multi-call binary.\n\nUsage: mkdir "
+    )
+
+
+def test_written_files_stay_in_their_session_and_are_not_decoys():
+    engine = InteractionEngine()
+    first = create_session()
+    second = create_session()
+
+    engine.process("echo secret > /tmp/n; cat /tmp/n; ls /tmp", first)
+
+    assert first.decoy_files_surfaced == []
+    assert "No such file or directory" in engine.process("cat /tmp/n", second)
+
+
+def test_a_session_can_write_only_so_much(monkeypatch):
+    monkeypatch.setattr(engine_module, "_MAX_WRITTEN_CHARS", 10)
+    engine = InteractionEngine()
+    session = create_session()
+    prompt = session.prompt()
+
+    assert engine.process("echo 12345 > /tmp/a", session) == prompt
+    assert engine.process("echo 12345 > /tmp/b", session) == (
+        f"bash: echo: write error: No space left on device\n{prompt}"
+    )
+    # Rewriting a file counts its new size, not both
+    assert engine.process("echo 1234567 > /tmp/a", session) == prompt
