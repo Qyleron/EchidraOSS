@@ -33,6 +33,11 @@ All notable changes to Echidra are documented here. The format follows
   exchange failed, before login, login without a password, after the
   password, or shell), with the reason in `end_error` when one was given,
   including the host key types a client asked for when none matched.
+- The SSH decoy has an RSA, an ECDSA and an Ed25519 host key, like a
+  default OpenSSH server, each generated on first start. For OpenSSH
+  personas, the key exchange, cipher, MAC, compression and host key lists
+  follow the defaults of the OpenSSH version the persona announces. An
+  existing Ed25519 key is kept.
 - The FTP decoy recognises other protocols sent to its port. TLS and
   remote-desktop openings are logged as readable markers, and a classifier
   rule labels web, SSH, TLS and remote-desktop openings as a scan for
@@ -95,6 +100,7 @@ All notable changes to Echidra are documented here. The format follows
   scrollbars and autofill styling; empty pages explain what happens next.
 
 ### Fixed
+- SSH host key files are created owner-readable only from the start.
 - An SSH client that closes the connection before logging in is recorded
   as a disconnect, not an error; a login timeout is recorded as a timeout.
 - Alerts sent while an SSH session is still open are recorded in the alert

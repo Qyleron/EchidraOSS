@@ -529,7 +529,7 @@ def test_stop_terminates_a_real_process_and_removes_pidfile(monkeypatch, tmp_pat
     captured = capsys.readouterr()
     assert exit_code == 0
     assert f"Sent SIGTERM to PID {proc.pid}" in captured.out
-    assert "Stopped." in captured.out
+    assert "Echidra has stopped." in captured.out
     assert not pid_path.exists()
 
 
@@ -554,7 +554,7 @@ def test_stop_skips_a_stale_pid_that_no_longer_exists(monkeypatch, tmp_path, cap
     assert exit_code == 0
     assert not pid_path.exists()
     assert "was not running" in captured.out
-    assert "Stopped." not in captured.out
+    assert "Echidra has stopped." not in captured.out
 
 
 def test_stop_leaves_pidfile_when_permission_denied(monkeypatch, tmp_path, capsys):

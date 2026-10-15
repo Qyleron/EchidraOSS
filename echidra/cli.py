@@ -509,7 +509,7 @@ def _cmd_stop(args: argparse.Namespace) -> int:
         print(f"Echidra was not running -- removed stale PID file {PID_PATH}.")
         _print_systemd_hint()
         return 0
-    print("Stopped.")
+    print("Echidra has stopped.")
     return 0
 
 

@@ -1,5 +1,6 @@
 import asyncio
 import json
+import shutil
 
 import asyncssh
 import pytest
@@ -8,6 +9,7 @@ import pytest_asyncio
 import honeypot.logging.session_logger as session_logger_module
 import honeypot.network.ssh_server as ssh_server_module
 from honeypot.logging.session_logger import SessionLogger
+from honeypot.network.ssh_keys import ensure_host_keys
 from honeypot.network.ssh_server import SSHListener, _server_version_for
 
 
@@ -37,11 +39,21 @@ def test_server_version_for_leaves_a_prefixless_banner_untouched():
     assert _server_version_for(persona) == "dropbear_2019.78"
 
 
+@pytest.fixture(scope="session")
+def shared_host_keys(tmp_path_factory):
+    """Generate the host keys once; an RSA key takes a moment to make."""
+    key_path = tmp_path_factory.mktemp("host_keys") / "ssh_host_key"
+    ensure_host_keys(str(key_path))
+    return key_path
+
+
 @pytest_asyncio.fixture
-async def running_server(tmp_path, monkeypatch):
+async def running_server(tmp_path, monkeypatch, shared_host_keys):
     """Start a real SSHListener on an ephemeral localhost port."""
     monkeypatch.setattr(ssh_server_module, "AUTH_DELAY_RANGE", (0.0, 0.0))
     log_path = tmp_path / "sessions.jsonl"
+    for source in shared_host_keys.parent.iterdir():
+        shutil.copy2(source, tmp_path / source.name)
 
     listener = SSHListener(
         host="127.0.0.1",
@@ -445,7 +457,8 @@ async def test_a_host_key_mismatch_records_what_the_client_offered(running_serve
                 username="root",
                 password="admin",
                 known_hosts=None,
-                server_host_key_algs=["rsa-sha2-256"],
+                # SHA-1 RSA signatures, which OpenSSH 8.8 and later refuse
+                server_host_key_algs=["ssh-rsa"],
             ),
             timeout=5,
         )
@@ -453,8 +466,8 @@ async def test_a_host_key_mismatch_records_what_the_client_offered(running_serve
     record = await wait_for_record(log_path)
     assert record["end_stage"] == "key_exchange_failed"
     assert record["end_reason"] == "error"
-    assert record["end_error"].startswith(
-        "Unable to find compatible server host key; client offered rsa-sha2-256"
+    assert record["end_error"] == (
+        "Unable to find compatible server host key; client offered ssh-rsa"
     )
     assert record["commands"] == []
 
@@ -522,3 +535,62 @@ def test_close_detail_is_printable_and_bounded():
     assert detail.startswith("bad?x")
     assert len(detail) == 1000
     assert ssh_server_module._close_detail(asyncssh.ConnectionLost("Connection lost"), None) is None
+
+
+# ---------------------------------------------------------------------------
+# host keys and handshake lists that match the persona's OpenSSH version
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "host_key_alg, key_type",
+    [
+        ("rsa-sha2-512", "ssh-rsa"),
+        ("rsa-sha2-256", "ssh-rsa"),
+        ("ecdsa-sha2-nistp256", "ecdsa-sha2-nistp256"),
+        ("ssh-ed25519", "ssh-ed25519"),
+    ],
+)
+async def test_clients_limited_to_one_host_key_type_can_log_in(running_server, host_key_alg, key_type):
+    port, _, _ = running_server
+
+    conn = await asyncio.wait_for(
+        asyncssh.connect(
+            "127.0.0.1",
+            port,
+            username="root",
+            password="admin",
+            known_hosts=None,
+            server_host_key_algs=[host_key_alg],
+        ),
+        timeout=5,
+    )
+    result = await conn.run("whoami", check=True)
+
+    assert "root" in result.stdout
+    assert conn.get_server_host_key().get_algorithm() == key_type
+    conn.close()
+    await conn.wait_closed()
+
+
+@pytest.mark.asyncio
+async def test_the_handshake_offers_what_the_persona_openssh_version_offers(running_server):
+    """generic_linux announces OpenSSH 8.9p1: RSA (SHA-2 only), ECDSA and
+    Ed25519 host keys in sshd's order, and no "ext-info-s" marker, which
+    OpenSSH servers only send from 9.6 on."""
+    port, listener, _ = running_server
+
+    conn = await connect(port)
+    server_conn = next(iter(listener._active_connections))
+
+    assert server_conn._server_host_key_algs == [
+        b"rsa-sha2-512", b"rsa-sha2-256", b"ecdsa-sha2-nistp256", b"ssh-ed25519",
+    ]
+    assert server_conn._get_extra_kex_algs() == [b"kex-strict-s-v00@openssh.com"]
+    assert conn.get_extra_info("send_cipher") in {
+        "chacha20-poly1305@openssh.com", "aes128-ctr", "aes192-ctr", "aes256-ctr",
+        "aes128-gcm@openssh.com", "aes256-gcm@openssh.com",
+    }
+    conn.close()
+    await conn.wait_closed()

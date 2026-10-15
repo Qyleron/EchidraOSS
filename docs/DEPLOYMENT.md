@@ -179,7 +179,7 @@ listeners and `echidra-api.service` for the dashboard and classifier API.
 
 Both unit files run as the unprivileged `echidra` user with
 `ProtectSystem=strict` (read-only filesystem outside `logs/` and `data/` —
-the latter persists the SSH host key, see below). The
+the latter persists the SSH host keys, see below). The
 `AmbientCapabilities=CAP_NET_BIND_SERVICE` line in
 `echidra-honeypot.service` is commented out by default, since it grants a
 capability the process doesn't otherwise need. Uncomment it only if you set
@@ -221,7 +221,8 @@ sudo systemctl enable --now echidra-honeypot echidra-api
 start (an `ExecStartPre=+` line, root-run, bypassing the sandbox for that
 one line only) — so an upgrade or reinstall that skips the manual `mkdir -p
 logs data` step above still gets a writable, correctly-owned `data/` for the
-SSH host key. The manual step is still the one to run yourself the first
+SSH host keys (an RSA, an ECDSA and an Ed25519 key, generated on first
+start and kept owner-readable only). The manual step is still the one to run yourself the first
 time, since `logs/` isn't auto-provisioned the same way.
 
 Check status:

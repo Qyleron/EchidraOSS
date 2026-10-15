@@ -27,7 +27,8 @@ from honeypot.network.config import (
     SSH_HOST_KEY_PATH,
     get_active_persona,
 )
-from honeypot.network.ssh_keys import ensure_host_key
+from honeypot.network.ssh_keys import ensure_host_key, ensure_host_keys
+from honeypot.network.ssh_profile import SshProfile, profile_for_banner
 from classifier.alerts import _maybe_send_alert
 from classifier.realtime import LiveSessionClassifier
 
@@ -96,8 +97,10 @@ class HoneypotSSHServer(asyncssh.SSHServer):
         session_logger: SessionLogger | None = None,
         on_connection_made=None,
         on_connection_lost=None,
+        profile: SshProfile | None = None,
     ):
         self.session_logger = session_logger or SessionLogger(SESSION_LOG_PATH)
+        self._profile = profile
         self.session: SessionState | None = None
         self.end_reason = "disconnect"
         self._finalized = False
@@ -121,15 +124,21 @@ class HoneypotSSHServer(asyncssh.SSHServer):
         self.session = SessionState(peer, persona=get_active_persona())
         conn.set_extra_info(honeypot_server=self)
 
+        offered = self._profile.apply_to(conn) if self._profile is not None else None
+
         # asyncssh's "Unable to find compatible server host key" doesn't say
         # what the client asked for, so note the client's host key types as
-        # asyncssh picks a key.
+        # asyncssh picks a key. asyncssh would also pick a key type it holds
+        # but didn't offer (SHA-1 "ssh-rsa" from the RSA key), so the choice
+        # is limited to what was offered.
         choose_server_host_key = conn.choose_server_host_key
 
         def note_client_host_key_algs(peer_host_key_algs):
             self._client_host_key_algs = [
                 _printable(alg.decode("ascii", "replace"), 100) for alg in peer_host_key_algs[:30]
             ]
+            if offered is not None:
+                peer_host_key_algs = [alg for alg in peer_host_key_algs if alg in offered]
             return choose_server_host_key(peer_host_key_algs)
 
         conn.choose_server_host_key = note_client_host_key_algs
@@ -346,12 +355,14 @@ class SSHListener:
         self._acceptor: asyncssh.SSHAcceptor | None = None
         self._active_count = 0
         self._active_connections: set[asyncssh.SSHServerConnection] = set()
+        self._profile: SshProfile | None = None
 
     def _server_factory(self) -> HoneypotSSHServer:
         return HoneypotSSHServer(
             session_logger=self.session_logger,
             on_connection_made=self._admit,
             on_connection_lost=self._release,
+            profile=self._profile,
         )
 
     def _admit(self, conn: asyncssh.SSHServerConnection) -> bool:
@@ -368,15 +379,26 @@ class SSHListener:
 
     async def start(self) -> None:
         """Bind the SSH listener and serve clients until cancelled."""
-        key = ensure_host_key(self.host_key_path)
+        persona = get_active_persona()
+        # An OpenSSH persona offers that version's handshake lists and the
+        # RSA, ECDSA and Ed25519 keys a default sshd has. Other personas
+        # (Dropbear) keep the single Ed25519 key and asyncssh's lists.
+        self._profile = profile_for_banner(persona.ssh_banner)
+        if self._profile is not None:
+            keys = ensure_host_keys(self.host_key_path)
+            algorithm_options = self._profile.server_options()
+        else:
+            keys = [ensure_host_key(self.host_key_path)]
+            algorithm_options = {}
 
         self._acceptor = await asyncssh.create_server(
             self._server_factory,
             self.host,
             self.port,
-            server_host_keys=[key],
+            server_host_keys=keys,
+            **algorithm_options,
             process_factory=handle_shell,
-            server_version=_server_version_for(get_active_persona()),
+            server_version=_server_version_for(persona),
             # Lets the shell send raw bytes (a program file's header) and
             # keeps a client's invalid UTF-8 from ending the session; the
             # session log stores those bytes as \xNN text.
