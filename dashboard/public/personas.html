@@ -525,7 +525,19 @@
       // reader gets that this panel opened/closed -- classList alone is
       // invisible to assistive tech, so every toggle path below has to go
       // through this instead of touching "open" directly.
+      // Closing the panel any way other than Apply (outside click, Escape,
+      // the range button) discards the edits, so reopening it shows the
+      // range the button and the charts are actually on.
+      var inputsAtOpen = null;
       function setPanelOpen(open) {
+        var wasOpen = timeRangePanel.classList.contains("open");
+        if (open && !wasOpen) {
+          inputsAtOpen = [fromDateInput.value, toDateInput.value];
+        } else if (!open && wasOpen && inputsAtOpen) {
+          fromDateInput.value = inputsAtOpen[0];
+          toDateInput.value = inputsAtOpen[1];
+          syncRangeConstraints();
+        }
         timeRangePanel.classList.toggle("open", open);
         timeRangeButton.setAttribute("aria-expanded", open ? "true" : "false");
       }
@@ -536,6 +548,7 @@
       });
 
       document.getElementById("applyRangeButton").addEventListener("click", function() {
+        inputsAtOpen = null;
         setPanelOpen(false);
         var personaId = document.getElementById("personaSelector").value;
         if (personaId) loadPersonaAnalytics(personaId);
@@ -1087,6 +1100,7 @@
     });
 
     // ── Persona selector (analytics) ───────────────────────────────────────────
+    var selectorFilled = false;
     function populateSelector(presets, configs) {
       var sel = document.getElementById("personaSelector");
       var presetIds = presets.map(function(p) { return p.persona_id; });
@@ -1124,10 +1138,27 @@
         sel.dispatchEvent(new Event("change", { bubbles: true }));
       }
 
-      var placeholderText = document.getElementById("analyticsPlaceholderText");
-      placeholderText.textContent = sel.options.length > 1
-        ? "Select a persona above to view analytics."
-        : "No personas configured yet — create one to see analytics.";
+      // First fill only: open on the persona in the URL, or else the first
+      // one, instead of an empty page behind a date range that does nothing.
+      if (!selectorFilled) {
+        selectorFilled = true;
+        var urlPersona = new URLSearchParams(window.location.search).get("persona");
+        var initial = urlPersona && validIds[urlPersona]
+          ? urlPersona
+          : (sel.options.length > 1 ? sel.options[1].value : "");
+        if (initial) {
+          sel.value = initial;
+          sel.dispatchEvent(new Event("change", { bubbles: true }));
+        }
+      }
+      document.getElementById("timeRangeButton").disabled = sel.options.length <= 1;
+
+      if (!sel.value) {
+        var placeholderText = document.getElementById("analyticsPlaceholderText");
+        placeholderText.textContent = sel.options.length > 1
+          ? "Select a persona above to view analytics."
+          : "No personas configured yet — create one to see analytics.";
+      }
 
       initCustomSelects(document.getElementById("analyticsView"));
       if (sel._refreshCustomSelect) sel._refreshCustomSelect();
@@ -1153,6 +1184,7 @@
         content.hidden = true;
         empty.hidden = true;
         loading.hidden = true;
+        document.getElementById("analyticsPlaceholderText").textContent = "Select a persona above to view analytics.";
         placeholder.hidden = false;
         return;
       }
@@ -1176,6 +1208,12 @@
         var data = await fetchAnalytics(personaId, Math.floor(range.from.getTime() / 1000), Math.floor(range.to.getTime() / 1000));
         clearTimeout(loadingTimer);
         if (requestId !== personaAnalyticsRequestId) return;
+        if (!data.sessions_captured) {
+          loading.hidden = true;
+          document.getElementById("analyticsPlaceholderText").textContent = "No sessions for this persona in this date range.";
+          placeholder.hidden = false;
+          return;
+        }
         renderAnalytics(data);
         loading.hidden = true;
         content.hidden = false;
@@ -1190,7 +1228,14 @@
       }
     }
 
+    // The chosen persona lives in the URL (?persona=), like the date range on
+    // Sessions and Analytics, so a reload or shared link opens on it.
     document.getElementById("personaSelector").addEventListener("change", function(evt) {
+      var params = new URLSearchParams(window.location.search);
+      if (evt.target.value) params.set("persona", evt.target.value);
+      else params.delete("persona");
+      var query = params.toString();
+      history.replaceState(null, "", window.location.pathname + (query ? "?" + query : "") + window.location.hash);
       loadPersonaAnalytics(evt.target.value);
     });
 
@@ -1268,7 +1313,7 @@
       opts = opts || {};
       var el = document.getElementById(id);
       if (!items.length) {
-        el.innerHTML = '<span style="color:var(--muted);font-size:13px;align-self:center;">No data yet.</span>';
+        el.innerHTML = '<span class="chart-empty-value">N/A</span>';
         return;
       }
       var values = items.map(countFn);
@@ -1350,7 +1395,7 @@
       var el = document.getElementById(id);
       var entries = Object.entries(counts).sort(function(a, b) { return b[1] - a[1]; }).slice(0, 8);
       if (!entries.length) {
-        el.innerHTML = '<li style="color:var(--muted);font-size:13px;">No data yet.</li>';
+        el.innerHTML = '<li class="chart-empty-value">N/A</li>';
         return;
       }
       var max = entries[0][1] || 1;
@@ -1365,7 +1410,7 @@
     function renderMitreList(id, techniques) {
       var el = document.getElementById(id);
       if (!techniques.length) {
-        el.innerHTML = '<li style="color:var(--muted);font-size:13px;">No techniques detected yet.</li>';
+        el.innerHTML = '<li class="chart-empty-value">N/A</li>';
         return;
       }
       var max = techniques[0].count || 1;

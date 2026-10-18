@@ -109,6 +109,7 @@ All notable changes to Echidra are documented here. The format follows
 - Dashboard: messages appear as in-page notices instead of browser popups;
   the sign-in and persona forms show their own validation messages; dark
   scrollbars and autofill styling; empty pages explain what happens next.
+- Dependencies updated: FastAPI 0.143.0, Pydantic 2.14.1, psycopg 3.3.6.
 
 ### Fixed
 - SSH host key files are created owner-readable only from the start.
@@ -129,6 +130,17 @@ All notable changes to Echidra are documented here. The format follows
   right repository.
 - `echidra start` reports busy ports up front, and `echidra start`/`stop`
   point to `systemctl` when Echidra is running as a systemd service.
+- Queries with an open-ended time range work: `echidra blocklist` and API
+  calls that leave out `from_ts` or `to_ts` no longer fail with
+  "database unreachable".
+- Closing the date range panel without Apply (clicking outside, Escape)
+  puts the dates back to the applied range on Sessions, Analytics and
+  Personas, so reopening it matches the range button. Picking an hour no
+  longer closes the panel before Apply.
+- Persona analytics opens on a persona (the one in the URL, or the first)
+  instead of an empty page, and keeps the choice in the URL
+  (`?persona=`). With no personas, the date range is disabled. Empty
+  charts and lists on Analytics and Personas show a large N/A.
 
 ## [0.2.0] - 2026-10-06
 

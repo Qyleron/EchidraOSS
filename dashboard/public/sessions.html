@@ -1146,7 +1146,22 @@
       // Single choke point for opening/closing the panel so aria-expanded
       // never drifts out of sync with the "open" class the way it would if
       // each of the four call sites below toggled the class directly.
+      // Closing the panel any way other than Apply (outside click, Escape,
+      // the range button) discards the edits, so reopening it shows the
+      // range the button and the data are actually on.
+      let inputsAtOpen = null;
       function setTimeRangePanelOpen(open) {
+        const wasOpen = timeRangePanel.classList.contains("open");
+        if (open && !wasOpen) {
+          inputsAtOpen = [fromDateInput.value, fromHourSelect.value, toDateInput.value, toHourSelect.value];
+        } else if (!open && wasOpen && inputsAtOpen) {
+          const [fromDate, fromHour, toDate, toHour] = inputsAtOpen;
+          fromDateInput.value = fromDate;
+          toDateInput.value = toDate;
+          populateHourSelect(fromHourSelect, HOUR_OPTIONS, fromHour);
+          populateHourSelect(toHourSelect, HOUR_OPTIONS, toHour);
+          syncRangeConstraints();
+        }
         timeRangePanel.classList.toggle("open", open);
         timeRangeButton.setAttribute("aria-expanded", open ? "true" : "false");
       }
@@ -1160,11 +1175,16 @@
         issueAllTime = false;
         writeRangeToUrl();
         applyRange();
+        inputsAtOpen = null;
         setTimeRangePanelOpen(false);
       });
 
+      // composedPath(), not target.closest(): picking an hour rebuilds the
+      // hour list, so by the time this runs the clicked option is no longer
+      // in the page and closest() would read it as a click outside.
+      const timeRangeControl = timeRangePanel.closest(".time-range-control");
       document.addEventListener("click", (event) => {
-        if (!event.target.closest(".time-range-control")) {
+        if (!event.composedPath().includes(timeRangeControl)) {
           setTimeRangePanelOpen(false);
         }
       });

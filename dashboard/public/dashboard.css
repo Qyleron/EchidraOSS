@@ -629,7 +629,8 @@ a {
   color: var(--muted);
 }
 
-.table-pagination .text-button:disabled {
+.table-pagination .text-button:disabled,
+.time-range-control .text-button:disabled {
   opacity: 0.4;
   cursor: not-allowed;
   box-shadow: none;
@@ -640,7 +641,9 @@ a {
    Prev/Next button still picked up .text-button:hover's border/background
    change on mouseover -- a false affordance for a button that does nothing. */
 .table-pagination .text-button:disabled:hover,
-.table-pagination .text-button:disabled:focus-visible {
+.table-pagination .text-button:disabled:focus-visible,
+.time-range-control .text-button:disabled:hover,
+.time-range-control .text-button:disabled:focus-visible {
   border-color: var(--line);
   background: var(--surface-hover);
 }
@@ -1899,6 +1902,19 @@ a {
   font-size: 56px;
   font-weight: 760;
   line-height: 1;
+}
+
+/* The same N/A, centred inside a single empty chart or list card. */
+.chart-empty-value {
+  width: 100%;
+  align-self: center;
+  padding: 40px 0;
+  color: var(--subtle);
+  font-size: 56px;
+  font-weight: 760;
+  line-height: 1;
+  text-align: center;
+  list-style: none;
 }
 
 .analytics-placeholder-text {

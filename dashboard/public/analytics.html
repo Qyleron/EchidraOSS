@@ -489,7 +489,7 @@
     function renderLineChart(containerId, points) {
       const container = document.getElementById(containerId);
       if (points.length === 0) {
-        container.innerHTML = `<div class="empty-state">No sessions in this range.</div>`;
+        container.innerHTML = `<div class="chart-empty-value">N/A</div>`;
         return;
       }
       const values = points.map(([, value]) => value);
@@ -539,7 +539,7 @@
     function renderStackedRiskBars(containerId, points) {
       const container = document.getElementById(containerId);
       if (points.length === 0) {
-        container.innerHTML = `<div class="empty-state">No sessions in this range.</div>`;
+        container.innerHTML = `<div class="chart-empty-value">N/A</div>`;
         return;
       }
       const max = Math.max(...points.map((point) => point.high + point.medium + point.low)) || 1;
@@ -563,7 +563,7 @@
     function renderRankedList(containerId, rows) {
       const container = document.getElementById(containerId);
       if (rows.length === 0) {
-        container.innerHTML = `<li class="rank-item empty-state">No data in this range.</li>`;
+        container.innerHTML = `<li class="chart-empty-value">N/A</li>`;
         return;
       }
       const max = Math.max(...rows.map(([, value]) => value)) || 1;
@@ -820,26 +820,50 @@
         input.addEventListener("change", syncRangeConstraints);
       });
 
+      // Closing the panel any way other than Apply (outside click, Escape,
+      // the range button) discards the edits, so reopening it shows the
+      // range the button and the charts are actually on.
+      let inputsAtOpen = null;
+      function setTimeRangePanelOpen(open) {
+        const wasOpen = timeRangePanel.classList.contains("open");
+        if (open && !wasOpen) {
+          inputsAtOpen = [fromDateInput.value, fromHourSelect.value, toDateInput.value, toHourSelect.value];
+        } else if (!open && wasOpen && inputsAtOpen) {
+          const [fromDate, fromHour, toDate, toHour] = inputsAtOpen;
+          fromDateInput.value = fromDate;
+          toDateInput.value = toDate;
+          populateHourSelect(fromHourSelect, HOUR_OPTIONS, fromHour);
+          populateHourSelect(toHourSelect, HOUR_OPTIONS, toHour);
+          syncRangeConstraints();
+        }
+        timeRangePanel.classList.toggle("open", open);
+      }
+
       timeRangeButton.addEventListener("click", (event) => {
         event.stopPropagation();
-        timeRangePanel.classList.toggle("open");
+        setTimeRangePanelOpen(!timeRangePanel.classList.contains("open"));
       });
 
       document.getElementById("applyRangeButton").addEventListener("click", () => {
         writeRangeToUrl();
         applyRange();
-        timeRangePanel.classList.remove("open");
+        inputsAtOpen = null;
+        setTimeRangePanelOpen(false);
       });
 
+      // composedPath(), not target.closest(): picking an hour rebuilds the
+      // hour list, so by the time this runs the clicked option is no longer
+      // in the page and closest() would read it as a click outside.
+      const timeRangeControl = timeRangePanel.closest(".time-range-control");
       document.addEventListener("click", (event) => {
-        if (!event.target.closest(".time-range-control")) {
-          timeRangePanel.classList.remove("open");
+        if (!event.composedPath().includes(timeRangeControl)) {
+          setTimeRangePanelOpen(false);
         }
       });
 
       document.addEventListener("keydown", (event) => {
         if (event.key === "Escape") {
-          timeRangePanel.classList.remove("open");
+          setTimeRangePanelOpen(false);
         }
       });
 
