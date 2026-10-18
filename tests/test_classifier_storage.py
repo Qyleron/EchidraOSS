@@ -1678,6 +1678,24 @@ def test_list_attacker_ips_passes_window_and_thresholds(monkeypatch):
     }
 
 
+def test_optional_sql_params_are_typed_before_null_checks():
+    """`%(x)s IS NULL` with x = None leaves Postgres no way to infer the
+    parameter's type, so the query fails with AmbiguousParameter (this broke
+    `echidra blocklist`, which always passes until_ts=None). The fake
+    connections used elsewhere in these tests can't catch it, so check the
+    SQL text: every bare parameter in a NULL check needs an explicit cast."""
+    import re
+
+    from classifier.storage import repository as repository_module
+
+    untyped = {
+        name: re.findall(r"%\(\w+\)s\s+IS\s+(?:NOT\s+)?NULL", value)
+        for name, value in vars(repository_module).items()
+        if isinstance(value, str)
+    }
+    assert {name: found for name, found in untyped.items() if found} == {}
+
+
 @pytest.mark.parametrize("row, expected", [({"id": "some-id"}, True), (None, False)])
 def test_reset_dashboard_user_password_sets_hash_and_clears_that_users_lockout(monkeypatch, row, expected):
     from classifier.storage.repository import (

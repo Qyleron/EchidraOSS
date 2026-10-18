@@ -988,8 +988,8 @@ SELECT_PERSONA_SESSION_COUNT_SQL = """
 SELECT COUNT(*) AS total
 FROM sessions
 WHERE persona_id = %(persona_id)s
-  AND (%(from_ts)s IS NULL OR started_at >= %(from_ts)s)
-  AND (%(to_ts)s IS NULL OR started_at <= %(to_ts)s)
+  AND (%(from_ts)s::double precision IS NULL OR started_at >= %(from_ts)s)
+  AND (%(to_ts)s::double precision IS NULL OR started_at <= %(to_ts)s)
 """
 
 SELECT_PERSONA_SESSIONS_TREND_SQL = """
@@ -999,7 +999,7 @@ SELECT
 FROM sessions
 WHERE persona_id = %(persona_id)s
   AND started_at >= COALESCE(%(from_ts)s, EXTRACT(EPOCH FROM now()) - 30 * 86400)
-  AND (%(to_ts)s IS NULL OR started_at <= %(to_ts)s)
+  AND (%(to_ts)s::double precision IS NULL OR started_at <= %(to_ts)s)
 GROUP BY date
 ORDER BY date
 """
@@ -1009,8 +1009,8 @@ SELECT cr.intent AS key, COUNT(*) AS count
 FROM classifier_runs cr
 JOIN sessions s ON s.id = cr.session_id
 WHERE s.persona_id = %(persona_id)s
-  AND (%(from_ts)s IS NULL OR s.started_at >= %(from_ts)s)
-  AND (%(to_ts)s IS NULL OR s.started_at <= %(to_ts)s)
+  AND (%(from_ts)s::double precision IS NULL OR s.started_at >= %(from_ts)s)
+  AND (%(to_ts)s::double precision IS NULL OR s.started_at <= %(to_ts)s)
 GROUP BY cr.intent
 ORDER BY count DESC, key
 """
@@ -1020,8 +1020,8 @@ SELECT cr.risk_level AS key, COUNT(*) AS count
 FROM classifier_runs cr
 JOIN sessions s ON s.id = cr.session_id
 WHERE s.persona_id = %(persona_id)s
-  AND (%(from_ts)s IS NULL OR s.started_at >= %(from_ts)s)
-  AND (%(to_ts)s IS NULL OR s.started_at <= %(to_ts)s)
+  AND (%(from_ts)s::double precision IS NULL OR s.started_at >= %(from_ts)s)
+  AND (%(to_ts)s::double precision IS NULL OR s.started_at <= %(to_ts)s)
 GROUP BY cr.risk_level
 ORDER BY count DESC
 """
@@ -1033,8 +1033,8 @@ JOIN classifier_runs cr ON cr.id = cs.classifier_run_id
 JOIN sessions s ON s.id = cr.session_id
 WHERE s.persona_id = %(persona_id)s
   AND cs.signal_type = 'mitre_tag'
-  AND (%(from_ts)s IS NULL OR s.started_at >= %(from_ts)s)
-  AND (%(to_ts)s IS NULL OR s.started_at <= %(to_ts)s)
+  AND (%(from_ts)s::double precision IS NULL OR s.started_at >= %(from_ts)s)
+  AND (%(to_ts)s::double precision IS NULL OR s.started_at <= %(to_ts)s)
 GROUP BY cs.signal_value
 ORDER BY count DESC
 LIMIT 10
@@ -1046,8 +1046,8 @@ SELECT
     COUNT(*) AS count
 FROM sessions
 WHERE persona_id = %(persona_id)s
-  AND (%(from_ts)s IS NULL OR started_at >= %(from_ts)s)
-  AND (%(to_ts)s IS NULL OR started_at <= %(to_ts)s)
+  AND (%(from_ts)s::double precision IS NULL OR started_at >= %(from_ts)s)
+  AND (%(to_ts)s::double precision IS NULL OR started_at <= %(to_ts)s)
 GROUP BY hour
 ORDER BY hour
 """
@@ -1057,8 +1057,8 @@ SELECT country AS key, COUNT(*) AS count
 FROM sessions
 WHERE persona_id = %(persona_id)s
   AND country IS NOT NULL
-  AND (%(from_ts)s IS NULL OR started_at >= %(from_ts)s)
-  AND (%(to_ts)s IS NULL OR started_at <= %(to_ts)s)
+  AND (%(from_ts)s::double precision IS NULL OR started_at >= %(from_ts)s)
+  AND (%(to_ts)s::double precision IS NULL OR started_at <= %(to_ts)s)
 GROUP BY country
 ORDER BY count DESC
 LIMIT 10
@@ -1221,7 +1221,7 @@ WITH session_risk AS (
     LEFT JOIN classifier_runs ON classifier_runs.session_id = sessions.id
     WHERE sessions.peer_ip IS NOT NULL
       AND sessions.started_at >= %(since_ts)s
-      AND (%(until_ts)s IS NULL OR sessions.started_at <= %(until_ts)s)
+      AND (%(until_ts)s::double precision IS NULL OR sessions.started_at <= %(until_ts)s)
     GROUP BY sessions.id, sessions.peer_ip, sessions.started_at
 )
 SELECT
