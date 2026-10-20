@@ -528,7 +528,9 @@ def test_stop_terminates_a_real_process_and_removes_pidfile(monkeypatch, tmp_pat
 
     captured = capsys.readouterr()
     assert exit_code == 0
-    assert f"Sent SIGTERM to PID {proc.pid}" in captured.out
+    # One short line per stop, no process IDs when all goes well.
+    assert captured.out.count("Stopping Echidra...") == 1
+    assert str(proc.pid) not in captured.out
     assert "Echidra has stopped." in captured.out
     assert not pid_path.exists()
 

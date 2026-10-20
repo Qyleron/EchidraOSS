@@ -474,7 +474,10 @@ def _cmd_stop(args: argparse.Namespace) -> int:
         except PermissionError:
             permission_denied.append(pid)
             continue
-        print(f"Sent SIGTERM to PID {pid}.")
+        # One line for the whole stop; PIDs are only printed below, when a
+        # process won't stop and the user needs them.
+        if not signaled:
+            print("Stopping Echidra...")
         signaled.append(pid)
 
     # Re-verify ownership, not just liveness, at every step here -- up to 10s
