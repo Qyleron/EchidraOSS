@@ -1,5 +1,6 @@
 import logging
 import os
+import threading
 import time
 from pathlib import PurePosixPath
 
@@ -90,6 +91,15 @@ _PERSONA_CACHE_TTL_SECONDS = 5.0
 _cached_persona: Persona | None = None
 _cached_persona_id: str | None = None
 _cached_persona_expires_at: float | None = None
+# At most one background refresh at a time, however many connections arrive
+# while the cache is stale.
+_persona_refresh_lock = threading.Lock()
+_persona_refresh_running = False
+
+
+class _PersonaLookupFailed(Exception):
+    """The persona_configs lookup itself failed (DB down, hung, erroring),
+    as opposed to there being no database or no saved row."""
 
 
 def get_active_persona() -> Persona:
@@ -100,39 +110,72 @@ def get_active_persona() -> Persona:
     - Read ECHIDRA_PERSONA or use generic_linux.
     - Look up a saved persona_configs row for that ID first, so dashboard
       customizations actually reach the live honeypot.
-    - Fall back to a hardcoded preset if no database is configured, no row
-      matches, or the lookup fails for any reason — the honeypot must keep
-      working with zero DB setup.
+    - Fall back to a hardcoded preset if no database is configured or no row
+      matches — the honeypot must keep working with zero DB setup.
+    - If the lookup itself fails (DB down or hung), keep the persona already
+      in use, so an outage can't change the decoy's hostname or banners
+      under an attacker; the preset is used only if none was loaded yet.
     - Validate the result before any session uses it.
     - Cached for _PERSONA_CACHE_TTL_SECONDS to bound DB load under a
-      connection burst; call clear_active_persona_cache() to force an
-      immediate reload before that (eg. right after saving a config change
-      from the same process, if the caller and the honeypot ever share one).
+      connection burst. Once the cache is stale, the cached persona is still
+      returned at once and the reload runs in a background thread: protocol
+      handlers call this on the honeypot's event loop, and a hung DB would
+      otherwise stall every decoy for up to the DB connect timeout. Only the
+      first load (honeypot/main.py does it before the listeners start) or a
+      changed ECHIDRA_PERSONA loads in the caller. Call
+      clear_active_persona_cache() to force an immediate reload.
     """
+    persona_id = os.getenv("ECHIDRA_PERSONA", DEFAULT_PERSONA_ID)
+    cached = _cached_persona
+    if cached is not None and _cached_persona_id == persona_id:
+        expires_at = _cached_persona_expires_at
+        if expires_at is not None and time.monotonic() >= expires_at:
+            _start_persona_refresh(persona_id)
+        return cached
+    return _refresh_active_persona(persona_id)
+
+
+def _refresh_active_persona(persona_id: str) -> Persona:
+    """Load the persona for persona_id and store it in the cache."""
     global _cached_persona, _cached_persona_id, _cached_persona_expires_at
 
-    persona_id = os.getenv("ECHIDRA_PERSONA", DEFAULT_PERSONA_ID)
-    now = time.monotonic()
-    cache_valid = (
-        _cached_persona is not None
-        and _cached_persona_id == persona_id
-        and _cached_persona_expires_at is not None
-        and now < _cached_persona_expires_at
-    )
-    if not cache_valid:
+    try:
         persona = _load_persona_from_db(persona_id)
-        if persona is None:
-            persona = get_persona(persona_id)
-            validate_persona(persona)
-        _cached_persona = persona
-        _cached_persona_id = persona_id
-        # Stamped from *after* the load (DB round trip or preset validation)
-        # completes, not the `now` captured before it started -- otherwise
-        # the cache's effective lifetime is silently shortened by however
-        # long that load took, under connection bursts when it matters most.
-        _cached_persona_expires_at = time.monotonic() + _PERSONA_CACHE_TTL_SECONDS
+    except _PersonaLookupFailed:
+        persona = _cached_persona if _cached_persona_id == persona_id else None
+    if persona is None:
+        persona = get_persona(persona_id)
+        validate_persona(persona)
+    _cached_persona = persona
+    _cached_persona_id = persona_id
+    # Stamped from *after* the load (DB round trip or preset validation)
+    # completes, not before it started -- otherwise the cache's effective
+    # lifetime is silently shortened by however long that load took, under
+    # connection bursts when it matters most.
+    _cached_persona_expires_at = time.monotonic() + _PERSONA_CACHE_TTL_SECONDS
+    return persona
 
-    return _cached_persona
+
+def _start_persona_refresh(persona_id: str) -> None:
+    """Reload the persona in a background thread, unless one already is."""
+    global _persona_refresh_running
+
+    with _persona_refresh_lock:
+        if _persona_refresh_running:
+            return
+        _persona_refresh_running = True
+
+    def run() -> None:
+        global _persona_refresh_running
+        try:
+            _refresh_active_persona(persona_id)
+        except Exception:
+            logger.exception("Background persona refresh failed for %r", persona_id)
+        finally:
+            with _persona_refresh_lock:
+                _persona_refresh_running = False
+
+    threading.Thread(target=run, name="echidra-persona-refresh", daemon=True).start()
 
 
 def clear_active_persona_cache() -> None:
@@ -156,8 +199,10 @@ def _load_persona_from_db(persona_id: str) -> Persona | None:
     """Build a live Persona from a saved persona_configs row, if one exists.
 
     Returns None — meaning "use the hardcoded preset instead" — when no
-    database is configured, the driver isn't installed, the lookup fails for
-    any other reason, or no row matches this ID.
+    database is configured, no row matches this ID, or the row fails
+    validation. Raises _PersonaLookupFailed when the lookup itself fails
+    (driver missing, DB down or erroring), so the caller can keep the
+    persona it already has.
     """
     try:
         from classifier.storage import (
@@ -170,13 +215,13 @@ def _load_persona_from_db(persona_id: str) -> Persona | None:
         except DatabaseNotConfiguredError:
             return None  # No ECHIDRA_DATABASE_URL — the common, expected case.
         record = repository.get_persona_config(persona_id)
-    except Exception:
+    except Exception as exc:
         logger.warning(
-            "Could not look up persona_configs row for %r; using preset instead",
+            "Could not look up persona_configs row for %r; keeping the current persona",
             persona_id,
             exc_info=True,
         )
-        return None
+        raise _PersonaLookupFailed(persona_id) from exc
 
     if record is None:
         return None

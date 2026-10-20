@@ -3,7 +3,7 @@ import logging
 import signal
 
 from classifier.pipeline import start_classification_workers, stop_classification_workers
-from honeypot.network.config import HTTP_PORT, FTP_PORT, TELNET_PORT, HOST, MAX_CONNECTIONS
+from honeypot.network.config import HTTP_PORT, FTP_PORT, TELNET_PORT, HOST, MAX_CONNECTIONS, get_active_persona
 from honeypot.network.ftp_handler import FtpHandler
 from honeypot.network.http_handler import HttpHandler
 from honeypot.network.protocol_server import ProtocolServer
@@ -28,6 +28,11 @@ async def main():
     loop.add_signal_handler(signal.SIGINT, shutdown_signal)
     if hasattr(signal, "SIGTERM"):
         loop.add_signal_handler(signal.SIGTERM, shutdown_signal)
+
+    # Load the persona once, off the event loop, before anything listens:
+    # after this, connections get the cached persona and stale reloads run
+    # in the background (see get_active_persona).
+    await asyncio.to_thread(get_active_persona)
 
     # Primary SSH honeypot listener
     ssh_server = SSHListener()

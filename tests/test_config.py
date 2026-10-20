@@ -172,6 +172,70 @@ def test_active_persona_falls_back_to_preset_when_db_lookup_fails(monkeypatch):
     assert persona.persona_id == "generic_linux"
 
 
+def test_active_persona_keeps_saved_persona_when_db_lookup_later_fails(monkeypatch):
+    """A DB outage after a saved persona loaded must not swap the decoy back
+    to the preset -- a changed hostname or banner tells an attacker it's a
+    honeypot."""
+    monkeypatch.setenv("ECHIDRA_PERSONA", "custom_demo_box")
+    monkeypatch.setenv("ECHIDRA_DATABASE_URL", "postgresql://fake/fake")
+    record = make_persona_config_record()
+
+    class FakeRepository:
+        def get_persona_config(self, persona_id):
+            return record
+
+    class CrashingRepository:
+        def __init__(self):
+            raise RuntimeError("connection refused")
+
+    monkeypatch.setattr("classifier.storage.PostgresClassifierRepository", FakeRepository)
+    assert config.get_active_persona().hostname == "custom-demo-box"
+
+    monkeypatch.setattr("classifier.storage.PostgresClassifierRepository", CrashingRepository)
+    persona = config._refresh_active_persona("custom_demo_box")
+
+    assert persona.hostname == "custom-demo-box"
+    assert config.get_active_persona().hostname == "custom-demo-box"
+
+
+def test_stale_active_persona_is_served_at_once_and_reloaded_in_background(monkeypatch):
+    """Protocol handlers call get_active_persona() on the event loop, so a
+    slow or hung DB lookup must never run in the caller once a persona is
+    cached."""
+    import threading
+
+    monkeypatch.setenv("ECHIDRA_PERSONA", "custom_demo_box")
+    monkeypatch.setenv("ECHIDRA_DATABASE_URL", "postgresql://fake/fake")
+    first_record = make_persona_config_record()
+    updated_record = make_persona_config_record(hostname="custom-demo-box-2")
+    release_lookup = threading.Event()
+
+    class FakeRepository:
+        def get_persona_config(self, persona_id):
+            return first_record
+
+    class SlowRepository:
+        def get_persona_config(self, persona_id):
+            assert release_lookup.wait(5)
+            return updated_record
+
+    monkeypatch.setattr("classifier.storage.PostgresClassifierRepository", FakeRepository)
+    first = config.get_active_persona()
+    monkeypatch.setattr("classifier.storage.PostgresClassifierRepository", SlowRepository)
+    monkeypatch.setattr(config, "_cached_persona_expires_at", 0.0)
+
+    # Returns the cached persona while the lookup is still blocked.
+    assert config.get_active_persona() is first
+    assert config.get_active_persona() is first
+
+    refreshers = [t for t in threading.enumerate() if t.name == "echidra-persona-refresh"]
+    assert len(refreshers) == 1
+    release_lookup.set()
+    refreshers[0].join(timeout=5)
+
+    assert config.get_active_persona().hostname == "custom-demo-box-2"
+
+
 def test_active_persona_falls_back_to_preset_when_db_record_fails_validation(monkeypatch):
     """A saved config that fails validate_persona() (eg. duplicate decoy file
     paths -- built via .model_construct() to simulate a row saved before
