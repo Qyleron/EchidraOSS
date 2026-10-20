@@ -992,16 +992,30 @@ WHERE persona_id = %(persona_id)s
   AND (%(to_ts)s::double precision IS NULL OR started_at <= %(to_ts)s)
 """
 
+# One row per day in the range, 0 for days without sessions, so the chart
+# spaces days evenly instead of joining the busy ones. Days are cut in the
+# database's timezone, the same as the counts.
 SELECT_PERSONA_SESSIONS_TREND_SQL = """
+WITH bounds AS (
+    SELECT
+        to_timestamp(COALESCE(%(from_ts)s::double precision, EXTRACT(EPOCH FROM now())::double precision - 30 * 86400))::date AS first_day,
+        to_timestamp(COALESCE(%(to_ts)s::double precision, EXTRACT(EPOCH FROM now())::double precision))::date AS last_day
+),
+day_counts AS (
+    SELECT to_timestamp(started_at)::date AS day, COUNT(*) AS count
+    FROM sessions
+    WHERE persona_id = %(persona_id)s
+      AND started_at >= COALESCE(%(from_ts)s::double precision, EXTRACT(EPOCH FROM now())::double precision - 30 * 86400)
+      AND (%(to_ts)s::double precision IS NULL OR started_at <= %(to_ts)s)
+    GROUP BY day
+)
 SELECT
-    to_char(to_timestamp(started_at)::date, 'YYYY-MM-DD') AS date,
-    COUNT(*) AS count
-FROM sessions
-WHERE persona_id = %(persona_id)s
-  AND started_at >= COALESCE(%(from_ts)s, EXTRACT(EPOCH FROM now()) - 30 * 86400)
-  AND (%(to_ts)s::double precision IS NULL OR started_at <= %(to_ts)s)
-GROUP BY date
-ORDER BY date
+    to_char(days.day, 'YYYY-MM-DD') AS date,
+    COALESCE(day_counts.count, 0) AS count
+FROM bounds
+CROSS JOIN LATERAL generate_series(bounds.first_day::timestamp, bounds.last_day::timestamp, interval '1 day') AS days(day)
+LEFT JOIN day_counts ON day_counts.day = days.day::date
+ORDER BY days.day
 """
 
 SELECT_PERSONA_INTENT_COUNTS_SQL = """
@@ -1095,22 +1109,36 @@ def _analytics_risk_trend_sql(bucket: str) -> str:
     3-month range grouped daily would return 90+ rows and render as an
     unreadable, always-scrolling bar chart, so wider ranges roll up to
     coarser buckets instead of showing one bar per calendar day."""
-    if bucket == "week":
-        date_expr = "to_char(date_trunc('week', to_timestamp(s.started_at)), 'YYYY-MM-DD')"
-    elif bucket == "month":
-        date_expr = "to_char(date_trunc('month', to_timestamp(s.started_at)), 'YYYY-MM')"
-    else:
-        date_expr = "to_char(to_timestamp(s.started_at)::date, 'YYYY-MM-DD')"
+    #
+    # Every bucket in the range comes back, with a NULL risk_level row for
+    # one that had no runs, so the chart keeps empty days as empty columns
+    # instead of closing the gap. Buckets are cut in the database's
+    # timezone on both sides of the join.
+    unit = bucket if bucket in ("week", "month") else "day"
+    date_format = "YYYY-MM" if unit == "month" else "YYYY-MM-DD"
     return f"""
-SELECT
-    {date_expr} AS date,
-    cr.risk_level AS risk_level,
-    COUNT(*) AS count
-FROM classifier_runs cr
-JOIN sessions s ON s.id = cr.session_id
-WHERE s.started_at >= %(from_ts)s AND s.started_at <= %(to_ts)s
-GROUP BY date, cr.risk_level
-ORDER BY date
+WITH buckets AS (
+    SELECT to_char(bucket_start, '{date_format}') AS date
+    FROM generate_series(
+        date_trunc('{unit}', to_timestamp(%(from_ts)s::double precision)),
+        date_trunc('{unit}', to_timestamp(%(to_ts)s::double precision)),
+        interval '1 {unit}'
+    ) AS bucket_start
+),
+counts AS (
+    SELECT
+        to_char(date_trunc('{unit}', to_timestamp(s.started_at)), '{date_format}') AS date,
+        cr.risk_level AS risk_level,
+        COUNT(*) AS count
+    FROM classifier_runs cr
+    JOIN sessions s ON s.id = cr.session_id
+    WHERE s.started_at >= %(from_ts)s AND s.started_at <= %(to_ts)s
+    GROUP BY 1, cr.risk_level
+)
+SELECT buckets.date, counts.risk_level, COALESCE(counts.count, 0) AS count
+FROM buckets
+LEFT JOIN counts ON counts.date = buckets.date
+ORDER BY buckets.date
 """
 
 
@@ -1904,13 +1932,22 @@ class PostgresClassifierRepository:
             for row in technique_rows
         ]
 
+        # Every day and all 24 hours, 0 where there were no sessions, so the
+        # charts are evenly spaced. A range with no sessions stays empty, so
+        # the page shows N/A rather than a flat line.
+        sessions_trend = [{"date": row["date"], "count": int(row["count"])} for row in trend_rows]
+        if not any(day["count"] for day in sessions_trend):
+            sessions_trend = []
+        hour_counts = {int(row["hour"]): int(row["count"]) for row in hour_rows}
+        peak_hours = [{"hour": hour, "count": hour_counts.get(hour, 0)} for hour in range(24)] if hour_counts else []
+
         return PersonaAnalytics(
             sessions_captured=sessions_captured,
-            sessions_trend=[{"date": row["date"], "count": int(row["count"])} for row in trend_rows],
+            sessions_trend=sessions_trend,
             intent_counts={str(row["key"]): int(row["count"]) for row in intent_rows},
             risk_counts={str(row["key"]): int(row["count"]) for row in risk_rows},
             top_techniques=top_techniques,
-            peak_hours=[{"hour": int(row["hour"]), "count": int(row["count"])} for row in hour_rows],
+            peak_hours=peak_hours,
             top_countries=[{"country": str(row["key"]), "count": int(row["count"])} for row in country_rows],
         )
 
@@ -2744,12 +2781,17 @@ def _risk_trend_tier(risk_level: str) -> str:
 
 def _pivot_risk_trend(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Pivot (date, risk_level, count) rows into one {date, high, medium, low}
-    bucket per date, preserving the SQL's date ordering."""
+    bucket per date, preserving the SQL's date ordering. A row with no
+    risk_level is an empty bucket and stays at 0. A range with no runs at
+    all comes back empty, so the chart shows N/A rather than empty columns."""
     buckets: dict[str, dict[str, Any]] = {}
     for row in rows:
         date = str(row["date"])
         bucket = buckets.setdefault(date, {"date": date, "high": 0, "medium": 0, "low": 0})
-        bucket[_risk_trend_tier(row["risk_level"])] += int(row["count"])
+        if row["risk_level"] is not None:
+            bucket[_risk_trend_tier(row["risk_level"])] += int(row["count"])
+    if not any(bucket["high"] or bucket["medium"] or bucket["low"] for bucket in buckets.values()):
+        return []
     return list(buckets.values())
 
 

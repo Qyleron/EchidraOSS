@@ -751,6 +751,37 @@ def test_get_analytics_summary_aggregates_all_dimensions_without_driver(monkeypa
     assert summary.unclassified_sessions == 3
 
 
+def test_pivot_risk_trend_keeps_empty_buckets_and_empties_a_range_without_runs():
+    """The risk trend SQL returns every bucket in the range, with a NULL
+    risk_level row for one that had no runs, so an empty day stays as an
+    empty column instead of the chart closing the gap. A range with no runs
+    at all comes back empty, so the chart shows N/A."""
+    from classifier.storage.repository import _analytics_risk_trend_sql, _pivot_risk_trend
+
+    assert _pivot_risk_trend(
+        [
+            {"date": "2026-07-01", "risk_level": "high", "count": 2},
+            {"date": "2026-07-02", "risk_level": None, "count": 0},
+            {"date": "2026-07-03", "risk_level": "low", "count": 1},
+        ]
+    ) == [
+        {"date": "2026-07-01", "high": 2, "medium": 0, "low": 0},
+        {"date": "2026-07-02", "high": 0, "medium": 0, "low": 0},
+        {"date": "2026-07-03", "high": 0, "medium": 0, "low": 1},
+    ]
+    assert _pivot_risk_trend(
+        [
+            {"date": "2026-07-01", "risk_level": None, "count": 0},
+            {"date": "2026-07-02", "risk_level": None, "count": 0},
+        ]
+    ) == []
+
+    for bucket, unit in (("day", "day"), ("week", "week"), ("month", "month")):
+        sql = _analytics_risk_trend_sql(bucket)
+        assert f"interval '1 {unit}'" in sql
+        assert "LEFT JOIN counts ON counts.date = buckets.date" in sql
+
+
 def test_get_analytics_summary_coverage_defaults_to_zero_when_no_runs(monkeypatch):
     """With no classifier runs in range, coverage must read 0/0, not crash on
     a missing row or NULL counts."""
@@ -1267,8 +1298,54 @@ def test_get_persona_analytics_reuses_one_connection_when_driver_available(monke
     assert analytics.intent_counts == {"reconnaissance": 5}
     assert analytics.risk_counts == {"high": 2}
     assert analytics.top_techniques == [{"id": "T1110", "name": "T1110", "count": 4}]
-    assert analytics.peak_hours == [{"hour": 14, "count": 6}]
+    # All 24 hours, 0 where there were no sessions, so the chart is evenly
+    # spaced (the trend's empty days are filled by its SQL).
+    assert analytics.peak_hours == [{"hour": hour, "count": 6 if hour == 14 else 0} for hour in range(24)]
     assert analytics.top_countries == [{"country": "United States", "count": 1}]
+
+
+def test_get_persona_analytics_leaves_charts_empty_when_the_range_has_no_sessions(monkeypatch):
+    """The trend SQL returns every day in the range, so a range with no
+    sessions comes back as all zeros. Both charts stay empty then, so the
+    page shows N/A instead of a flat line at 0."""
+    cursor = _FakeCursor(
+        [
+            [{"total": 0}],
+            [{"date": "2026-07-01", "count": 0}, {"date": "2026-07-02", "count": 0}],
+            [],
+            [],
+            [],
+            [],
+            [],
+        ]
+    )
+    connection = _FakeConnection(cursor)
+
+    class _FakeRows:
+        dict_row = object()
+
+    class _FakePsycopg:
+        rows = _FakeRows()
+
+        @staticmethod
+        def connect(database_url, **kwargs):
+            return connection
+
+    monkeypatch.setattr(
+        "classifier.storage.repository._load_psycopg",
+        lambda: _FakePsycopg,
+    )
+    monkeypatch.setattr(
+        "classifier.storage.repository.load_mitre_technique_catalog",
+        lambda: {},
+    )
+
+    analytics = PostgresClassifierRepository(
+        "postgresql://example/echidra"
+    ).get_persona_analytics("generic_linux", 1782864000.0, 1783036800.0)
+
+    assert analytics.sessions_trend == []
+    assert analytics.peak_hours == []
 
 
 def test_classifier_run_list_query_applies_supported_filters():
