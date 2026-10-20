@@ -940,8 +940,24 @@
       }
     }
 
+    // Dates only for whole days (12 AM to 11 PM); otherwise the picked hours
+    // too, in the hour picker's own labels, so the button never hides an
+    // hour filter.
     function formatRangeLabel(from, to) {
       const fmt = (date) => date.toLocaleDateString("en-GB", { day: "2-digit", month: "short" });
+      if (from.getHours() === 0 && to.getHours() === 23) return `${fmt(from)} – ${fmt(to)}`;
+      const hour = (date) => HOUR_OPTIONS[date.getHours()].label;
+      return `${fmt(from)}, ${hour(from)} – ${fmt(to)}, ${hour(to)}`;
+    }
+
+    // The exact range, shown when hovering the range button.
+    function formatExactRange(from, to) {
+      const fmt = (date) => {
+        const day = date.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+        const hour12 = date.getHours() % 12 === 0 ? 12 : date.getHours() % 12;
+        const minutes = String(date.getMinutes()).padStart(2, "0");
+        return `${day}, ${hour12}:${minutes} ${date.getHours() < 12 ? "AM" : "PM"}`;
+      };
       return `${fmt(from)} – ${fmt(to)}`;
     }
 
@@ -978,7 +994,9 @@
     async function applyRange({ background = false } = {}) {
       const { from, to } = background && appliedRange ? appliedRange : readRange();
       appliedRange = { from, to };
-      document.getElementById("timeRangeButton").textContent = issueAllTime ? "All time" : formatRangeLabel(from, to);
+      const timeRangeButton = document.getElementById("timeRangeButton");
+      timeRangeButton.textContent = issueAllTime ? "All time" : formatRangeLabel(from, to);
+      timeRangeButton.dataset.tip = issueAllTime ? "" : formatExactRange(from, to);
       await loadSessions(from, to, { background });
     }
 
@@ -986,8 +1004,7 @@
     // like on Analytics, so a reload or shared link keeps it and the
     // Intelligence page can hand over the range its counts were taken in.
     // Anything malformed or inverted falls back to the default last 7 days.
-    function readRangeFromUrl() {
-      const params = new URLSearchParams(window.location.search);
+    function readRangeFromUrl(params = new URLSearchParams(window.location.search)) {
       const fromDate = params.get("from");
       const toDate = params.get("to");
       const fromHour = Number(params.get("from_hour") ?? 0);
@@ -1007,6 +1024,33 @@
       params.set("to", document.getElementById("rangeToDate").value);
       params.set("to_hour", document.getElementById("rangeToHour").value);
       history.replaceState(null, "", `${window.location.pathname}?${params}${window.location.hash}`);
+      rememberRange(params);
+    }
+
+    // The range last applied on this page in this browser tab, so leaving
+    // and coming back (the navbar links carry no range) keeps it. Each page
+    // keeps its own, so changing it here doesn't change Analytics or
+    // Personas. Tab-only (sessionStorage): a new tab starts on the default,
+    // so an old range can't come back days later. A range in the URL wins.
+    const SAVED_RANGE_KEY = "echidra.range.sessions";
+
+    function readSavedRange() {
+      try {
+        const stored = window.sessionStorage.getItem(SAVED_RANGE_KEY);
+        return stored ? readRangeFromUrl(new URLSearchParams(stored)) : null;
+      } catch (error) {
+        return null;
+      }
+    }
+
+    function rememberRange(params) {
+      const range = new URLSearchParams();
+      ["from", "from_hour", "to", "to_hour"].forEach((key) => range.set(key, params.get(key)));
+      try {
+        window.sessionStorage.setItem(SAVED_RANGE_KEY, range.toString());
+      } catch (error) {
+        // Storage blocked: the URL still carries the range on this page.
+      }
     }
 
     // /dashboard/sessions?issue=<uuid> (an Intelligence finding's "View
@@ -1119,7 +1163,9 @@
       const timeRangeButton = document.getElementById("timeRangeButton");
       const timeRangePanel = document.getElementById("timeRangePanel");
 
-      const urlRange = readRangeFromUrl();
+      // An Intelligence "View Sessions" link with no range means all time,
+      // so the saved range doesn't apply to it.
+      const urlRange = readRangeFromUrl() || (issueScope ? null : readSavedRange());
       if (urlRange) {
         populateHourSelect(fromHourSelect, HOUR_OPTIONS, urlRange.fromHour);
         populateHourSelect(toHourSelect, HOUR_OPTIONS, urlRange.toHour);
@@ -1413,6 +1459,35 @@
         return false;
       }
     }
+    // Instant tooltip for anything with data-tip (the range button). The
+    // browser's own title tooltip waits about a second and can't be styled.
+    function initChartTips() {
+      const tip = document.createElement("div");
+      tip.className = "chart-tip";
+      tip.setAttribute("role", "tooltip");
+      tip.hidden = true;
+      document.body.appendChild(tip);
+      document.addEventListener("mousemove", (event) => {
+        const target = event.target.closest("[data-tip]");
+        if (!target || !target.dataset.tip) {
+          tip.hidden = true;
+          return;
+        }
+        if (tip.textContent !== target.dataset.tip) tip.textContent = target.dataset.tip;
+        tip.hidden = false;
+        const tipRect = tip.getBoundingClientRect();
+        const right = event.clientX + 12;
+        const below = event.clientY + 12;
+        tip.style.left = `${right + tipRect.width + 8 <= window.innerWidth ? right : Math.max(8, event.clientX - 12 - tipRect.width)}px`;
+        tip.style.top = `${below + tipRect.height + 8 <= window.innerHeight ? below : Math.max(8, event.clientY - 12 - tipRect.height)}px`;
+      });
+      document.addEventListener("mouseout", (event) => {
+        if (!event.relatedTarget) tip.hidden = true;
+      });
+      window.addEventListener("scroll", () => { tip.hidden = true; }, true);
+    }
+
+    initChartTips();
     initTimeRangeControl().then(openRequestedSessionIfPresent);
     // initCustomSelects wraps each <select> and snapshots its current
     // options into the overlay listbox -- it must run after personaFilter's

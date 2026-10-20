@@ -6,6 +6,9 @@
   <title>Personas - Echidra OSS | Qyleron</title>
   <link rel="icon" href="/assets/qyleron_logo.png" type="image/png" />
   <link rel="stylesheet" href="/dashboard.css" />
+  <!-- In the head (it only defines functions and document listeners) so the
+       persona dropdown can be styled before the page is first drawn. -->
+  <script src="/custom-select.js"></script>
 </head>
 <body>
   <div class="app-shell">
@@ -156,16 +159,22 @@
               </div>
             </div>
             <div class="persona-analytics-body">
-              <div class="chart-card">
-                <div class="chart-card-header"><strong id="trendChartTitle">Sessions (30 days)</strong></div>
+              <div class="chart-card chart-card-wide">
+                <div class="chart-card-header">
+                  <strong id="trendChartTitle">Sessions (30 days)</strong>
+                  <p class="chart-card-subtitle" id="trendChartSubtitle">Sessions per day.</p>
+                </div>
                 <div class="chart-body">
-                  <div class="line-chart" id="trendChart"></div>
+                  <div class="bar-chart" id="trendChart" aria-label="Bar chart of sessions over time"></div>
                 </div>
               </div>
-              <div class="chart-card">
-                <div class="chart-card-header"><strong>Peak Attack Hours</strong></div>
+              <div class="chart-card chart-card-wide">
+                <div class="chart-card-header">
+                  <strong>Peak Attack Hours</strong>
+                  <p class="chart-card-subtitle">Sessions by hour of day, added up across the range.</p>
+                </div>
                 <div class="chart-body">
-                  <div class="line-chart" id="hoursChart"></div>
+                  <div class="bar-chart" id="hoursChart" aria-label="Bar chart of sessions by hour of day"></div>
                 </div>
               </div>
               <div class="chart-card">
@@ -181,12 +190,7 @@
                 </div>
               </div>
               <div class="chart-card">
-                <div class="page-panel-header">
-                  <div class="page-panel-title">
-                    <h2>Top Source Countries</h2>
-                    <p>Source geography by captured session count.</p>
-                  </div>
-                </div>
+                <div class="chart-card-header"><strong>Top Source Countries</strong></div>
                 <div class="chart-body">
                   <ul class="rank-list" id="countriesList"></ul>
                 </div>
@@ -199,11 +203,13 @@
               </div>
             </div>
           </div>
-          <div id="analyticsLoading" class="panel-loader" hidden>
+          <!-- Visible on first paint, until the persona list arrives and the
+               first persona's analytics load (like Analytics' loader). -->
+          <div id="analyticsLoading" class="panel-loader">
             <div class="spinner" role="status" aria-label="Loading analytics"></div>
           </div>
           <p id="analyticsEmpty" class="empty-state" hidden>No session data for this persona yet.</p>
-          <div id="analyticsPlaceholder" class="analytics-placeholder">
+          <div id="analyticsPlaceholder" class="analytics-placeholder" hidden>
             <div class="analytics-placeholder-value">N/A</div>
             <p id="analyticsPlaceholderText" class="analytics-placeholder-text">Select a persona above to view analytics.</p>
           </div>
@@ -212,7 +218,67 @@
     </main>
   </div>
 
-  <script src="/custom-select.js"></script>
+  <script>
+    // ── Tab control ────────────────────────────────────────────────────────────
+    // Its own script, right after the markup and ahead of the main script,
+    // so the right tab is set before the page is first drawn instead of
+    // Configuration showing first and then switching. The names stay global
+    // for the main script.
+    var configView = document.getElementById("configView");
+    var analyticsView = document.getElementById("analyticsView");
+    var configTabBtn = document.getElementById("configTabBtn");
+    var analyticsTabBtn = document.getElementById("analyticsTabBtn");
+
+    // The sidebar link is plain /personas, so the last persona and tab are
+    // also kept in this browser and reopened when the URL names neither.
+    // A URL with ?persona= or #analytics always wins.
+    var LAST_PERSONA_KEY = "echidra.personas.lastPersona";
+    var LAST_TAB_KEY = "echidra.personas.lastTab";
+    var restoreLastView = !new URLSearchParams(window.location.search).has("persona") && !window.location.hash;
+
+    function readLastView(key) {
+      try { return window.localStorage.getItem(key); } catch (e) { return null; }
+    }
+
+    function saveLastView(key, value) {
+      try {
+        if (value) window.localStorage.setItem(key, value);
+        else window.localStorage.removeItem(key);
+      } catch (e) { /* storage blocked: the URL still carries the view */ }
+    }
+
+    function showTab(tab) {
+      var isConfig = tab === "config";
+      configView.hidden = !isConfig;
+      analyticsView.hidden = isConfig;
+      configTabBtn.classList.toggle("active", isConfig);
+      analyticsTabBtn.classList.toggle("active", !isConfig);
+      // The open tab lives in the URL (#analytics) next to ?persona=, so a
+      // reload or shared link reopens it.
+      var hash = isConfig ? "" : "#analytics";
+      if (window.location.hash !== hash) {
+        history.replaceState(null, "", window.location.pathname + window.location.search + hash);
+      }
+      saveLastView(LAST_TAB_KEY, tab);
+    }
+
+    configTabBtn.addEventListener("click", function() { showTab("config"); });
+    analyticsTabBtn.addEventListener("click", function() { showTab("analytics"); });
+    if (window.location.hash === "#analytics" || (restoreLastView && readLastView(LAST_TAB_KEY) === "analytics")) {
+      showTab("analytics");
+    }
+
+    // The persona dropdown is styled and named before the first draw too,
+    // as Grafana and Datadog show a saved selection at once: the persona the
+    // URL or last visit names (the list fills in around it), or "Loading
+    // personas…" on a first visit. populateSelector restores the
+    // placeholder text once the list arrives.
+    var PERSONA_PLACEHOLDER_TEXT = "Select a persona to view analytics…";
+    var knownPersona = new URLSearchParams(window.location.search).get("persona")
+      || (restoreLastView ? readLastView(LAST_PERSONA_KEY) : null);
+    document.getElementById("personaSelector").options[0].textContent = knownPersona || "Loading personas…";
+    if (typeof initCustomSelects === "function") initCustomSelects(analyticsView);
+  </script>
   <script>
     // In-page notice (bottom-right), used instead of the browser's alert().
     var noticeTimer = null;
@@ -239,23 +305,6 @@
     var allConfigs = {};
     var expandedPersonaId = null;
     var decoyCounter = 0;
-
-    // ── Tab control ────────────────────────────────────────────────────────────
-    var configView = document.getElementById("configView");
-    var analyticsView = document.getElementById("analyticsView");
-    var configTabBtn = document.getElementById("configTabBtn");
-    var analyticsTabBtn = document.getElementById("analyticsTabBtn");
-
-    function showTab(tab) {
-      var isConfig = tab === "config";
-      configView.hidden = !isConfig;
-      analyticsView.hidden = isConfig;
-      configTabBtn.classList.toggle("active", isConfig);
-      analyticsTabBtn.classList.toggle("active", !isConfig);
-    }
-
-    configTabBtn.addEventListener("click", function() { showTab("config"); });
-    analyticsTabBtn.addEventListener("click", function() { showTab("analytics"); });
 
     // ── Fetch helpers ──────────────────────────────────────────────────────────
     async function fetchPresets() {
@@ -480,6 +529,17 @@
       return fmt(from) + " – " + fmt(to);
     }
 
+    // The exact range, shown when hovering the range button.
+    function formatExactRange(from, to) {
+      var fmt = function(date) {
+        var day = date.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+        var hour12 = date.getHours() % 12 === 0 ? 12 : date.getHours() % 12;
+        var minutes = String(date.getMinutes()).padStart(2, "0");
+        return day + ", " + hour12 + ":" + minutes + " " + (date.getHours() < 12 ? "AM" : "PM");
+      };
+      return fmt(from) + " – " + fmt(to);
+    }
+
     function readRange() {
       var now = new Date();
       var fromDate = document.getElementById("rangeFromDate").value;
@@ -501,6 +561,37 @@
       return { from: from, to: to };
     }
 
+    // The range last applied on this page in this browser tab, so leaving
+    // and coming back or reloading keeps it. Each page keeps its own, so
+    // changing it here doesn't change Sessions or Analytics. Tab-only
+    // (sessionStorage): a new tab starts on the default, so an old range
+    // can't come back days later. This page picks whole days.
+    var SAVED_RANGE_KEY = "echidra.range.personas";
+
+    function readSavedRange() {
+      try {
+        var stored = window.sessionStorage.getItem(SAVED_RANGE_KEY);
+        if (!stored) return null;
+        var params = new URLSearchParams(stored);
+        var fromDate = params.get("from");
+        var toDate = params.get("to");
+        var isDate = function(value) {
+          return /^\d{4}-\d{2}-\d{2}$/.test(value || "") && !Number.isNaN(new Date(value + "T00:00:00").getTime());
+        };
+        if (!isDate(fromDate) || !isDate(toDate) || toDate < fromDate) return null;
+        return { fromDate: fromDate, toDate: toDate };
+      } catch (e) {
+        return null;
+      }
+    }
+
+    function rememberRange(fromDate, toDate) {
+      var range = new URLSearchParams({ from: fromDate, to: toDate });
+      try {
+        window.sessionStorage.setItem(SAVED_RANGE_KEY, range.toString());
+      } catch (e) { /* storage blocked: this page keeps its own range */ }
+    }
+
     function initTimeRangeControl() {
       initCustomDateInputs(document);
 
@@ -510,12 +601,19 @@
       var timeRangePanel = document.getElementById("timeRangePanel");
 
       var now = new Date();
-      toDateInput.value = localDateKey(now);
-      var defaultFrom = new Date(now);
-      defaultFrom.setDate(defaultFrom.getDate() - 29);
-      fromDateInput.value = localDateKey(defaultFrom);
+      var savedRange = readSavedRange();
+      if (savedRange) {
+        fromDateInput.value = savedRange.fromDate;
+        toDateInput.value = savedRange.toDate;
+      } else {
+        toDateInput.value = localDateKey(now);
+        var defaultFrom = new Date(now);
+        defaultFrom.setDate(defaultFrom.getDate() - 29);
+        fromDateInput.value = localDateKey(defaultFrom);
+      }
       syncRangeConstraints();
-      document.getElementById("timeRangeButton").textContent = formatRangeLabel(fromDateInput.value ? new Date(fromDateInput.value + "T00:00:00") : now, now);
+      var initialRange = readRange();
+      document.getElementById("timeRangeButton").textContent = formatRangeLabel(initialRange.from, initialRange.to);
 
       [fromDateInput, toDateInput].forEach(function(input) {
         input.addEventListener("change", syncRangeConstraints);
@@ -550,6 +648,7 @@
       document.getElementById("applyRangeButton").addEventListener("click", function() {
         inputsAtOpen = null;
         setPanelOpen(false);
+        rememberRange(fromDateInput.value, toDateInput.value);
         var personaId = document.getElementById("personaSelector").value;
         if (personaId) loadPersonaAnalytics(personaId);
       });
@@ -568,8 +667,17 @@
     }
 
     // ── Configuration table ────────────────────────────────────────────────────
+    // When Analytics opens on a persona the URL or the last visit already
+    // names, its analytics load alongside the persona list instead of after
+    // it. populateSelector then keeps that request rather than repeating it.
+    var prefetchedPersona = null;
+
     async function loadConfiguration() {
       var tbody = document.getElementById("personaTableBody");
+      if (!selectorFilled && !analyticsView.hidden) {
+        prefetchedPersona = knownPersona;
+        if (prefetchedPersona) loadPersonaAnalytics(prefetchedPersona);
+      }
       try {
         var results = await Promise.all([fetchPresets(), fetchConfigs()]);
         allPresets = results[0];
@@ -579,6 +687,17 @@
         populateSelector(allPresets, results[1]);
       } catch (err) {
         tbody.innerHTML = '<tr><td colspan="5" class="empty-state">Could not load personas. Is the database configured?</td></tr>';
+        // Analytics was waiting on this list behind its first-load spinner.
+        // Any early analytics request is dropped so it can't draw over this.
+        if (!selectorFilled) {
+          personaAnalyticsRequestId++;
+          var sel = document.getElementById("personaSelector");
+          sel.options[0].textContent = PERSONA_PLACEHOLDER_TEXT;
+          if (sel._refreshCustomSelect) sel._refreshCustomSelect();
+          document.getElementById("analyticsLoading").hidden = true;
+          document.getElementById("analyticsPlaceholderText").textContent = "Couldn't load personas. Reload the page to try again.";
+          document.getElementById("analyticsPlaceholder").hidden = false;
+        }
       }
     }
 
@@ -1109,6 +1228,9 @@
       });
       var validIds = {};
       presetIds.concat(configIds).forEach(function(id) { validIds[id] = true; });
+      // Before the list arrived, the placeholder showed the known persona
+      // (see the tab script); it's the real placeholder again from here.
+      sel.options[0].textContent = PERSONA_PLACEHOLDER_TEXT;
 
       var previousValue = sel.value;
 
@@ -1138,15 +1260,23 @@
         sel.dispatchEvent(new Event("change", { bubbles: true }));
       }
 
-      // First fill only: open on the persona in the URL, or else the first
-      // one, instead of an empty page behind a date range that does nothing.
+      // First fill only: open on the persona in the URL, or else the last one
+      // viewed, or else the first, instead of an empty page behind a date
+      // range that does nothing. A deleted persona falls through to the first.
       if (!selectorFilled) {
         selectorFilled = true;
-        var urlPersona = new URLSearchParams(window.location.search).get("persona");
+        var urlPersona = new URLSearchParams(window.location.search).get("persona")
+          || (restoreLastView ? readLastView(LAST_PERSONA_KEY) : null);
         var initial = urlPersona && validIds[urlPersona]
           ? urlPersona
           : (sel.options.length > 1 ? sel.options[1].value : "");
-        if (initial) {
+        if (initial && initial === prefetchedPersona) {
+          // Already loading (see loadConfiguration): record the choice only.
+          sel.value = initial;
+          rememberPersona(initial);
+        } else if (initial) {
+          // Also replaces an early request for a persona that's since been
+          // deleted, since a newer request always wins.
           sel.value = initial;
           sel.dispatchEvent(new Event("change", { bubbles: true }));
         }
@@ -1158,6 +1288,9 @@
         placeholderText.textContent = sel.options.length > 1
           ? "Select a persona above to view analytics."
           : "No personas configured yet — create one to see analytics.";
+        // Nothing to load, so the first-load spinner gives way to the note.
+        document.getElementById("analyticsLoading").hidden = true;
+        document.getElementById("analyticsPlaceholder").hidden = false;
       }
 
       initCustomSelects(document.getElementById("analyticsView"));
@@ -1204,6 +1337,7 @@
       try {
         var range = readRange();
         document.getElementById("timeRangeButton").textContent = formatRangeLabel(range.from, range.to);
+        document.getElementById("timeRangeButton").dataset.tip = formatExactRange(range.from, range.to);
         document.getElementById("trendChartTitle").textContent = "Sessions (" + formatRangeLabel(range.from, range.to) + ")";
         var data = await fetchAnalytics(personaId, Math.floor(range.from.getTime() / 1000), Math.floor(range.to.getTime() / 1000));
         clearTimeout(loadingTimer);
@@ -1214,7 +1348,7 @@
           placeholder.hidden = false;
           return;
         }
-        renderAnalytics(data);
+        renderAnalytics(data, range);
         loading.hidden = true;
         content.hidden = false;
         empty.hidden = true;
@@ -1230,34 +1364,76 @@
 
     // The chosen persona lives in the URL (?persona=), like the date range on
     // Sessions and Analytics, so a reload or shared link opens on it.
-    document.getElementById("personaSelector").addEventListener("change", function(evt) {
+    function rememberPersona(personaId) {
       var params = new URLSearchParams(window.location.search);
-      if (evt.target.value) params.set("persona", evt.target.value);
+      if (personaId) params.set("persona", personaId);
       else params.delete("persona");
       var query = params.toString();
       history.replaceState(null, "", window.location.pathname + (query ? "?" + query : "") + window.location.hash);
+      saveLastView(LAST_PERSONA_KEY, personaId);
+    }
+
+    document.getElementById("personaSelector").addEventListener("change", function(evt) {
+      rememberPersona(evt.target.value);
       loadPersonaAnalytics(evt.target.value);
     });
 
+    // Instant tooltip for anything with data-tip (chart dots, the range
+    // button). The browser's own title tooltip waits about a second and
+    // can't be styled. Fixed positioning keeps it clear of the cards'
+    // overflow clipping.
+    function initChartTips() {
+      var tip = document.createElement("div");
+      tip.className = "chart-tip";
+      tip.setAttribute("role", "tooltip");
+      tip.hidden = true;
+      document.body.appendChild(tip);
+      document.addEventListener("mousemove", function(event) {
+        var target = event.target.closest("[data-tip]");
+        if (!target || !target.dataset.tip) {
+          tip.hidden = true;
+          return;
+        }
+        if (tip.textContent !== target.dataset.tip) tip.textContent = target.dataset.tip;
+        tip.hidden = false;
+        var tipRect = tip.getBoundingClientRect();
+        var right = event.clientX + 12;
+        var below = event.clientY + 12;
+        tip.style.left = (right + tipRect.width + 8 <= window.innerWidth ? right : Math.max(8, event.clientX - 12 - tipRect.width)) + "px";
+        tip.style.top = (below + tipRect.height + 8 <= window.innerHeight ? below : Math.max(8, event.clientY - 12 - tipRect.height)) + "px";
+      });
+      document.addEventListener("mouseout", function(event) {
+        if (!event.relatedTarget) tip.hidden = true;
+      });
+      window.addEventListener("scroll", function() { tip.hidden = true; }, true);
+    }
+
+    initChartTips();
     initTimeRangeControl();
 
     // ── Analytics rendering ────────────────────────────────────────────────────
-    function renderAnalytics(data) {
+    function renderAnalytics(data, range) {
       document.getElementById("metricSessions").textContent = data.sessions_captured != null ? data.sessions_captured : 0;
       var riskCounts = data.risk_counts || {};
       var highRisk = (riskCounts.critical || 0) + (riskCounts.high || 0);
       document.getElementById("metricHighRisk").textContent = highRisk;
       document.getElementById("metricTechniques").textContent = (data.top_techniques || []).length;
-      renderLineChart("trendChart", data.sessions_trend || [], function(d) { return formatDayMonth(d.date); }, function(d) { return d.count; }, {
-        maxTicks: 8,
-        rotateLabels: true,
-        tooltipLabelFn: function(d) { return formatFullDate(d.date); }
-      });
-      renderLineChart("hoursChart", data.peak_hours || [], function(d) { return String(d.hour).padStart(2, "0"); }, function(d) { return d.count; }, {
-        tickStep: 1,
-        scrollable: true,
-        tooltipLabelFn: function(d) { return formatHourRange(d.hour); }
-      });
+      var trend = bucketSessionsTrend(data.sessions_trend || [], range);
+      document.getElementById("trendChartSubtitle").textContent = {
+        day: "Sessions per day.",
+        week: "Sessions per week (Monday to Sunday).",
+        month: "Sessions per month."
+      }[trend.unit];
+      renderBarChart("trendChart", trend.points, 12);
+      // One orange band per hour, every 3rd hour labelled (and 11 PM as the
+      // last), like Analytics' Attacks by Hour.
+      renderBarChart("hoursChart", (data.peak_hours || []).map(function(d) {
+        return {
+          label: formatHour12(d.hour),
+          count: d.count,
+          tip: formatHourRange(d.hour) + ": " + formatSessionCount(d.count)
+        };
+      }), 8);
       renderRankList("riskList", data.risk_counts || {});
       renderRankList("intentList", data.intent_counts || {});
       var countryCounts = {};
@@ -1266,129 +1442,154 @@
       renderMitreList("techniqueList", data.top_techniques || []);
     }
 
-    // Line/dot chart -- used instead of a bar chart for series with more
-    // points (24 hours, 30 days) than fit as fixed-min-width bar columns
-    // without horizontal scrolling. An SVG line has no per-point minimum
-    // width, so it always fits the card. Per-point values move into a
-    // native hover tooltip (<title>) instead of a permanently-stacked
-    // label, which is also what removes the old bar chart's label-overflow
-    // problem: there's no label competing for space above each point.
-    var LINE_CHART_WIDTH = 600;
+    // The server sends one row per day. Like Risk Trend on Analytics, the
+    // chart shows a column per day up to 31 days, per week (Monday to
+    // Sunday) up to 180, and per month beyond, so a long range isn't
+    // hundreds of hair-thin bars. A week or month at either end of the
+    // range covers only the days inside it, and is named by those days
+    // ("05 Aug", "05 Aug – 09 Aug 2026").
+    function bucketSessionsTrend(days, range) {
+      var spanDays = (range.to - range.from) / 86400000;
+      var unit = spanDays <= 31 ? "day" : spanDays <= 180 ? "week" : "month";
+      if (unit === "day") {
+        return {
+          unit: unit,
+          points: days.map(function(d) {
+            return { label: formatDayMonth(d.date), count: d.count, tip: formatFullDate(d.date) + ": " + formatSessionCount(d.count) };
+          })
+        };
+      }
+      var buckets = [];
+      days.forEach(function(d) {
+        var date = parseDateKey(d.date);
+        var key;
+        if (unit === "week") {
+          var monday = new Date(date);
+          monday.setDate(date.getDate() - ((date.getDay() + 6) % 7));
+          key = monday.getTime();
+        } else {
+          key = date.getFullYear() * 12 + date.getMonth();
+        }
+        var last = buckets[buckets.length - 1];
+        if (last && last.key === key) {
+          last.count += d.count;
+          last.end = date;
+        } else {
+          buckets.push({ key: key, start: date, end: date, count: d.count });
+        }
+      });
+      return {
+        unit: unit,
+        points: buckets.map(function(b) {
+          var label, tipLabel;
+          if (unit === "week") {
+            label = formatDate(b.start, false);
+            // The start gets its year too when the week crosses New Year
+            // ("28 Dec 2026 – 03 Jan 2027"), so it can't read as 2027.
+            tipLabel = formatDate(b.start, b.start.getFullYear() !== b.end.getFullYear()) + " – " + formatDate(b.end, true);
+          } else {
+            label = b.start.toLocaleDateString("en-GB", { month: "short", year: "numeric" });
+            tipLabel = label;
+          }
+          return { label: label, count: b.count, tip: tipLabel + ": " + formatSessionCount(b.count) };
+        })
+      };
+    }
 
-    // "2026-08-04" -> "04/08/2026" -- built manually (not
-    // toLocaleDateString) so the format is locale-independent and always
-    // dd/mm/yyyy, not the browser's local date convention.
+    // "04 Aug", or "04 Aug 2026" with the year.
+    function formatDate(date, withYear) {
+      var options = { day: "2-digit", month: "short" };
+      if (withYear) options.year = "numeric";
+      return date.toLocaleDateString("en-GB", options);
+    }
+
+    // Dates as on Analytics and the range button: the month as a word, so
+    // they read the same in the US and Europe (en-GB fixes the order to
+    // day-month whatever the browser's language).
+    function parseDateKey(dateStr) {
+      var parts = dateStr.split("-").map(Number);
+      return new Date(parts[0], parts[1] - 1, parts[2]);
+    }
+
+    // "2026-08-04" -> "04 Aug 2026", for the tooltip.
     function formatFullDate(dateStr) {
-      var parts = dateStr.split("-");
-      return parts[2] + "/" + parts[1] + "/" + parts[0];
+      return formatDate(parseDateKey(dateStr), true);
     }
 
-    // "2026-08-04" -> "04/08" -- same dd/mm convention, for the axis tick.
+    // "2026-08-04" -> "04 Aug", for the axis label.
     function formatDayMonth(dateStr) {
-      var parts = dateStr.split("-");
-      return parts[2] + "/" + parts[1];
+      return formatDate(parseDateKey(dateStr), false);
     }
 
-    // 8 -> "08:00 – 09:00"
+    // 18 -> "6 PM", the 12-hour clock used across the dashboard.
+    function formatHour12(hour) {
+      return (hour % 12 === 0 ? 12 : hour % 12) + " " + (hour < 12 ? "AM" : "PM");
+    }
+
+    // 18 -> "6 PM – 7 PM"
     function formatHourRange(hour) {
-      var pad = function(n) { return String(n).padStart(2, "0"); };
-      return pad(hour) + ":00 – " + pad((hour + 1) % 24) + ":00";
+      return formatHour12(hour) + " – " + formatHour12((hour + 1) % 24);
     }
 
-    // opts:
-    //   maxTicks (default 8) -- auto-skip to roughly this many evenly
-    //     spaced labels, e.g. every 4th-5th day across a 30-day trend.
-    //   tickStep -- fixed step instead of auto-dividing by maxTicks, e.g.
-    //     every 3rd hour (00, 03, 06 ... 21) for the 24-hour chart.
-    //   rotateLabels -- render ticks at -45deg so short date strings like
-    //     "08-10"/"08-11" have room to sit closer together without
-    //     touching.
-    //   scrollable -- draw the chart wider than its card (pxPerPoint per
-    //     point, default 44) inside a horizontally-scrolling wrapper,
-    //     instead of squeezing to a fixed 600px. The card always shows a
-    //     scrollbar (overflow-x: scroll, not auto) so its presence is a
-    //     constant, discoverable affordance rather than something that
-    //     only appears once you've already noticed content is cut off.
-    function renderLineChart(id, items, labelFn, countFn, opts) {
-      opts = opts || {};
+    // "1 session", "4 sessions".
+    function formatSessionCount(count) {
+      return count + " " + (count === 1 ? "session" : "sessions");
+    }
+
+    // Bars on a round-number scale, the same chart as Analytics' Risk Trend
+    // and Attacks by Hour (a copy, as with initChartTips; to move to a
+    // shared charts.js with the packaging fix): values down the left, grid
+    // lines, a baseline that empty columns sit on as a grey stub, counts on
+    // top, and the whole column as the hover target. Each point: { label,
+    // count, tip }. maxLabels: about how many x labels fit; with more
+    // columns, every Nth is labelled and always the last.
+    var BAR_AREA = 170;
+
+    function niceStep(raw) {
+      var power = Math.pow(10, Math.floor(Math.log10(raw)));
+      var fraction = raw / power;
+      var step = (fraction <= 1 ? 1 : fraction <= 2 ? 2 : fraction <= 5 ? 5 : 10) * power;
+      return Math.max(1, step);
+    }
+
+    function renderBarChart(id, points, maxLabels) {
       var el = document.getElementById(id);
-      if (!items.length) {
+      if (!points.length) {
         el.innerHTML = '<span class="chart-empty-value">N/A</span>';
         return;
       }
-      var values = items.map(countFn);
-      var max = Math.max.apply(null, values.concat([1]));
-      var n = items.length;
-      var h = 160, padX = 6, padY = 8;
-      var w = opts.scrollable ? Math.max(LINE_CHART_WIDTH, n * (opts.pxPerPoint || 44)) : LINE_CHART_WIDTH;
-      var innerW = w - padX * 2, innerH = h - padY * 2;
-      var stepX = n > 1 ? innerW / (n - 1) : 0;
-      var points = values.map(function(v, i) {
-        var x = padX + stepX * i;
-        var y = padY + innerH - (max > 0 ? (v / max) * innerH : 0);
-        return [x, y];
-      });
-      var linePath = points.map(function(p, i) {
-        return (i === 0 ? "M" : "L") + p[0].toFixed(1) + "," + p[1].toFixed(1);
-      }).join(" ");
-      var floorY = (padY + innerH).toFixed(1);
-      var areaPath = linePath
-        + " L" + points[n - 1][0].toFixed(1) + "," + floorY
-        + " L" + points[0][0].toFixed(1) + "," + floorY + " Z";
-      var labels = items.map(function(item) { return String(labelFn(item)); });
-      // The tooltip's own label can be a fuller, friendlier string than
-      // the compact axis tick (e.g. "Aug 04, 2026" instead of "08-04", or
-      // an hour range instead of a bare "08") -- falls back to the axis
-      // label when the caller doesn't supply one.
-      var tooltipLabelFn = opts.tooltipLabelFn || labelFn;
-      var tooltipLabels = items.map(function(item) { return String(tooltipLabelFn(item)); });
-      // Dots are absolutely-positioned HTML elements laid over the SVG,
-      // not <circle> elements inside it -- the SVG's own preserveAspect
-      // Ratio="none" stretch (needed so the line/area paths fill the
-      // card regardless of its aspect ratio) scales an SVG circle's x
-      // and y radii independently whenever the chart is wider than it
-      // is tall, rendering it as an oval instead of a circle. A plain
-      // CSS border-radius circle positioned by percentage isn't subject
-      // to that scale at all, so it's always round.
-      var dotMarkers = points.map(function(p, i) {
-        // Native title tooltip only -- no custom JS-rendered tooltip
-        // alongside it, so there's exactly one tooltip on hover, not two
-        // competing/overlapping ones.
-        return '<span class="line-chart-dot" data-index="' + i + '" style="left:' + ((p[0] / w) * 100).toFixed(2) + '%;top:' + ((p[1] / h) * 100).toFixed(2) + '%" title="' + escAttr(tooltipLabels[i]) + ': ' + values[i] + ' sessions"></span>';
-      }).join("");
-      var tickStep = opts.tickStep || Math.max(1, Math.ceil(n / (opts.maxTicks || 8)));
-      var tickClass = "line-chart-tick" + (opts.rotateLabels ? " line-chart-tick-rotated" : "");
-      var axisTicks = items.map(function(item, i) {
-        if (i % tickStep !== 0) return "";
-        var pct = ((points[i][0] / w) * 100).toFixed(2);
-        return '<span class="' + tickClass + '" style="left:' + pct + '%">' + escHtml(labels[i]) + '</span>';
-      }).join("");
-      var axisClass = "line-chart-axis" + (opts.rotateLabels ? " line-chart-axis-rotated" : "");
-      el.classList.toggle("line-chart-scrollable", Boolean(opts.scrollable));
-      // .line-chart-plot and .line-chart-axis are stacked as normal-flow
-      // flex children (see dashboard.css) rather than layered with
-      // position:absolute -- that keeps the axis row's space strictly
-      // additive, so it can never overlap the plotted line above it no
-      // matter how tall rotated labels make it.
-      var chartMarkup = '<div class="line-chart-plot">'
-        + '<svg viewBox="0 0 ' + w + ' ' + h + '" preserveAspectRatio="none" class="line-chart-svg"' + (opts.scrollable ? ' style="width:' + w + 'px"' : '') + '>'
-        + '<path class="line-chart-area" d="' + areaPath + '"></path>'
-        + '<path class="line-chart-line" d="' + linePath + '"></path>'
-        + '</svg>'
-        + dotMarkers
-        + '</div>'
-        + '<div class="' + axisClass + '">' + axisTicks + '</div>';
-      // The scrollable variant needs a fixed-width wrapper so the SVG and
-      // the percentage-positioned axis/tooltip share one unambiguous
-      // coordinate space -- no min-width:100% stretch on it, since that's
-      // exactly what previously dragged axis labels out of alignment with
-      // their dots (see git history) once the wrapper's rendered width
-      // stopped matching the SVG's own fixed w.
-      if (opts.scrollable) {
-        el.innerHTML = '<div class="line-chart-scroll" style="width:' + w + 'px">' + chartMarkup + '</div>';
-      } else {
-        el.innerHTML = chartMarkup;
+      var max = Math.max.apply(null, points.map(function(p) { return p.count; }).concat([1]));
+      var step = niceStep(max / 4);
+      var top = Math.ceil(max / step) * step;
+      var heightOf = function(value) { return (value / top) * BAR_AREA; };
+      var axis = "";
+      for (var tick = 0; tick <= top; tick += step) {
+        var bottom = 'style="bottom: calc(var(--risk-baseline) + ' + heightOf(tick) + 'px);"';
+        axis += '<span class="risk-axis-tick" ' + bottom + '>' + tick.toLocaleString("en-US") + '</span>'
+          + '<span class="risk-grid-line' + (tick === 0 ? ' is-baseline' : '') + '" ' + bottom + '></span>';
       }
+      var lastIndex = points.length - 1;
+      var labelStep = Math.max(1, Math.ceil(points.length / maxLabels));
+      var showLabel = function(i) {
+        return i === lastIndex || (i % labelStep === 0 && (i === 0 || lastIndex - i >= labelStep / 2));
+      };
+      el.innerHTML = '<div class="risk-axis" aria-hidden="true">' + axis + '</div>' + points.map(function(p, i) {
+        var tip = escAttr(p.tip);
+        var bar = p.count
+          ? '<div class="stacked-bar" style="height: ' + Math.max(2, heightOf(p.count)) + 'px;"><span class="bar-segment count-fill" style="height: 100%;"></span></div>'
+          : '<div class="stacked-bar is-empty" style="height: 2px;"></div>';
+        return '<div class="bar-column" data-tip="' + tip + '" aria-label="' + tip + '">'
+          + '<span class="bar-value">' + (p.count ? p.count.toLocaleString("en-US") : "") + '</span>'
+          + bar
+          + '<span class="bar-label' + (showLabel(i) ? '' : ' is-unlabelled') + '">' + escHtml(p.label) + '</span>'
+          + '</div>';
+      }).join("");
+    }
+
+    // A non-zero count always shows at least a dot the height of the bar
+    // (8px), so a small share next to a large one doesn't look empty.
+    function rankFillWidth(count, max) {
+      return count > 0 ? "max(8px, " + Math.round((count / max) * 100) + "%)" : "0";
     }
 
     function renderRankList(id, counts) {
@@ -1402,7 +1603,7 @@
       el.innerHTML = entries.map(function(e) {
         return '<li class="rank-item">'
           + '<div class="rank-row"><span>' + escHtml(e[0]) + '</span><span>' + e[1] + '</span></div>'
-          + '<div class="rank-track"><span class="rank-fill" style="width:' + Math.round((e[1] / max) * 100) + '%;"></span></div>'
+          + '<div class="rank-track"><span class="rank-fill" style="width:' + rankFillWidth(e[1], max) + ';"></span></div>'
           + '</li>';
       }).join("");
     }
@@ -1421,7 +1622,7 @@
           + '<span>' + t.count + '</span>'
           + '</div>'
           + '<div class="rank-track">'
-          + '<span class="rank-fill" style="width:' + Math.round((t.count / max) * 100) + '%;"></span>'
+          + '<span class="rank-fill" style="width:' + rankFillWidth(t.count, max) + ';"></span>'
           + '</div>'
           + '</li>';
       }).join("");

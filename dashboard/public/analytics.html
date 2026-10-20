@@ -88,7 +88,11 @@
         <div id="analyticsLoading" class="panel-loader">
           <div class="spinner" role="status" aria-label="Loading analytics"></div>
         </div>
-        <div class="chart-body">
+        <div id="analyticsPlaceholder" class="analytics-placeholder" hidden>
+          <div class="analytics-placeholder-value">N/A</div>
+          <p id="analyticsPlaceholderText" class="analytics-placeholder-text"></p>
+        </div>
+        <div class="chart-body" id="intentBody">
           <section class="metric-grid" aria-label="Intent breakdown">
             <article class="metric-card">
               <strong class="metric-value metric-danger" id="intentCredentialAccess">0</strong>
@@ -111,16 +115,16 @@
         </div>
       </section>
 
-      <section class="analytics-grid" aria-label="Attack analytics">
+      <section class="analytics-grid" id="analyticsGrid" aria-label="Attack analytics">
         <section class="chart-card" aria-labelledby="attacksByHourTitle">
           <div class="page-panel-header">
             <div class="page-panel-title">
               <h2 id="attacksByHourTitle">Attacks By Hour</h2>
-              <p>When captured sessions are most active.</p>
+              <p>Sessions by hour of day, added up across the range.</p>
             </div>
           </div>
           <div class="chart-body">
-            <div id="attacksByHourChart" class="line-chart" aria-label="Line chart of attacks by hour"></div>
+            <div id="attacksByHourChart" class="bar-chart" aria-label="Bar chart of attacks by hour"></div>
           </div>
         </section>
 
@@ -128,7 +132,7 @@
           <div class="page-panel-header">
             <div class="page-panel-title">
               <h2 id="riskTrendTitle">Risk Trend</h2>
-              <p>High, medium, and low risk session volume by day.</p>
+              <p id="riskTrendSubtitle">Sessions per day, by risk level.</p>
             </div>
           </div>
           <div class="chart-body">
@@ -468,96 +472,114 @@
       URL.revokeObjectURL(url);
     }
 
-    // "08" -> "08:00 – 09:00"
+    // "18" -> "6 PM – 7 PM", in the hour picker's own 12-hour labels.
     function formatHourRange(hourStr) {
       const hour = Number(hourStr);
-      const pad = (n) => String(n).padStart(2, "0");
-      return `${pad(hour)}:00 – ${pad((hour + 1) % 24)}:00`;
+      return `${HOUR_OPTIONS[hour].label} – ${HOUR_OPTIONS[(hour + 1) % 24].label}`;
     }
 
-    // Line/dot chart -- used instead of a bar chart for the 24-hour series,
-    // which doesn't fit as fixed-min-width bar columns without horizontal
-    // scrolling. An SVG line has no per-point minimum width, so it always
-    // fits the card, and per-point values move into a hover tooltip
-    // instead of a permanently-stacked label above each point.
+    // "1 session", "4 sessions".
+    function formatSessionCount(count) {
+      return `${count} ${count === 1 ? "session" : "sessions"}`;
+    }
+
+    // Height in px from the baseline to the top grid line.
+    const RISK_BAR_AREA = 170;
+
+    // A round step for about four grid lines (1, 2 or 5 times a power of
+    // ten), never below 1 since counts are whole numbers.
+    function niceStep(raw) {
+      const power = Math.pow(10, Math.floor(Math.log10(raw)));
+      const fraction = raw / power;
+      const step = (fraction <= 1 ? 1 : fraction <= 2 ? 2 : fraction <= 5 ? 5 : 10) * power;
+      return Math.max(1, step);
+    }
+
+    // Bars on a round-number scale, as Datadog and Elastic's alert histogram
+    // draw them: values down the left (0, 500, 1,000 ...), faint grid lines,
+    // a solid baseline that empty columns sit on, and square bars. Axis and
+    // grid are positioned from the baseline, which sits the label row's
+    // height (--risk-baseline) above the chart's bottom edge. Used by Risk
+    // Trend (three risk bands per column) and Attacks by Hour (one band).
     //
-    // Stretched to fill 100% of the card (not drawn scrollable/wider than
-    // it, unlike the narrow Persona Analytics sidebar chart) -- this
-    // chart's card is a full-width panel with room for all 24 hour ticks
-    // evenly spaced edge-to-edge, so a horizontal scrollbar here would
-    // just be a gap-inducing complication with no upside.
-    function renderLineChart(containerId, points) {
+    // Each point: { label, tipLabel, segments: [[className, count], ...]
+    // bottom-up, tip (plain text), tipData (extra attributes, optional) }.
+    // maxLabels: about how many x labels fit across the card.
+    function renderBarChart(containerId, points, maxLabels) {
       const container = document.getElementById(containerId);
       if (points.length === 0) {
         container.innerHTML = `<div class="chart-empty-value">N/A</div>`;
         return;
       }
-      const values = points.map(([, value]) => value);
-      const max = Math.max(...values) || 1;
-      const w = 800, h = 250, padX = 6, padY = 12;
-      const n = points.length;
-      const innerW = w - padX * 2, innerH = h - padY * 2;
-      const stepX = n > 1 ? innerW / (n - 1) : 0;
-      const coords = values.map((v, i) => [
-        padX + stepX * i,
-        padY + innerH - (max > 0 ? (v / max) * innerH : 0)
-      ]);
-      const linePath = coords.map(([x, y], i) => `${i === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
-      const floorY = (padY + innerH).toFixed(1);
-      const areaPath = `${linePath} L${coords[n - 1][0].toFixed(1)},${floorY} L${coords[0][0].toFixed(1)},${floorY} Z`;
-      // Dots are absolutely-positioned HTML elements laid over the SVG,
-      // not <circle> elements inside it -- preserveAspectRatio="none"
-      // (needed so the line/area paths fill the card regardless of its
-      // aspect ratio) scales an SVG circle's x/y radii independently
-      // once the chart is wider than it is tall, rendering it as an
-      // oval. A CSS border-radius circle positioned by percentage isn't
-      // subject to that scale, so it's always round.
-      //
-      // Native title tooltip only -- no custom JS-rendered tooltip
-      // alongside it, so there's exactly one tooltip on hover, not two
-      // competing/overlapping ones.
-      const dotMarkers = coords.map(([x, y], i) => {
-        const label = formatHourRange(points[i][0]);
-        return `<span class="line-chart-dot" data-index="${i}" style="left:${((x / w) * 100).toFixed(2)}%;top:${((y / h) * 100).toFixed(2)}%" title="${escHtml(label)}: ${values[i]} sessions"></span>`;
-      }).join("");
-      const axisTicks = points.map(([label], i) => {
-        const pct = ((coords[i][0] / w) * 100).toFixed(2);
-        return `<span class="line-chart-tick" style="left:${pct}%">${escHtml(label)}</span>`;
-      }).join("");
-      container.innerHTML = `
-        <div class="line-chart-plot">
-          <svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" class="line-chart-svg">
-            <path class="line-chart-area" d="${areaPath}"></path>
-            <path class="line-chart-line" d="${linePath}"></path>
-          </svg>
-          ${dotMarkers}
-        </div>
-        <div class="line-chart-axis">${axisTicks}</div>
-      `;
-    }
-
-    function renderStackedRiskBars(containerId, points) {
-      const container = document.getElementById(containerId);
-      if (points.length === 0) {
-        container.innerHTML = `<div class="chart-empty-value">N/A</div>`;
-        return;
-      }
-      const max = Math.max(...points.map((point) => point.high + point.medium + point.low)) || 1;
-      container.innerHTML = points.map((point) => {
-        const total = point.high + point.medium + point.low;
-        const segmentHeight = (count) => (total ? (count / total) * 100 : 0);
+      const totalOf = (point) => point.segments.reduce((sum, [, count]) => sum + count, 0);
+      const max = Math.max(...points.map(totalOf)) || 1;
+      const step = niceStep(max / 4);
+      const top = Math.ceil(max / step) * step;
+      const heightOf = (value) => (value / top) * RISK_BAR_AREA;
+      const ticks = Array.from({ length: top / step + 1 }, (_, k) => k * step);
+      const axis = ticks.map((tick) => `
+        <span class="risk-axis-tick" style="bottom: calc(var(--risk-baseline) + ${heightOf(tick)}px);">${tick.toLocaleString("en-US")}</span>
+        <span class="risk-grid-line${tick === 0 ? " is-baseline" : ""}" style="bottom: calc(var(--risk-baseline) + ${heightOf(tick)}px);"></span>
+      `).join("");
+      // With more columns than labels fit, label every Nth one and always
+      // the last (dropping one just before it so they don't collide).
+      // Unlabelled columns keep the space, so bars stay level, and every
+      // column still has its tooltip.
+      const lastIndex = points.length - 1;
+      const labelStep = Math.max(1, Math.ceil(points.length / maxLabels));
+      const showLabel = (i) => i === lastIndex
+        || (i % labelStep === 0 && (i === 0 || lastIndex - i >= labelStep / 2));
+      container.innerHTML = `<div class="risk-axis" aria-hidden="true">${axis}</div>` + points.map((point, i) => {
+        const total = totalOf(point);
+        // An empty column shows no "0" but a short grey stub on the
+        // baseline (.is-empty), so it reads as counted and zero rather
+        // than missing; .bar-value keeps its height, so bars stay level,
+        // and the tooltip still gives the 0.
+        // Only non-zero bands are drawn, each at least a 2px sliver (the
+        // larger bands shrink to make room), so a few high-risk sessions in
+        // a day of mostly low-risk ones are never invisible.
+        const segments = total ? point.segments.map(([className, count]) => count
+          ? `<span class="bar-segment ${className}" style="height: ${(count / total) * 100}%; min-height: 2px;"></span>`
+          : "").join("") : "";
+        // The whole column carries the tooltip, so the pointer doesn't
+        // have to land on a thin bar. data-tip is the plain-text version
+        // (screen readers, and the key initChartTips compares).
+        const tip = escHtml(point.tip);
         return `
-          <div class="bar-column">
-            <span class="bar-value">${total}</span>
-            <div class="stacked-bar" style="height: ${Math.max(8, (total / max) * 170)}px;">
-              <span class="bar-segment normal-risk" style="height: ${segmentHeight(point.low)}%;"></span>
-              <span class="bar-segment medium-risk" style="height: ${segmentHeight(point.medium)}%;"></span>
-              <span class="bar-segment high-risk" style="height: ${segmentHeight(point.high)}%;"></span>
+          <div class="bar-column" data-tip="${tip}" aria-label="${tip}"${point.tipData || ""}>
+            <span class="bar-value">${total ? total.toLocaleString("en-US") : ""}</span>
+            <div class="stacked-bar${total ? "" : " is-empty"}" style="height: ${total ? Math.max(2, heightOf(total)) : 2}px;">
+              ${segments}
             </div>
-            <span class="bar-label">${escHtml(point.label)}</span>
+            <span class="bar-label${showLabel(i) ? "" : " is-unlabelled"}">${escHtml(point.label)}</span>
           </div>
         `;
       }).join("");
+    }
+
+    // Risk Trend: Low, Medium, High bands bottom-up; the data-risk-* values
+    // let the tooltip draw a coloured row per level and the total. Up to
+    // ~12 date labels fit.
+    function renderStackedRiskBars(containerId, points) {
+      renderBarChart(containerId, points.map((point) => {
+        const total = point.high + point.medium + point.low;
+        return {
+          label: point.label,
+          segments: [["normal-risk", point.low], ["medium-risk", point.medium], ["high-risk", point.high]],
+          tip: `${point.tipLabel}: High ${point.high} · Medium ${point.medium} · Low ${point.low} · Total ${total}`,
+          tipData: ` data-tip-title="${escHtml(point.tipLabel)}" data-risk-high="${point.high}" data-risk-medium="${point.medium}" data-risk-low="${point.low}"`
+        };
+      }), 12);
+    }
+
+    // Attacks by Hour: one orange band per hour; every 3rd hour labelled
+    // (12 AM, 3 AM ... 9 PM, and 11 PM as the last), the tooltip names each.
+    function renderHourBars(containerId, hours) {
+      renderBarChart(containerId, hours.map(([hour, count]) => ({
+        label: HOUR_OPTIONS[Number(hour)].label,
+        segments: [["count-fill", count]],
+        tip: `${formatHourRange(hour)}: ${formatSessionCount(count)}`
+      })), 8);
     }
 
     function renderRankedList(containerId, rows) {
@@ -574,7 +596,7 @@
             <span>${value}</span>
           </div>
           <div class="rank-track">
-            <span class="rank-fill" style="width: ${(value / max) * 100}%;"></span>
+            <span class="rank-fill" style="width: ${value > 0 ? `max(8px, ${(value / max) * 100}%)` : "0"};"></span>
           </div>
         </li>
       `).join("");
@@ -609,16 +631,40 @@
     // Wider ranges get coarser buckets from the server (risk_trend_bucket:
     // "day"/"week"/"month") so a 3-month range doesn't render 90+ daily
     // bars -- the label format has to match whichever bucket came back.
-    function formatTrendLabel(dateKey, bucket) {
+    // "20 Oct", or "20 Oct 2026" for tooltips.
+    function formatShortDate(date, withYear = false) {
+      return date.toLocaleDateString("en-GB", {
+        day: "2-digit",
+        month: "short",
+        ...(withYear ? { year: "numeric" } : {})
+      });
+    }
+
+    // Day and month buckets; withYear is for the tooltip, the axis stays
+    // short. Weeks go through weekSpanInRange instead.
+    function formatTrendLabel(dateKey, bucket, withYear = false) {
       if (bucket === "month") {
         // dateKey is "YYYY-MM".
         const [year, month] = dateKey.split("-").map(Number);
         return new Date(year, month - 1, 1).toLocaleDateString("en-GB", { month: "short", year: "numeric" });
       }
-      // "day" and "week" both come back as "YYYY-MM-DD" (week's start date).
       const [year, month, day] = dateKey.split("-").map(Number);
-      const label = new Date(year, month - 1, day).toLocaleDateString("en-GB", { day: "2-digit", month: "short" });
-      return bucket === "week" ? `Week of ${label}` : label;
+      return formatShortDate(new Date(year, month - 1, day), withYear);
+    }
+
+    // A week column covers Monday to Sunday, so the first and last can
+    // start before or end after the applied range (a range from Saturday
+    // 1 Aug is in the week of Monday 27 Jul). Only the days inside the
+    // range are named: "01 Aug" on the axis, "01 Aug – 02 Aug 2026" in the
+    // tooltip, which is also what the column counts.
+    function weekSpanInRange(dateKey, range) {
+      const [year, month, day] = dateKey.split("-").map(Number);
+      const weekStart = new Date(year, month - 1, day);
+      const weekEnd = new Date(year, month - 1, day + 6);
+      const dayOf = (date) => new Date(date.getFullYear(), date.getMonth(), date.getDate());
+      const start = range && dayOf(range.from) > weekStart ? dayOf(range.from) : weekStart;
+      const end = range && dayOf(range.to) < weekEnd ? dayOf(range.to) : weekEnd;
+      return { start, end };
     }
 
     const PROTOCOL_LABELS = {
@@ -632,6 +678,16 @@
       return PROTOCOL_LABELS[protocol] || protocol || "Unknown";
     }
 
+    // One N/A block in place of the tiles and charts when the range has no
+    // sessions or the load failed, like Persona analytics; null hides it.
+    function showAnalyticsPlaceholder(text) {
+      const show = text !== null;
+      document.getElementById("analyticsPlaceholderText").textContent = show ? text : "";
+      document.getElementById("analyticsPlaceholder").hidden = !show;
+      document.getElementById("intentBody").hidden = show;
+      document.getElementById("analyticsGrid").hidden = show;
+    }
+
     function renderAnalytics(summary) {
       // Object.entries() reorders integer-like string keys ("10".."23") to the
       // front in ascending order before non-canonical ones ("00".."09", which
@@ -641,11 +697,29 @@
         .map(([hour, count]) => [hour, count])
         .sort((a, b) => Number(a[0]) - Number(b[0]));
       const bucket = summary.risk_trend_bucket || "day";
-      const riskTrend = summary.risk_trend.map((point) => ({ ...point, label: formatTrendLabel(point.date, bucket) }));
-      document.getElementById("riskTrendTitle").textContent =
-        bucket === "day" ? "Risk Trend" : `Risk Trend (by ${bucket})`;
+      const riskTrend = summary.risk_trend.map((point) => {
+        if (bucket === "week") {
+          const { start, end } = weekSpanInRange(point.date, currentRange);
+          // The start gets its year too when the week crosses New Year
+          // ("28 Dec 2026 – 03 Jan 2027"), so it can't read as 2027.
+          const startYear = start.getFullYear() !== end.getFullYear();
+          return { ...point, label: formatShortDate(start), tipLabel: `${formatShortDate(start, startYear)} – ${formatShortDate(end, true)}` };
+        }
+        return {
+          ...point,
+          label: formatTrendLabel(point.date, bucket),
+          tipLabel: formatTrendLabel(point.date, bucket, true)
+        };
+      });
+      // The subtitle says what one column is, as Datadog and Grafana state
+      // their rollup; the axis itself shows which dates are labelled.
+      document.getElementById("riskTrendSubtitle").textContent = {
+        day: "Sessions per day, by risk level.",
+        week: "Sessions per week (Monday to Sunday), by risk level.",
+        month: "Sessions per month, by risk level."
+      }[bucket] || "Sessions per day, by risk level.";
 
-      renderLineChart("attacksByHourChart", attacksByHour);
+      renderHourBars("attacksByHourChart", attacksByHour);
       renderStackedRiskBars("riskTrendChart", riskTrend);
       renderRankedList("protocolBreakdownList", (summary.protocol_breakdown || []).map((row) => [protocolDisplay(row.protocol), row.count]));
       renderRankedList("topCommandsList", summary.top_commands.map((row) => [row.command, row.count]));
@@ -700,8 +774,24 @@
       }
     }
 
+    // Dates only for whole days (12 AM to 11 PM); otherwise the picked hours
+    // too, in the hour picker's own labels, so the button never hides an
+    // hour filter.
     function formatRangeLabel(from, to) {
       const fmt = (date) => date.toLocaleDateString("en-GB", { day: "2-digit", month: "short" });
+      if (from.getHours() === 0 && to.getHours() === 23) return `${fmt(from)} – ${fmt(to)}`;
+      const hour = (date) => HOUR_OPTIONS[date.getHours()].label;
+      return `${fmt(from)}, ${hour(from)} – ${fmt(to)}, ${hour(to)}`;
+    }
+
+    // The exact range, shown when hovering the range button.
+    function formatExactRange(from, to) {
+      const fmt = (date) => {
+        const day = date.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+        const hour12 = date.getHours() % 12 === 0 ? 12 : date.getHours() % 12;
+        const minutes = String(date.getMinutes()).padStart(2, "0");
+        return `${day}, ${hour12}:${minutes} ${date.getHours() < 12 ? "AM" : "PM"}`;
+      };
       return `${fmt(from)} – ${fmt(to)}`;
     }
 
@@ -723,8 +813,7 @@
     // The applied range lives in the URL (?from=&from_hour=&to=&to_hour=) so a
     // reload or a shared link keeps it, like ?session= on the Sessions page.
     // Anything malformed or inverted falls back to the default last 7 days.
-    function readRangeFromUrl() {
-      const params = new URLSearchParams(window.location.search);
+    function readRangeFromUrl(params = new URLSearchParams(window.location.search)) {
       const fromDate = params.get("from");
       const toDate = params.get("to");
       const fromHour = Number(params.get("from_hour") ?? 0);
@@ -744,6 +833,33 @@
       params.set("to", document.getElementById("rangeToDate").value);
       params.set("to_hour", document.getElementById("rangeToHour").value);
       history.replaceState(null, "", `${window.location.pathname}?${params}${window.location.hash}`);
+      rememberRange(params);
+    }
+
+    // The range last applied on this page in this browser tab, so leaving
+    // and coming back (the navbar links carry no range) keeps it. Each page
+    // keeps its own, so changing it here doesn't change Sessions or
+    // Personas. Tab-only (sessionStorage): a new tab starts on the default,
+    // so an old range can't come back days later. A range in the URL wins.
+    const SAVED_RANGE_KEY = "echidra.range.analytics";
+
+    function readSavedRange() {
+      try {
+        const stored = window.sessionStorage.getItem(SAVED_RANGE_KEY);
+        return stored ? readRangeFromUrl(new URLSearchParams(stored)) : null;
+      } catch (error) {
+        return null;
+      }
+    }
+
+    function rememberRange(params) {
+      const range = new URLSearchParams();
+      ["from", "from_hour", "to", "to_hour"].forEach((key) => range.set(key, params.get(key)));
+      try {
+        window.sessionStorage.setItem(SAVED_RANGE_KEY, range.toString());
+      } catch (error) {
+        // Storage blocked: the URL still carries the range on this page.
+      }
     }
 
     let analyticsRequestId = 0;
@@ -751,7 +867,9 @@
     async function applyRange({ background = false } = {}) {
       const requestId = ++analyticsRequestId;
       const { from, to } = readRange();
-      document.getElementById("timeRangeButton").textContent = formatRangeLabel(from, to);
+      const timeRangeButton = document.getElementById("timeRangeButton");
+      timeRangeButton.textContent = formatRangeLabel(from, to);
+      timeRangeButton.dataset.tip = formatExactRange(from, to);
       const loadingEl = document.getElementById("analyticsLoading");
       // Skipped for the 30s background auto-refresh tick -- an analyst
       // mid-read shouldn't have a spinner flash over the charts every 30
@@ -768,20 +886,21 @@
         if (requestId !== analyticsRequestId) return; // superseded by a newer range/tick -- discard
         currentSummary = summary;
         currentRange = { from, to };
-        renderAnalytics(summary);
+        // protocol_breakdown counts every session in the range, classified
+        // or not, so an empty sum means the range has no sessions at all.
+        const totalSessions = (summary.protocol_breakdown || []).reduce((sum, row) => sum + row.count, 0);
+        if (totalSessions === 0) {
+          showAnalyticsPlaceholder("No sessions in this date range.");
+        } else {
+          showAnalyticsPlaceholder(null);
+          renderAnalytics(summary);
+        }
       } catch (error) {
         if (requestId !== analyticsRequestId) return;
         console.error(error);
         currentSummary = null;
         currentRange = null;
-        renderAnalytics({
-          intent_counts: {},
-          attacks_by_hour: Object.fromEntries(Array.from({ length: 24 }, (_, h) => [String(h).padStart(2, "0"), 0])),
-          risk_trend: [],
-          top_commands: [],
-          top_personas: [],
-          top_countries: []
-        });
+        showAnalyticsPlaceholder(`Couldn't load analytics: ${error.message}`);
       } finally {
         clearTimeout(loadingTimer);
         // A superseded request's own completion must never hide the loader
@@ -801,7 +920,7 @@
       const timeRangeButton = document.getElementById("timeRangeButton");
       const timeRangePanel = document.getElementById("timeRangePanel");
 
-      const savedRange = readRangeFromUrl();
+      const savedRange = readRangeFromUrl() || readSavedRange();
       populateHourSelect(fromHourSelect, HOUR_OPTIONS, savedRange ? savedRange.fromHour : 0);
       populateHourSelect(toHourSelect, HOUR_OPTIONS, savedRange ? savedRange.toHour : 23);
       if (savedRange) {
@@ -1110,6 +1229,75 @@
       XLSX.writeFile(workbook, `echidra-analytics_${dateRangeSuffix()}.xlsx`, { cellStyles: true });
     });
 
+    // Instant tooltip for anything with data-tip (chart dots, risk columns,
+    // the range button). The browser's own title tooltip waits about a
+    // second and can't be styled. Fixed positioning keeps it clear of the
+    // charts' scrolling and overflow-hidden containers.
+    function initChartTips() {
+      const tip = document.createElement("div");
+      tip.className = "chart-tip";
+      tip.setAttribute("role", "tooltip");
+      tip.hidden = true;
+      document.body.appendChild(tip);
+      let shownTip = null;
+      // Risk Trend columns get a title, a coloured row per risk level and
+      // a total; everything else is the plain data-tip text.
+      const fillTip = (target) => {
+        if (target.dataset.riskHigh === undefined) {
+          tip.textContent = target.dataset.tip;
+          return;
+        }
+        const row = (className, text, value) => {
+          const line = document.createElement("div");
+          line.className = className;
+          const label = document.createElement("span");
+          label.textContent = text;
+          const count = document.createElement("span");
+          count.textContent = value;
+          line.append(label, count);
+          return line;
+        };
+        const title = document.createElement("div");
+        title.className = "chart-tip-title";
+        title.textContent = target.dataset.tipTitle;
+        const levels = [
+          ["High", "high-risk", Number(target.dataset.riskHigh)],
+          ["Medium", "medium-risk", Number(target.dataset.riskMedium)],
+          ["Low", "normal-risk", Number(target.dataset.riskLow)]
+        ].map(([text, riskClass, value]) => {
+          const line = row("chart-tip-row", text, value);
+          const swatch = document.createElement("span");
+          swatch.className = `chart-tip-swatch ${riskClass}`;
+          line.prepend(swatch);
+          return line;
+        });
+        const total = levels.reduce((sum, line) => sum + Number(line.lastChild.textContent), 0);
+        tip.replaceChildren(title, ...levels, row("chart-tip-row chart-tip-total", "Total", total));
+      };
+      document.addEventListener("mousemove", (event) => {
+        const target = event.target.closest("[data-tip]");
+        if (!target || !target.dataset.tip) {
+          tip.hidden = true;
+          return;
+        }
+        if (shownTip !== target.dataset.tip) {
+          fillTip(target);
+          shownTip = target.dataset.tip;
+        }
+        tip.hidden = false;
+        const tipRect = tip.getBoundingClientRect();
+        const right = event.clientX + 12;
+        const below = event.clientY + 12;
+        tip.style.left = `${right + tipRect.width + 8 <= window.innerWidth ? right : Math.max(8, event.clientX - 12 - tipRect.width)}px`;
+        tip.style.top = `${below + tipRect.height + 8 <= window.innerHeight ? below : Math.max(8, event.clientY - 12 - tipRect.height)}px`;
+      });
+      document.addEventListener("mouseout", (event) => {
+        if (!event.relatedTarget) tip.hidden = true;
+      });
+      window.addEventListener("scroll", () => { tip.hidden = true; }, true);
+    }
+
+    initChartTips();
     initTimeRangeControl();
     // Guarded so a failed /custom-select.js load only costs the dropdown
     // styling, not a thrown ReferenceError that would abort every statement

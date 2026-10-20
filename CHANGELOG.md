@@ -110,6 +110,18 @@ All notable changes to Echidra are documented here. The format follows
   the sign-in and persona forms show their own validation messages; dark
   scrollbars and autofill styling; empty pages explain what happens next.
 - Dependencies updated: FastAPI 0.143.0, Pydantic 2.14.1, psycopg 3.3.6.
+- Dashboard charts (Attacks by Hour and Risk Trend on Analytics, Sessions
+  and Peak Attack Hours on Persona analytics) are bar charts with a value
+  scale and grid lines, a count on each bar, and a tooltip anywhere over a
+  column. Every day, week or hour in the range is shown, including those
+  with no sessions. Risk Trend and Persona Sessions show a column per day,
+  week or month to suit the range, and the subtitle says which. Hours use
+  the 12-hour clock, and dates spell out the month ("20 Oct 2026").
+- Sessions, Analytics and Personas each keep their own date range as you
+  move between pages in a browser tab, and Persona analytics reopens the
+  persona and tab you last viewed.
+- `echidra stop` prints a single line while stopping, and process IDs only
+  when one doesn't stop.
 
 ### Fixed
 - SSH host key files are created owner-readable only from the start.
@@ -130,6 +142,11 @@ All notable changes to Echidra are documented here. The format follows
   right repository.
 - `echidra start` reports busy ports up front, and `echidra start`/`stop`
   point to `systemctl` when Echidra is running as a systemd service.
+- The decoys keep answering at full speed when the database is slow or
+  unreachable: the persona is loaded before the listeners start and
+  reloaded in the background. If the database can't be reached, the decoys
+  keep the persona already in use instead of switching to the built-in
+  preset.
 - Queries with an open-ended time range work: `echidra blocklist` and API
   calls that leave out `from_ts` or `to_ts` no longer fail with
   "database unreachable".
@@ -137,10 +154,23 @@ All notable changes to Echidra are documented here. The format follows
   puts the dates back to the applied range on Sessions, Analytics and
   Personas, so reopening it matches the range button. Picking an hour no
   longer closes the panel before Apply.
-- Persona analytics opens on a persona (the one in the URL, or the first)
-  instead of an empty page, and keeps the choice in the URL
-  (`?persona=`). With no personas, the date range is disabled. Empty
-  charts and lists on Analytics and Personas show a large N/A.
+- Persona analytics opens on a persona (the one in the URL, the last one
+  viewed, or the first) instead of an empty page, and keeps the choice in
+  the URL
+  (`?persona=`) and the open tab (`#analytics`), so a reload returns to
+  it. With no personas, the date range is disabled. Empty charts and lists
+  on Analytics and Personas show a large N/A.
+- Ranked-list bars on Analytics and Personas, and each risk level in the
+  Risk Trend columns, always show a small mark for a non-zero count,
+  however small its share. Risk Trend bands are separated by a thin line.
+- The date range button shows the picked hours (eg. "12 Oct, 9 AM – 19
+  Oct, 5 PM") when the range isn't whole days, and the exact range on
+  hover.
+- Chart tooltips appear as soon as you hover, beside the pointer; Risk
+  Trend tooltips list each risk level with its colour, and the total.
+- Analytics shows "No sessions in this date range." when the range is
+  empty, and "Couldn't load analytics" when loading fails, instead of
+  empty charts in both cases.
 
 ## [0.2.0] - 2026-10-06
 

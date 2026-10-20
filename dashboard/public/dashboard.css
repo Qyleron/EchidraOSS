@@ -1043,6 +1043,11 @@ a {
   gap: 24px;
 }
 
+/* Same equal-specificity issue as .analytics-placeholder[hidden] below. */
+.analytics-grid[hidden] {
+  display: none;
+}
+
 .chart-row {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -1071,18 +1076,55 @@ a {
   padding: 18px 20px 20px;
 }
 
+/* --risk-baseline: the date row (16px) plus the column gap (8px), so the
+   axis and grid lines (positioned from the bottom edge) meet the bars'
+   bottoms. The left padding holds the value axis. */
 .bar-chart {
+  --risk-baseline: 24px;
+  position: relative;
   display: flex;
   align-items: end;
   gap: 10px;
   height: 250px;
-  /* Symmetric side padding so the first/last bar's value label -- which can be
+  /* The right padding gives the last bar's value label -- which can be
      wider than the bar itself (e.g. a 4-digit count) and is centered, not
-     clipped -- has room to overhang without touching the card border. */
-  padding: 14px 16px 0;
+     clipped -- room to overhang without touching the card border. */
+  padding: 14px 16px 0 60px;
 }
 
+.risk-axis {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.risk-axis-tick {
+  position: absolute;
+  left: 0;
+  width: 50px;
+  transform: translateY(50%);
+  color: var(--hint);
+  text-align: right;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.risk-grid-line {
+  position: absolute;
+  left: 60px;
+  right: 16px;
+  height: 1px;
+  background: var(--line);
+}
+
+.risk-grid-line.is-baseline {
+  background: var(--border-strong);
+}
+
+/* Positioned with a z-index so bars paint over the grid lines. */
 .bar-column {
+  position: relative;
+  z-index: 1;
   display: grid;
   align-content: end;
   flex: 1 1 0;
@@ -1092,170 +1134,71 @@ a {
      JS's height calc and this box always agree on how much vertical space
      bars actually have. */
   height: 100%;
+  border-radius: 6px;
+}
+
+/* The whole column is the hover target (a 2px bar is too small to hit);
+   a faint fill shows which day the tooltip is for. */
+.bar-column:hover {
+  background: rgba(255, 255, 255, 0.04);
 }
 
 .bar-value {
   display: block;
   min-height: 18px;
-  color: var(--muted);
+  color: var(--text);
   text-align: center;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 650;
 }
 
+/* Slim and square, sitting on the baseline (an empty day has height 0).
+   The 1px gap shows the card background between risk bands, so each band
+   keeps a visible edge (only non-zero bands are rendered). */
 .stacked-bar {
   display: flex;
   flex-direction: column-reverse;
-  width: 100%;
-  min-height: 8px;
-  border-radius: 5px 5px 2px 2px;
+  justify-self: center;
+  gap: 1px;
+  /* Half the column, up to 48px: about 20px with 31 daily columns, the
+     full 48px with a week of them. */
+  width: min(48px, 50%);
+  border-radius: 2px 2px 0 0;
   overflow: hidden;
+}
+
+/* A day with no sessions: a 2px grey stub on the baseline, lighter than
+   the baseline itself and in no risk colour, so it reads as zero. */
+.stacked-bar.is-empty {
+  background: var(--subtle);
 }
 
 .bar-segment {
   width: 100%;
 }
 
-.bar-label {
-  overflow-wrap: anywhere;
-  color: var(--subtle);
-  text-align: center;
-  font-size: 11px;
-}
-
-/* Line/dot chart -- replaces .bar-chart for series with too many points
-   (24 hours, 30 days) to render as fixed-min-width bar columns. Axis
-   labels are thinned to ~6-8 evenly spaced ticks (see opts.maxTicks /
-   opts.tickStep in renderLineChart) rather than shown for every point,
-   since dense date/hour strings touch each other well before that.
-
-   The plot (.line-chart-plot) and the axis row (.line-chart-axis) are
-   stacked as normal-flow flex children, NOT layered with position:
-   absolute -- a previous version absolutely-positioned the axis over the
-   bottom of the plot area, sized only by a fixed height, so growing that
-   height for rotated labels ate into the plotted line instead of
-   reserving its own space. Flex stacking makes the axis row's height
-   always additive: however tall it needs to be, the plot area just
-   shrinks to make room, and the two can never overlap. */
-.line-chart {
-  display: flex;
-  flex-direction: column;
-  height: 190px;
-  padding: 10px 4px 6px;
-}
-
-.line-chart-plot {
-  position: relative;
-  flex: 1 1 auto;
-  min-height: 0;
-}
-
-.line-chart-axis {
-  position: relative;
-  flex: 0 0 auto;
-  height: 16px;
-  margin-top: 4px;
-}
-
-/* Extra room for the -45deg-rotated tick labels (Sessions trend chart) --
-   additive now, so it can never bite into the plot above it. */
-.line-chart-axis-rotated {
-  height: 30px;
-}
-
-/* Peak Attack Hours -- drawn wider than its card (opts.scrollable) so the
-   scrollbar is a permanent, discoverable affordance rather than an
-   occasional one: overflow-x: scroll always reserves/shows the scrollbar
-   track, unlike overflow-x: auto which only shows it once content
-   happens to overflow. */
-.line-chart-scrollable {
-  overflow-x: scroll;
-  overflow-y: hidden;
-  /* The native scrollbar track sits flush against the box's bottom edge
-     regardless of internal padding on the scrolled content -- pad the
-     whole card instead, pushing the axis labels above it up and away so
-     they don't read as touching the scrollbar. */
-  padding-bottom: 16px;
-}
-
-.line-chart-scroll {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-}
-
-.line-chart-svg {
-  display: block;
-  width: 100%;
-  height: 100%;
-  overflow: visible;
-}
-
-.line-chart-area {
-  fill: rgba(246, 105, 29, 0.12);
-  stroke: none;
-}
-
-.line-chart-line {
-  fill: none;
-  stroke: #f6691d;
-  stroke-width: 2;
-  vector-effect: non-scaling-stroke;
-}
-
-/* A plain HTML/CSS circle (not an SVG <circle>) positioned by percentage
-   over .line-chart-plot -- the SVG beneath it uses preserveAspectRatio=
-   "none" so its line/area paths always fill the card regardless of
-   aspect ratio, but that same stretch scales an SVG circle's x/y radii
-   independently on any chart wider than it is tall, rendering it as an
-   oval. A CSS border-radius circle is immune to that scale; it's always
-   round no matter how the SVG underneath it is stretched. */
-.line-chart-dot {
-  position: absolute;
-  width: 8px;
-  height: 8px;
-  transform: translate(-50%, -50%);
-  border-radius: 50%;
-  background: var(--surface);
-  border: 2px solid #f6691d;
-  cursor: pointer;
-}
-
-.line-chart-dot:hover,
-.line-chart-dot.is-active {
+/* Single-band bars (Attacks by Hour): the dashboard's chart orange. */
+.bar-segment.count-fill {
   background: #f6691d;
 }
 
-.line-chart-tick {
-  position: absolute;
-  top: 0;
-  transform: translateX(-50%);
-  color: var(--subtle);
-  font-size: 11px;
+/* One line, centred under its column even when wider than it (a grid item
+   with justify-self: center overflows evenly on both sides); labels are
+   thinned in JS so neighbours have room. */
+.bar-label {
+  justify-self: center;
   white-space: nowrap;
+  color: var(--hint);
+  text-align: center;
+  font-size: 13px;
+  /* Fixed, as --risk-baseline counts on it. */
+  line-height: 16px;
+  height: 16px;
 }
 
-.line-chart-tick:first-child {
-  transform: translateX(0);
-}
-
-.line-chart-tick:last-child {
-  transform: translateX(-100%);
-}
-
-/* translateX(-100%) first, THEN rotate -- without the translate, the
-   label's un-rotated box extends rightward from its left:X% anchor by
-   its own text width before ever rotating, so labels near the right edge
-   (e.g. the last tick) overflowed past the chart's own right boundary
-   and forced the outer .chart-body wrapper's scrollbar to kick in even
-   on this (non-scrollable) chart. translateX(-100%) shifts the box so
-   its right edge -- not its left edge -- sits at the anchor first, which
-   is also where transform-origin: top right then pivots from. */
-.line-chart-tick-rotated,
-.line-chart-tick-rotated:first-child,
-.line-chart-tick-rotated:last-child {
-  transform: translateX(-100%) rotate(-45deg);
-  transform-origin: top right;
+/* Keeps its space so every column's bar sits on the same baseline. */
+.bar-label.is-unlabelled {
+  visibility: hidden;
 }
 
 .rank-list {
@@ -1455,6 +1398,12 @@ a {
   margin-top: 18px;
   color: #d0d0d0;
   font-size: 15px;
+}
+
+/* Risk Trend: more room below the date labels, so the legend doesn't read
+   as part of the axis. The Overview map keeps the default. */
+.bar-chart + .map-legend {
+  margin-top: 30px;
 }
 
 .map-legend span {
@@ -1904,6 +1853,59 @@ a {
   line-height: 1;
 }
 
+/* Instant hover tooltip for [data-tip] elements (chart dots, risk columns,
+   the date range button). Fixed to the viewport so a scrolling or
+   overflow-hidden chart can't clip it. */
+.chart-tip {
+  position: fixed;
+  z-index: 1000;
+  max-width: 340px;
+  padding: 8px 11px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--surface-strong);
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.4;
+  pointer-events: none;
+}
+
+.chart-tip[hidden] {
+  display: none;
+}
+
+/* Risk Trend tooltip: the column's label, one row per risk level with its
+   colour, then the total, like Grafana's stacked-series tooltip. */
+.chart-tip-title {
+  margin-bottom: 4px;
+  font-weight: 650;
+}
+
+.chart-tip-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.chart-tip-row span:last-child {
+  margin-left: auto;
+  padding-left: 14px;
+  font-variant-numeric: tabular-nums;
+}
+
+.chart-tip-swatch {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.chart-tip-total {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid var(--border-strong);
+  font-weight: 650;
+}
+
 /* The same N/A, centred inside a single empty chart or list card. */
 .chart-empty-value {
   width: 100%;
@@ -1930,10 +1932,23 @@ a {
   padding: 22px;
 }
 
+/* The two time charts (Sessions, Peak Attack Hours) span the row, as on
+   Analytics, so 24 or 31 bar columns fit with their counts on top. */
+.persona-analytics-body .chart-card-wide {
+  grid-column: 1 / -1;
+}
+
 .chart-card-header {
   padding: 14px 20px;
   border-bottom: 1px solid var(--line);
   font-size: 14px;
+}
+
+/* What one point on a Persona chart stands for (per day, per hour). */
+.chart-card-subtitle {
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: 13px;
 }
 
 @media (max-width: 1100px) {
