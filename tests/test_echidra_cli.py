@@ -416,6 +416,7 @@ def test_stop_points_at_systemd_when_echidra_runs_as_a_service(monkeypatch, tmp_
     captured = capsys.readouterr()
     assert exit_code == 0
     assert "sudo systemctl stop echidra-honeypot" in captured.out
+    assert "isn't running" not in captured.out
 
 
 def test_active_systemd_units_reads_systemctl_is_active(monkeypatch):
@@ -503,7 +504,7 @@ def test_stop_reports_nothing_running_when_pidfile_is_missing(monkeypatch, tmp_p
 
     captured = capsys.readouterr()
     assert exit_code == 0
-    assert "doesn't appear to be running" in captured.out
+    assert captured.out == "Echidra isn't running. Start it with: echidra start\n"
 
 
 def test_stop_terminates_a_real_process_and_removes_pidfile(monkeypatch, tmp_path, capsys):
@@ -555,8 +556,7 @@ def test_stop_skips_a_stale_pid_that_no_longer_exists(monkeypatch, tmp_path, cap
     captured = capsys.readouterr()
     assert exit_code == 0
     assert not pid_path.exists()
-    assert "was not running" in captured.out
-    assert "Echidra has stopped." not in captured.out
+    assert captured.out == "Echidra isn't running. Start it with: echidra start\n"
 
 
 def test_stop_leaves_pidfile_when_permission_denied(monkeypatch, tmp_path, capsys):

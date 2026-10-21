@@ -456,8 +456,7 @@ def _read_pid_file() -> list[int]:
 def _cmd_stop(args: argparse.Namespace) -> int:
     pids = _read_pid_file()
     if not pids:
-        print(f"No PID file at {PID_PATH} -- 'echidra start' doesn't appear to be running.")
-        _print_systemd_hint()
+        _print_not_running()
         return 0
 
     signaled = []
@@ -509,8 +508,7 @@ def _cmd_stop(args: argparse.Namespace) -> int:
 
     PID_PATH.unlink(missing_ok=True)
     if not found_running:
-        print(f"Echidra was not running -- removed stale PID file {PID_PATH}.")
-        _print_systemd_hint()
+        _print_not_running()
         return 0
     print("Echidra has stopped.")
     return 0
@@ -535,6 +533,15 @@ def _active_systemd_units() -> list[str]:
         return []
     states = result.stdout.split()
     return [unit for unit, state in zip(SYSTEMD_UNITS, states) if state == "active"]
+
+
+def _print_not_running() -> None:
+    """What `echidra stop` says when it has nothing to stop: the systemd
+    command if Echidra runs as a service, otherwise how to start it."""
+    if _active_systemd_units():
+        _print_systemd_hint()
+    else:
+        print("Echidra isn't running. Start it with: echidra start")
 
 
 def _print_systemd_hint() -> None:
