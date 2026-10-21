@@ -99,10 +99,37 @@ def route_for(path, method):
     raise AssertionError(f"route not found: {method} {path}")
 
 
-def test_health_endpoint_reports_ok():
+def test_health_endpoint_reports_ok(monkeypatch):
+    class FakeRepository:
+        def ping(self):
+            return None
+
+    monkeypatch.setattr(app_module, "PostgresClassifierRepository", FakeRepository)
     route = route_for("/health", "GET")
 
-    assert route.endpoint() == {"status": "ok"}
+    assert route.endpoint() == {"status": "ok", "database": "ok"}
+
+
+def test_health_endpoint_reports_unreachable_database(monkeypatch):
+    class FakeRepository:
+        def ping(self):
+            raise OSError("connection timed out")
+
+    monkeypatch.setattr(app_module, "PostgresClassifierRepository", FakeRepository)
+    route = route_for("/health", "GET")
+
+    assert route.endpoint() == {"status": "ok", "database": "unreachable"}
+
+
+def test_health_endpoint_reports_unconfigured_database(monkeypatch):
+    class FakeRepository:
+        def __init__(self):
+            raise DatabaseNotConfiguredError("ECHIDRA_DATABASE_URL must be set")
+
+    monkeypatch.setattr(app_module, "PostgresClassifierRepository", FakeRepository)
+    route = route_for("/health", "GET")
+
+    assert route.endpoint() == {"status": "ok", "database": "not_configured"}
 
 
 def test_root_route_redirects_to_dashboard():
@@ -1198,6 +1225,89 @@ def test_dashboard_report_summary_endpoint_requires_dashboard_session():
 
     assert exc_info.value.status_code == 401
     assert exc_info.value.detail == "Dashboard authentication required"
+
+
+def _unreachable_session_check_repository():
+    psycopg = pytest.importorskip("psycopg")
+
+    class FakeRepository:
+        def get_dashboard_user_session_version(self, user_id):
+            raise psycopg.OperationalError("connection refused")
+
+    return FakeRepository
+
+
+def test_dashboard_page_explains_when_the_database_is_unreachable(monkeypatch):
+    monkeypatch.setattr(
+        app_module, "PostgresClassifierRepository", _unreachable_session_check_repository()
+    )
+    route = route_for("/dashboard/{page_name}", "GET")
+
+    response = route.endpoint("analytics", dashboard_request())
+
+    assert response.status_code == 503
+    assert b"Can't reach the database" in response.body
+    assert b"Check that PostgreSQL is running" in response.body
+    assert response.headers["cache-control"] == "no-store, must-revalidate"
+
+
+def test_forged_cookie_still_goes_to_login_when_the_database_is_unreachable(monkeypatch):
+    monkeypatch.setattr(
+        app_module, "PostgresClassifierRepository", _unreachable_session_check_repository()
+    )
+    route = route_for("/dashboard", "GET")
+
+    response = route.endpoint(
+        dashboard_request(cookies={app_module.DASHBOARD_AUTH_COOKIE: "forged"})
+    )
+
+    assert isinstance(response, RedirectResponse)
+    assert response.headers["location"] == "/auth"
+
+
+def test_dashboard_api_returns_503_when_the_session_check_cant_reach_the_database(monkeypatch):
+    monkeypatch.setattr(
+        app_module, "PostgresClassifierRepository", _unreachable_session_check_repository()
+    )
+    route = route_for("/reports/summary", "GET")
+
+    with pytest.raises(HTTPException) as exc_info:
+        route.endpoint(dashboard_request())
+
+    assert exc_info.value.status_code == 503
+    assert exc_info.value.detail == app_module.DATABASE_UNAVAILABLE_DETAIL
+
+
+def test_dashboard_api_returns_503_when_a_query_cant_reach_the_database(monkeypatch):
+    psycopg = pytest.importorskip("psycopg")
+
+    class FakeRepository(_SessionVersionMixin):
+        def get_dashboard_report_summary(self):
+            raise psycopg.OperationalError("server closed the connection unexpectedly")
+
+    monkeypatch.setattr(app_module, "PostgresClassifierRepository", FakeRepository)
+    route = route_for("/reports/summary", "GET")
+
+    with pytest.raises(HTTPException) as exc_info:
+        route.endpoint(dashboard_request())
+
+    assert exc_info.value.status_code == 503
+    assert exc_info.value.detail == app_module.DATABASE_UNAVAILABLE_DETAIL
+
+
+def test_dashboard_api_keeps_500_for_errors_other_than_the_database(monkeypatch):
+    class FakeRepository(_SessionVersionMixin):
+        def get_dashboard_report_summary(self):
+            raise RuntimeError("bug in the summary query")
+
+    monkeypatch.setattr(app_module, "PostgresClassifierRepository", FakeRepository)
+    route = route_for("/reports/summary", "GET")
+
+    with pytest.raises(HTTPException) as exc_info:
+        route.endpoint(dashboard_request())
+
+    assert exc_info.value.status_code == 500
+    assert exc_info.value.detail == "Internal server error"
 
 
 def test_analytics_summary_endpoint_returns_aggregates(monkeypatch):

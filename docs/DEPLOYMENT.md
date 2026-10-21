@@ -124,6 +124,9 @@ so re-running it against an existing database is safe.
 "Connection reset by peer". Wait until `docker compose ps` shows `api` as
 `(healthy)` — its healthcheck polls `/health` — or look for
 `Uvicorn running on http://0.0.0.0:8000` in `docker compose logs api --tail 20`.
+`/health` also says whether the dashboard can reach the database
+(`"database": "ok"`, `"unreachable"` or `"not_configured"`); `api` stays
+healthy either way, so check that field after a deploy.
 
 Both `honeypot` and `api` bind-mount the host's `/etc/localtime` and
 `/etc/timezone` read-only, so container log timestamps automatically match

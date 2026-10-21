@@ -16,7 +16,7 @@ from uuid import UUID
 
 from fastapi import FastAPI, HTTPException, Query, Request, Response
 from fastapi import Path as PathParam
-from fastapi.responses import FileResponse, PlainTextResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, RedirectResponse
 from pydantic import BaseModel, ConfigDict, field_validator
 
 from classifier.blocklist import blocklist_ips
@@ -132,6 +132,37 @@ INGEST_API_KEY_HEADER = "x-api-key"
 ALLOW_SIGNUPS_ENV = "ECHIDRA_ALLOW_SIGNUPS"
 SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 7
 MAX_EMAIL_LENGTH = 254
+DATABASE_UNAVAILABLE_DETAIL = (
+    "Can't reach the database. Check that PostgreSQL is running, then try again."
+)
+# Shown instead of the login page when a signed-in user's session can't be
+# checked because the database is down: sending them to log in would only
+# fail again, and reads as if they'd been logged out.
+_DATABASE_UNAVAILABLE_PAGE = """<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Database Unavailable - Echidra OSS | Qyleron</title>
+  <link rel="stylesheet" href="/dashboard.css">
+  <style>
+    main { min-height: 100vh; display: grid; place-items: center; padding: 24px; }
+    section { max-width: 450px; padding: 32px; border: 1px solid var(--line);
+      border-radius: 12px; background: var(--surface); text-align: center; }
+    h1 { margin: 0 0 12px; font-size: 22px; font-weight: 600; }
+    p { margin: 0; color: var(--hint); font-size: 15px; line-height: 1.5; }
+  </style>
+</head>
+<body>
+  <main>
+    <section>
+      <h1>Can't reach the database</h1>
+      <p>Check that PostgreSQL is running, then reload this page.</p>
+    </section>
+  </main>
+</body>
+</html>
+"""
 _FALLBACK_SESSION_SECRET_PATH = (
     Path(__file__).resolve().parents[2] / "logs" / ".dashboard_session_secret"
 )
@@ -275,8 +306,18 @@ def create_app() -> FastAPI:
 
     @api.get("/health", tags=["service"])
     def health() -> dict[str, str]:
-        """Report whether the classifier API process is serving requests."""
-        return {"status": "ok"}
+        """Report whether the classifier API process is serving requests, and
+        whether it can reach the database. Always 200, so a database outage
+        doesn't make Docker restart a working API process."""
+        try:
+            PostgresClassifierRepository().ping()
+        except DatabaseNotConfiguredError:
+            database = "not_configured"
+        except Exception:
+            database = "unreachable"
+        else:
+            database = "ok"
+        return {"status": "ok", "database": database}
 
     @api.get("/", include_in_schema=False)
     def root() -> RedirectResponse:
@@ -357,7 +398,7 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=503, detail=_user_facing_error_detail(exc))
         except Exception as exc:
             logger.exception("Unhandled exception in signup_dashboard_user: %s", exc)
-            raise HTTPException(status_code=500, detail="Internal server error")
+            raise _server_error(exc)
 
         _set_dashboard_session_cookie(response, user)
         return {"authenticated": True, "email": user.email}
@@ -380,7 +421,7 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=503, detail=_user_facing_error_detail(exc))
         except Exception as exc:
             logger.exception("Unhandled exception in login_dashboard_user: %s", exc)
-            raise HTTPException(status_code=500, detail="Internal server error")
+            raise _server_error(exc)
 
         if user is None or not _verify_password(payload.password, user.password_hash):
             _record_login_failure(rate_limit_key, repository)
@@ -417,7 +458,11 @@ def create_app() -> FastAPI:
     @api.get("/dashboard", response_class=FileResponse, tags=["dashboard"])
     def dashboard(request: Request) -> Response:
         """Serve the local analyst dashboard shell."""
-        if not _dashboard_request_is_authenticated(request):
+        try:
+            authenticated = _dashboard_request_is_authenticated(request)
+        except _DashboardDatabaseUnavailableError:
+            return _database_unavailable_page()
+        if not authenticated:
             return _login_redirect(request)
         if not DASHBOARD_INDEX_PATH.exists():
             raise HTTPException(status_code=404, detail="Dashboard not found")
@@ -474,7 +519,11 @@ def create_app() -> FastAPI:
     @api.get("/dashboard/{page_name}", response_class=FileResponse, tags=["dashboard"])
     def dashboard_page(page_name: str, request: Request) -> Response:
         """Serve whitelisted dashboard pages behind the same auth guard."""
-        if not _dashboard_request_is_authenticated(request):
+        try:
+            authenticated = _dashboard_request_is_authenticated(request)
+        except _DashboardDatabaseUnavailableError:
+            return _database_unavailable_page()
+        if not authenticated:
             return _login_redirect(request)
         page_path = DASHBOARD_PAGE_FILES.get(page_name)
         if page_path is None or not page_path.exists():
@@ -557,7 +606,7 @@ def create_app() -> FastAPI:
                 "Unhandled exception in classify_and_store_session_endpoint: %s",
                 exc,
             )
-            raise HTTPException(status_code=500, detail="Internal server error")
+            raise _server_error(exc)
 
         # Fire email alert asynchronously-ish — errors here never fail the run.
         try:
@@ -601,7 +650,7 @@ def create_app() -> FastAPI:
                 "Unhandled exception in dashboard_report_summary_endpoint: %s",
                 exc,
             )
-            raise HTTPException(status_code=500, detail="Internal server error")
+            raise _server_error(exc)
 
     @api.get(
         "/analytics/summary",
@@ -625,7 +674,7 @@ def create_app() -> FastAPI:
                 "Unhandled exception in analytics_summary_endpoint: %s",
                 exc,
             )
-            raise HTTPException(status_code=500, detail="Internal server error")
+            raise _server_error(exc)
 
     @api.get(
         "/analytics/blocklist",
@@ -655,7 +704,7 @@ def create_app() -> FastAPI:
                 "Unhandled exception in analytics_blocklist_endpoint: %s",
                 exc,
             )
-            raise HTTPException(status_code=500, detail="Internal server error")
+            raise _server_error(exc)
         return PlainTextResponse("".join(f"{ip}\n" for ip in blocklist_ips(rows)))
 
     @api.get(
@@ -697,7 +746,7 @@ def create_app() -> FastAPI:
                 "Unhandled exception in list_classifier_runs_endpoint: %s",
                 exc,
             )
-            raise HTTPException(status_code=500, detail="Internal server error")
+            raise _server_error(exc)
 
     @api.get(
         "/classifier/runs/{run_id}",
@@ -720,7 +769,7 @@ def create_app() -> FastAPI:
                 "Unhandled exception in get_classifier_run_endpoint: %s",
                 exc,
             )
-            raise HTTPException(status_code=500, detail="Internal server error")
+            raise _server_error(exc)
 
         if run is None:
             raise HTTPException(status_code=404, detail="Classifier run not found")
@@ -747,7 +796,7 @@ def create_app() -> FastAPI:
                 "Unhandled exception in list_session_events_endpoint: %s",
                 exc,
             )
-            raise HTTPException(status_code=500, detail="Internal server error")
+            raise _server_error(exc)
 
     @api.get(
         "/sessions/{session_id}/issues",
@@ -771,7 +820,7 @@ def create_app() -> FastAPI:
                 "Unhandled exception in list_issues_for_session_endpoint: %s",
                 exc,
             )
-            raise HTTPException(status_code=500, detail="Internal server error")
+            raise _server_error(exc)
 
     @api.get(
         "/manual-labels",
@@ -800,7 +849,7 @@ def create_app() -> FastAPI:
                 "Unhandled exception in list_manual_labels_endpoint: %s",
                 exc,
             )
-            raise HTTPException(status_code=500, detail="Internal server error")
+            raise _server_error(exc)
 
     @api.get(
         "/manual-labels/{label_id}",
@@ -823,7 +872,7 @@ def create_app() -> FastAPI:
                 "Unhandled exception in get_manual_label_endpoint: %s",
                 exc,
             )
-            raise HTTPException(status_code=500, detail="Internal server error")
+            raise _server_error(exc)
 
         if label is None:
             raise HTTPException(status_code=404, detail="Manual label not found")
@@ -856,7 +905,7 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=503, detail=_user_facing_error_detail(exc))
         except Exception as exc:
             logger.exception("Unhandled exception in list_issues_endpoint: %s", exc)
-            raise HTTPException(status_code=500, detail="Internal server error")
+            raise _server_error(exc)
 
     @api.patch(
         "/issues/{issue_id}/status",
@@ -877,7 +926,7 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=503, detail=_user_facing_error_detail(exc))
         except Exception as exc:
             logger.exception("Unhandled exception in update_issue_status_endpoint: %s", exc)
-            raise HTTPException(status_code=500, detail="Internal server error")
+            raise _server_error(exc)
 
         if issue is None:
             raise HTTPException(status_code=404, detail="Issue not found")
@@ -898,7 +947,7 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=503, detail=_user_facing_error_detail(exc))
         except Exception as exc:
             logger.exception("Unhandled exception in list_persona_configs_endpoint: %s", exc)
-            raise HTTPException(status_code=500, detail="Internal server error")
+            raise _server_error(exc)
 
     @api.post(
         "/persona-configs/{persona_id}",
@@ -922,7 +971,7 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=503, detail=_user_facing_error_detail(exc))
         except Exception as exc:
             logger.exception("Unhandled exception in create_persona_config_endpoint: %s", exc)
-            raise HTTPException(status_code=500, detail="Internal server error")
+            raise _server_error(exc)
 
     @api.get(
         "/persona-configs/{persona_id}",
@@ -942,7 +991,7 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=503, detail=_user_facing_error_detail(exc))
         except Exception as exc:
             logger.exception("Unhandled exception in get_persona_config_endpoint: %s", exc)
-            raise HTTPException(status_code=500, detail="Internal server error")
+            raise _server_error(exc)
 
         if config is None:
             raise HTTPException(status_code=404, detail="Persona config not found")
@@ -967,7 +1016,7 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=503, detail=_user_facing_error_detail(exc))
         except Exception as exc:
             logger.exception("Unhandled exception in update_persona_config_endpoint: %s", exc)
-            raise HTTPException(status_code=500, detail="Internal server error")
+            raise _server_error(exc)
 
         if config is None:
             raise HTTPException(status_code=404, detail="Persona config not found")
@@ -992,7 +1041,7 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=503, detail=_user_facing_error_detail(exc))
         except Exception as exc:
             logger.exception("Unhandled exception in delete_persona_config_endpoint: %s", exc)
-            raise HTTPException(status_code=500, detail="Internal server error")
+            raise _server_error(exc)
 
         if not deleted:
             raise HTTPException(status_code=404, detail="Persona config not found")
@@ -1021,7 +1070,7 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=503, detail=_user_facing_error_detail(exc))
         except Exception as exc:
             logger.exception("Unhandled exception in get_persona_analytics_endpoint: %s", exc)
-            raise HTTPException(status_code=500, detail="Internal server error")
+            raise _server_error(exc)
 
     @api.get(
         "/alerts/config",
@@ -1049,7 +1098,7 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=503, detail=_user_facing_error_detail(exc))
         except Exception as exc:
             logger.exception("Unhandled exception in get_alert_config_endpoint: %s", exc)
-            raise HTTPException(status_code=500, detail="Internal server error")
+            raise _server_error(exc)
 
     @api.put(
         "/alerts/config",
@@ -1069,7 +1118,7 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=503, detail=_user_facing_error_detail(exc))
         except Exception as exc:
             logger.exception("Unhandled exception in update_alert_config_endpoint: %s", exc)
-            raise HTTPException(status_code=500, detail="Internal server error")
+            raise _server_error(exc)
 
     @api.post(
         "/alerts/test",
@@ -1085,7 +1134,7 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=503, detail=_user_facing_error_detail(exc))
         except Exception as exc:
             logger.exception("Unhandled exception in send_test_alert_endpoint: %s", exc)
-            raise HTTPException(status_code=500, detail="Internal server error")
+            raise _server_error(exc)
 
         if config is None or not config.enabled:
             raise HTTPException(status_code=400, detail="Turn on alerts and save the settings first.")
@@ -1139,7 +1188,7 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=503, detail=_user_facing_error_detail(exc))
         except Exception as exc:
             logger.exception("Unhandled exception in list_alert_events_endpoint: %s", exc)
-            raise HTTPException(status_code=500, detail="Internal server error")
+            raise _server_error(exc)
 
     @api.get(
         "/alerts/events/count",
@@ -1159,7 +1208,7 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=503, detail=_user_facing_error_detail(exc))
         except Exception as exc:
             logger.exception("Unhandled exception in count_alert_events_endpoint: %s", exc)
-            raise HTTPException(status_code=500, detail="Internal server error")
+            raise _server_error(exc)
 
     return api
 
@@ -1261,8 +1310,43 @@ def _dashboard_request_is_authenticated(request: Request) -> bool:
 
 
 def _require_dashboard_auth(request: Request) -> None:
-    if not _dashboard_request_is_authenticated(request):
+    try:
+        authenticated = _dashboard_request_is_authenticated(request)
+    except _DashboardDatabaseUnavailableError:
+        raise HTTPException(status_code=503, detail=DATABASE_UNAVAILABLE_DETAIL)
+    if not authenticated:
         raise HTTPException(status_code=401, detail="Dashboard authentication required")
+
+
+class _DashboardDatabaseUnavailableError(Exception):
+    """A validly signed session cookie couldn't be checked against the
+    database (for revocation) because the database can't be reached."""
+
+
+def _is_database_unavailable(exc: Exception) -> bool:
+    """True for psycopg's connection-level failures (refused, timed out,
+    dropped), as opposed to a bug in a query or the code around it."""
+    try:
+        import psycopg
+    except ModuleNotFoundError:
+        return False
+    return isinstance(exc, psycopg.OperationalError)
+
+
+def _server_error(exc: Exception) -> HTTPException:
+    """A 503 saying what to do when the database can't be reached; otherwise
+    the generic 500 (the caller has already logged the exception)."""
+    if _is_database_unavailable(exc):
+        return HTTPException(status_code=503, detail=DATABASE_UNAVAILABLE_DETAIL)
+    return HTTPException(status_code=500, detail="Internal server error")
+
+
+def _database_unavailable_page() -> HTMLResponse:
+    return HTMLResponse(
+        _DATABASE_UNAVAILABLE_PAGE,
+        status_code=503,
+        headers=_DASHBOARD_NO_STORE_HEADERS,
+    )
 
 
 
@@ -1513,7 +1597,10 @@ def _verify_dashboard_session_cookie(value: str) -> bool:
     except (DatabaseDriverMissingError, DatabaseNotConfiguredError):
         logger.warning("Dashboard DB not configured; rejecting session cookie")
         return False
-    except Exception:
+    except Exception as exc:
+        if _is_database_unavailable(exc):
+            logger.warning("Can't reach the database to verify a dashboard session")
+            raise _DashboardDatabaseUnavailableError from exc
         logger.exception("Could not verify dashboard session revocation status")
         return False
     return current_version is not None and current_version == session_version

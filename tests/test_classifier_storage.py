@@ -1043,6 +1043,35 @@ def test_issue_sync_store_write_rollup_issue_keeps_stored_status():
     assert cursor.executed[2][1]["technique_id"] == "T1110"
 
 
+def test_repository_ping_uses_short_timeouts(monkeypatch):
+    executed = []
+    connect_kwargs = {}
+
+    class FakeConnection:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def execute(self, sql):
+            executed.append(sql)
+
+    class FakePsycopg:
+        @staticmethod
+        def connect(database_url, **kwargs):
+            connect_kwargs.update(kwargs)
+            return FakeConnection()
+
+    monkeypatch.setattr("classifier.storage.repository._load_psycopg", lambda: FakePsycopg)
+
+    PostgresClassifierRepository("postgresql://example/echidra").ping()
+
+    assert executed == ["SELECT 1"]
+    assert connect_kwargs["connect_timeout"] == 2
+    assert connect_kwargs["options"] == "-c statement_timeout=2000"
+
+
 def test_repository_issue_sync_transaction_uses_longer_timeout_and_lock(monkeypatch):
     executed = []
     connect_kwargs = {}

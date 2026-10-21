@@ -121,7 +121,12 @@ All notable changes to Echidra are documented here. The format follows
   move between pages in a browser tab, and Persona analytics reopens the
   persona and tab you last viewed.
 - `echidra stop` prints a single line while stopping, and process IDs only
-  when one doesn't stop.
+  when one doesn't stop. When there's nothing to stop, it says so and how
+  to start Echidra.
+- `/health` also reports the database: `{"status": "ok", "database": "ok"}`,
+  or `"unreachable"` or `"not_configured"`. It answers within about two
+  seconds even when the database host doesn't respond, and stays a 200 so
+  Docker keeps the dashboard running through a database outage.
 
 ### Fixed
 - SSH host key files are created owner-readable only from the start.
@@ -168,6 +173,11 @@ All notable changes to Echidra are documented here. The format follows
   hover.
 - Chart tooltips appear as soon as you hover, beside the pointer; Risk
   Trend tooltips list each risk level with its colour, and the total.
+- While the database can't be reached, signed-in dashboard pages say
+  "Can't reach the database. Check that PostgreSQL is running, then
+  reload this page." instead of returning to the login page, and API
+  calls, signing in included, answer 503 with the same advice instead of
+  "Internal server error".
 - Analytics shows "No sessions in this date range." when the range is
   empty, and "Couldn't load analytics" when loading fails, instead of
   empty charts in both cases.

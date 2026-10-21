@@ -49,6 +49,11 @@ from classifier.storage.models import (
 _DB_CONNECT_TIMEOUT_SECONDS = 10
 _DB_STATEMENT_TIMEOUT_SECONDS = 10
 
+# /health checks the database on every call, so it must answer well inside
+# the Docker healthcheck's 3 s timeout (docker-compose.yml) even when the DB
+# host hangs. 2 s is libpq's smallest effective connect_timeout.
+_DB_PING_TIMEOUT_SECONDS = 2
+
 # The issue sync (classifier/storage/issue_sync.py) runs on its own
 # background thread or from the CLI, never on a classification worker or an
 # HTTP request, so it gets a longer per-statement cap than the 10 s above.
@@ -87,6 +92,7 @@ def _connect(
     database_url: str,
     *,
     statement_timeout_seconds: int = _DB_STATEMENT_TIMEOUT_SECONDS,
+    connect_timeout_seconds: int = _DB_CONNECT_TIMEOUT_SECONDS,
 ):
     """psycopg.connect(), bounded by a connect timeout, a per-statement timeout,
     and TCP keepalives so an established connection can't hang forever after
@@ -95,7 +101,7 @@ def _connect(
     keepalives_interval/keepalives_count aren't honored on every platform."""
     return psycopg.connect(
         database_url,
-        connect_timeout=_DB_CONNECT_TIMEOUT_SECONDS,
+        connect_timeout=connect_timeout_seconds,
         options=f"-c statement_timeout={statement_timeout_seconds * 1000}",
         keepalives=1,
         keepalives_idle=_DB_KEEPALIVES_IDLE_SECONDS,
@@ -1447,6 +1453,18 @@ class PostgresClassifierRepository:
             raise DatabaseNotConfiguredError(
                 "ECHIDRA_DATABASE_URL must be set to use PostgreSQL storage"
             )
+
+    def ping(self) -> None:
+        """Run SELECT 1, raising if the database can't be reached within
+        _DB_PING_TIMEOUT_SECONDS."""
+        psycopg = _load_psycopg()
+        with _connect(
+            psycopg,
+            self.database_url,
+            statement_timeout_seconds=_DB_PING_TIMEOUT_SECONDS,
+            connect_timeout_seconds=_DB_PING_TIMEOUT_SECONDS,
+        ) as connection:
+            connection.execute("SELECT 1")
 
     def save_classifier_run(
         self,
