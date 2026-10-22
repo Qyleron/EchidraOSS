@@ -111,6 +111,11 @@ All notable changes to Echidra are documented here. The format follows
 - Python 3.12 and 3.13 support (`PyYAML` 6.0.2).
 - Smaller Docker build context: local data and development files are
   excluded.
+- Docker Compose caps each container's log output at 3 files of 10 MB, so
+  it can't grow until the disk is full.
+- When sessions can't be written to the session log (eg. a full disk), the
+  honeypot logs the first error in full, then a count at most every 30
+  seconds, and points to "Disk space" in `docs/DEPLOYMENT.md`.
 - `SECURITY.md` rewritten to describe Echidra's security model.
 - `echidra start` prints a short summary: decoy ports, dashboard URL, an
   SSH-tunnel hint, and how to stop.
@@ -153,6 +158,13 @@ All notable changes to Echidra are documented here. The format follows
 - Fields in two-column forms (eg. Persona ID and Display Name) line up.
 - The `test` extra includes `httpx`, and the project URLs point at the
   right repository.
+- A session is still stored in the database when writing it to
+  `logs/sessions.jsonl` fails (eg. a full disk), so the database keeps
+  receiving sessions when it's on another disk or still has room.
+- When the database's disk is full, the dashboard says so ("The database's
+  disk is full. Free some space on the database server, then try again.")
+  instead of asking you to check that PostgreSQL is running, and the
+  honeypot keeps the sessions to store once there's room.
 - A package install includes the dashboard's JavaScript, so its dropdowns
   look the same as in a source checkout.
 - `echidra start` reports busy ports up front, and `echidra start`/`stop`
@@ -161,6 +173,9 @@ All notable changes to Echidra are documented here. The format follows
   instead of for every session, so `echidra classify` on a large log is much
   faster. An edit to the rules still applies from the next session; an edit
   that doesn't load is logged and the previous rules are kept.
+- `echidra status` shows the free disk space where logs are kept and warns
+  below 1 GB; `docs/DEPLOYMENT.md` has a "Disk space" section, including
+  log rotation.
 - `echidra status` checks the decoy ports without connecting to them, so it
   no longer adds empty sessions from 127.0.0.1 to the dashboard. A port held
   by something other than Echidra is named with how to find what holds it,

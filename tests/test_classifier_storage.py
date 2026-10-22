@@ -1072,6 +1072,17 @@ def test_repository_ping_uses_short_timeouts(monkeypatch):
     assert connect_kwargs["options"] == "-c statement_timeout=2000"
 
 
+def test_database_disk_full_is_told_apart_from_an_unreachable_database():
+    psycopg = pytest.importorskip("psycopg")
+    from classifier.storage import is_database_disk_full, is_database_unavailable
+
+    disk_full = psycopg.errors.DiskFull("could not extend file")
+    refused = psycopg.OperationalError("connection refused")
+
+    assert is_database_disk_full(disk_full) and is_database_unavailable(disk_full)
+    assert not is_database_disk_full(refused) and is_database_unavailable(refused)
+
+
 def test_stored_session_check_counts_a_run_of_any_classification_status():
     from classifier.storage.repository import SELECT_STORED_SESSION_IDS_SQL
 

@@ -3380,6 +3380,13 @@ def is_database_unavailable(exc: Exception) -> bool:
     return isinstance(exc, psycopg.OperationalError)
 
 
+def is_database_disk_full(exc: Exception) -> bool:
+    """True when Postgres refused a write because its disk is full
+    (SQLSTATE 53100). Also counts as is_database_unavailable(), but the
+    database is up, so it needs its own message."""
+    return getattr(exc, "sqlstate", None) == "53100"
+
+
 def _load_psycopg():
     try:
         import psycopg

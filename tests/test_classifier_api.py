@@ -1295,6 +1295,24 @@ def test_dashboard_api_returns_503_when_a_query_cant_reach_the_database(monkeypa
     assert exc_info.value.detail == app_module.DATABASE_UNAVAILABLE_DETAIL
 
 
+def test_dashboard_api_says_when_the_database_disk_is_full(monkeypatch):
+    psycopg = pytest.importorskip("psycopg")
+
+    class FakeRepository(_SessionVersionMixin):
+        def get_dashboard_report_summary(self):
+            raise psycopg.errors.DiskFull("could not extend file: No space left on device")
+
+    monkeypatch.setattr(app_module, "PostgresClassifierRepository", FakeRepository)
+    route = route_for("/reports/summary", "GET")
+
+    with pytest.raises(HTTPException) as exc_info:
+        route.endpoint(dashboard_request())
+
+    assert exc_info.value.status_code == 503
+    assert exc_info.value.detail == app_module.DATABASE_DISK_FULL_DETAIL
+    assert "Free some space" in exc_info.value.detail
+
+
 def test_dashboard_api_keeps_500_for_errors_other_than_the_database(monkeypatch):
     class FakeRepository(_SessionVersionMixin):
         def get_dashboard_report_summary(self):

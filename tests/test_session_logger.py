@@ -1,10 +1,13 @@
+import errno
 import json
+import logging
 import stat
 
 import pytest
 
+import honeypot.logging.session_logger as session_logger_module
 from honeypot.core.session import SessionState
-from honeypot.logging.session_logger import SessionLogger
+from honeypot.logging.session_logger import SessionLogger, finalize_and_schedule
 
 
 def test_logger_appends_completed_sessions_as_jsonl(tmp_path):
@@ -55,3 +58,56 @@ def test_logger_creates_log_file_readable_only_by_owner(tmp_path):
 
     mode = stat.S_IMODE(log_path.stat().st_mode)
     assert mode == 0o600
+
+
+class _FullDiskLogger:
+    def log(self, session):
+        raise OSError(errno.ENOSPC, "No space left on device")
+
+
+def test_a_full_disk_still_stores_the_session(monkeypatch):
+    """The database may be on another disk, or still have room."""
+    scheduled = []
+    monkeypatch.setattr(session_logger_module, "schedule_auto_classification", scheduled.append)
+    session = SessionState(("127.0.0.1", 4444))
+    session.finalize("disconnect")
+
+    finalize_and_schedule(_FullDiskLogger(), session, "SSH", logging.getLogger("test"))
+
+    assert [str(record.session_id) for record in scheduled] == [str(session.session_id)]
+
+
+def test_a_full_disk_logs_one_traceback_then_a_count(monkeypatch, caplog):
+    """A full disk fails every session the same way: one traceback per
+    session would bury everything else in the log."""
+    monkeypatch.setattr(session_logger_module, "schedule_auto_classification", lambda record: None)
+    monkeypatch.setattr(session_logger_module, "_log_failure_count", 0)
+    monkeypatch.setattr(session_logger_module, "_log_failure_last_logged", None)
+    fake_now = [1_000.0]
+    monkeypatch.setattr(session_logger_module.time, "monotonic", lambda: fake_now[0])
+    session = SessionState(("127.0.0.1", 4444))
+    session.finalize("disconnect")
+    logger = logging.getLogger("test")
+
+    with caplog.at_level(logging.ERROR, logger="test"):
+        for _ in range(3):
+            finalize_and_schedule(_FullDiskLogger(), session, "SSH", logger)
+            fake_now[0] += 1
+        fake_now[0] += session_logger_module._LOG_FAILURE_INTERVAL_SECONDS
+        finalize_and_schedule(_FullDiskLogger(), session, "SSH", logger)
+
+    assert len(caplog.records) == 2
+    assert caplog.records[0].exc_info is not None
+    assert "Disk space" in caplog.records[0].message
+    assert caplog.records[1].exc_info is None
+    assert "Failed to log 3 session(s)" in caplog.records[1].message
+
+
+def test_a_failed_log_of_an_invalid_session_schedules_nothing(monkeypatch):
+    scheduled = []
+    monkeypatch.setattr(session_logger_module, "schedule_auto_classification", scheduled.append)
+    still_active = SessionState(("127.0.0.1", 4444))
+
+    finalize_and_schedule(_FullDiskLogger(), still_active, "SSH", logging.getLogger("test"))
+
+    assert scheduled == []

@@ -315,6 +315,7 @@ def auto_classify_and_store(session: SessionRecord) -> None:
         DatabaseDriverMissingError,
         DatabaseNotConfiguredError,
         PostgresClassifierRepository,
+        is_database_disk_full,
         is_database_unavailable,
     )
 
@@ -349,9 +350,10 @@ def auto_classify_and_store(session: SessionRecord) -> None:
         if is_database_unavailable(exc):
             # classifier.catch_up stores it, and sends one summary alert,
             # once the database is back.
-            logger.warning(
-                "Database unreachable; session %s kept to store later", session.session_id
+            problem = (
+                "Database disk full" if is_database_disk_full(exc) else "Database unreachable"
             )
+            logger.warning("%s; session %s kept to store later", problem, session.session_id)
             keep_pending_session(session)
         else:
             logger.exception("save_classifier_run failed during auto classification")

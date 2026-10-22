@@ -311,6 +311,34 @@ It prints progress every 5,000 sessions, then a summary, eg.
 contrast, only prints the classification of each session and stores
 nothing.)
 
+## Disk space
+
+`echidra status` shows how much space is free where logs are kept, and
+warns below 1 GB. Keep an eye on it: on a full disk, sessions can't be
+written to `logs/sessions.jsonl` (they still reach the database if it's on
+another disk or has room), and Postgres stops accepting new data, which
+the dashboard reports as "The database's disk is full".
+
+The session log grows slowly (about 1 MB a day on an internet-facing test
+server of ours), and it's reopened for every write, so a plain logrotate rule works
+without `copytruncate`:
+
+```
+/opt/echidra/logs/sessions.jsonl {
+    monthly
+    rotate 12
+    compress
+    missingok
+    notifempty
+}
+```
+
+Rotate only `sessions.jsonl`, never `pending-sessions.jsonl`. To store a
+rotated log later, decompress it and run `echidra import` on it.
+
+With Docker Compose, each container's own output (what
+`docker compose logs` shows) is capped at 3 files of 10 MB per service.
+
 ## Resetting a dashboard password
 
 Forgot the dashboard password, or want to change it? On the server, run:

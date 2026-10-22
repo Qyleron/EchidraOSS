@@ -15,6 +15,7 @@ import ipaddress
 import os
 import re
 import secrets
+import shutil
 import signal
 import socket
 import subprocess
@@ -772,7 +773,32 @@ def _cmd_status(args: argparse.Namespace) -> int:
     _check_api(args.api_host, args.api_port)
     _check_database()
     _check_pending_sessions()
+    _check_disk_space()
     return 0
+
+
+_LOW_DISK_BYTES = 1024 ** 3
+
+
+def _format_bytes(count: int) -> str:
+    if count >= 1024 ** 3:
+        return f"{count / 1024 ** 3:.1f} GB"
+    return f"{count / 1024 ** 2:.0f} MB"
+
+
+def _check_disk_space() -> None:
+    from honeypot.network.config import SESSION_LOG_PATH
+
+    logs_dir = Path(SESSION_LOG_PATH).resolve().parent
+    # Before the first session, the logs folder may not exist yet.
+    existing = next((p for p in (logs_dir, *logs_dir.parents) if p.exists()), Path("/"))
+    free = shutil.disk_usage(existing).free
+    if free < _LOW_DISK_BYTES:
+        print(f"  Disk: only {_format_bytes(free)} free where logs are kept ({logs_dir}). "
+              "Free some space: when the disk is full, sessions can't be written to the "
+              "session log. See 'Disk space' in docs/DEPLOYMENT.md.")
+    else:
+        print(f"  Disk: {_format_bytes(free)} free where logs are kept ({logs_dir})")
 
 
 def _check_pending_sessions() -> None:

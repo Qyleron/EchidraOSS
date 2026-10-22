@@ -96,7 +96,11 @@ def catch_up_pending_sessions(path: Path | None = None) -> int:
     """
     from classifier.alerts import send_catch_up_alerts
     from classifier.pipeline import classify_and_store
-    from classifier.storage import PostgresClassifierRepository, is_database_unavailable
+    from classifier.storage import (
+        PostgresClassifierRepository,
+        is_database_disk_full,
+        is_database_unavailable,
+    )
 
     path = path or pending_sessions_path()
     working = _catching_up_path(path)
@@ -143,7 +147,9 @@ def catch_up_pending_sessions(path: Path | None = None) -> int:
                     stored.append((run, session, summary))
             position += _BATCH_SIZE
     except Exception as exc:
-        if is_database_unavailable(exc):
+        if is_database_disk_full(exc):
+            logger.warning("Database disk full; pending sessions will be retried")
+        elif is_database_unavailable(exc):
             logger.warning("Database unreachable again; pending sessions will be retried")
         else:
             logger.exception("Catching up pending sessions stopped")

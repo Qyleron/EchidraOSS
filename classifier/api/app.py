@@ -54,6 +54,7 @@ from classifier.storage import (
     PostgresClassifierRepository,
     StoredClassifierRun,
     StoredSessionEvent,
+    is_database_disk_full,
     is_database_unavailable,
 )
 from honeypot.core.persona import PRESET_PERSONAS, Persona
@@ -135,6 +136,9 @@ SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 7
 MAX_EMAIL_LENGTH = 254
 DATABASE_UNAVAILABLE_DETAIL = (
     "Can't reach the database. Check that PostgreSQL is running, then try again."
+)
+DATABASE_DISK_FULL_DETAIL = (
+    "The database's disk is full. Free some space on the database server, then try again."
 )
 # Shown instead of the login page when a signed-in user's session can't be
 # checked because the database is down: sending them to log in would only
@@ -1325,8 +1329,11 @@ class _DashboardDatabaseUnavailableError(Exception):
 
 
 def _server_error(exc: Exception) -> HTTPException:
-    """A 503 saying what to do when the database can't be reached; otherwise
-    the generic 500 (the caller has already logged the exception)."""
+    """A 503 saying what to do when the database can't be reached or its
+    disk is full; otherwise the generic 500 (the caller has already logged
+    the exception)."""
+    if is_database_disk_full(exc):
+        return HTTPException(status_code=503, detail=DATABASE_DISK_FULL_DETAIL)
     if is_database_unavailable(exc):
         return HTTPException(status_code=503, detail=DATABASE_UNAVAILABLE_DETAIL)
     return HTTPException(status_code=500, detail="Internal server error")

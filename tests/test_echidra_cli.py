@@ -295,6 +295,36 @@ def test_check_database_reports_session_counts_when_connected(monkeypatch, capsy
     assert "7" in captured.out
 
 
+@pytest.mark.parametrize(
+    "free, expected",
+    [
+        (12 * 1024 ** 3, "Disk: 12.0 GB free where logs are kept"),
+        (300 * 1024 ** 2, "Disk: only 300 MB free where logs are kept"),
+    ],
+)
+def test_check_disk_space_reports_free_space_and_warns_when_low(
+    monkeypatch, tmp_path, capsys, free, expected
+):
+    from types import SimpleNamespace
+
+    # The logs folder doesn't exist yet; the check falls back to its parent.
+    monkeypatch.setattr(
+        "honeypot.network.config.SESSION_LOG_PATH", str(tmp_path / "logs" / "sessions.jsonl")
+    )
+    checked = []
+    monkeypatch.setattr(
+        cli.shutil, "disk_usage", lambda path: checked.append(path) or SimpleNamespace(free=free)
+    )
+
+    cli._check_disk_space()
+
+    out = capsys.readouterr().out
+    assert expected in out
+    assert checked == [tmp_path.resolve()]
+    if free < 1024 ** 3:
+        assert "Free some space" in out and "docs/DEPLOYMENT.md" in out
+
+
 @pytest.mark.parametrize("count, expected", [(0, ""), (1, "1 session "), (312, "312 sessions ")])
 def test_check_pending_sessions_reports_sessions_waiting_to_be_stored(
     monkeypatch, capsys, count, expected
