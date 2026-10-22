@@ -268,7 +268,8 @@ cd /opt/echidra   # or wherever you cloned it, with the venv active
 python -m echidra status
 ```
 
-Reports whether each honeypot listener is accepting connections, whether the
+Reports whether each honeypot listener is listening (checked without
+connecting, so it adds no sessions of its own), whether the
 API responds to `/health`, whether the database is reachable, and how many
 sessions have been classified so far. Run this after any deploy before
 declaring it done — a listening honeypot with an unreachable database still

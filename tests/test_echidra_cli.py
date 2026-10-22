@@ -159,11 +159,6 @@ def test_echidra_classify_passes_through_output_flag(monkeypatch, tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_port_is_open_returns_false_for_closed_port():
-    # Port 1 is a privileged, essentially never-listening port in test environments.
-    assert cli._port_is_open("127.0.0.1", 1, timeout=0.2) is False
-
-
 def test_check_start_process_reports_not_running_when_no_pidfile(monkeypatch, tmp_path, capsys):
     monkeypatch.setattr(cli, "PID_PATH", tmp_path / "echidra.pid")
 
@@ -195,13 +190,56 @@ def test_check_honeypot_listeners_reports_disabled_ports(monkeypatch, capsys):
     monkeypatch.setattr("honeypot.network.config.HTTP_PORT", 0)
     monkeypatch.setattr("honeypot.network.config.FTP_PORT", 0)
     monkeypatch.setattr("honeypot.network.config.TELNET_PORT", 0)
-    monkeypatch.setattr(cli, "_port_is_open", lambda host, port, timeout=2.0: False)
+    monkeypatch.setattr(cli, "_port_in_use", lambda host, port: False)
 
     cli._check_honeypot_listeners()
 
     captured = capsys.readouterr()
     assert "HTTP" in captured.out and "disabled" in captured.out
-    assert "SSH-style shell" in captured.out and "not reachable" in captured.out
+    assert "SSH-style shell" in captured.out and "not listening" in captured.out
+
+
+def _only_ssh_enabled(monkeypatch):
+    monkeypatch.setattr("honeypot.network.config.HOST", "0.0.0.0")
+    monkeypatch.setattr("honeypot.network.config.PORT", 2222)
+    monkeypatch.setattr("honeypot.network.config.HTTP_PORT", 0)
+    monkeypatch.setattr("honeypot.network.config.FTP_PORT", 0)
+    monkeypatch.setattr("honeypot.network.config.TELNET_PORT", 0)
+    monkeypatch.setattr(cli, "_port_in_use", lambda host, port: True)
+
+
+def test_check_honeypot_listeners_reports_listening_when_echidra_runs(monkeypatch, tmp_path, capsys):
+    _only_ssh_enabled(monkeypatch)
+    pid_path = tmp_path / "echidra.pid"
+    pid_path.write_text(f"{os.getpid()}\n", encoding="utf-8")
+    monkeypatch.setattr(cli, "PID_PATH", pid_path)
+    monkeypatch.setattr(cli, "_pid_is_echidra_process", lambda pid: True)
+
+    cli._check_honeypot_listeners()
+
+    assert "SSH-style shell  listening (127.0.0.1:2222)" in capsys.readouterr().out
+
+
+def test_check_honeypot_listeners_names_a_port_held_by_something_else(monkeypatch, tmp_path, capsys):
+    _only_ssh_enabled(monkeypatch)
+    monkeypatch.setattr(cli, "PID_PATH", tmp_path / "echidra.pid")
+
+    cli._check_honeypot_listeners()
+
+    out = capsys.readouterr().out
+    assert "in use, but not by 'echidra start' (127.0.0.1:2222)" in out
+    assert "ss -ltnp | grep ':2222 '" in out
+
+
+def test_check_honeypot_listeners_never_connects_to_a_decoy(monkeypatch, tmp_path):
+    # A connection would be recorded by the honeypot as an attacker session.
+    _only_ssh_enabled(monkeypatch)
+    monkeypatch.setattr(cli, "PID_PATH", tmp_path / "echidra.pid")
+    monkeypatch.setattr(
+        cli.socket, "create_connection", lambda *a, **k: pytest.fail("status connected to a decoy")
+    )
+
+    cli._check_honeypot_listeners()
 
 
 def test_check_api_reports_unreachable_when_connection_fails(capsys):
@@ -395,7 +433,22 @@ def test_cmd_start_refuses_when_a_port_is_already_in_use(monkeypatch, tmp_path, 
     assert exit_code == 1
     assert "Port 2222 (SSH-style shell) is already in use." in captured.out
     assert "docker compose ps" in captured.out
+    assert "set eg. ECHIDRA_PORT=2223 in .env." in captured.out
     assert popen_calls == []
+
+
+def test_cmd_start_says_how_to_move_each_busy_port(monkeypatch, tmp_path, capsys):
+    monkeypatch.setattr(cli, "PID_PATH", tmp_path / "echidra.pid")
+    monkeypatch.setattr(
+        cli, "_ports_in_use", lambda *a, **k: [("HTTP", 8080), ("API/dashboard", 8000)]
+    )
+    monkeypatch.setattr(cli.subprocess, "Popen", lambda cmd, **kw: pytest.fail("should not spawn"))
+
+    assert cli._cmd_start(cli._build_parser().parse_args(["start"])) == 1
+
+    out = capsys.readouterr().out
+    assert "set eg. ECHIDRA_HTTP_PORT=8081 in .env (0 turns it off)." in out
+    assert "echidra start --api-port 8001" in out
 
 
 def test_ports_in_use_detects_a_port_held_by_another_listener():

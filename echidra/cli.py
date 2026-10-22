@@ -287,6 +287,8 @@ def _cmd_start(args: argparse.Namespace) -> int:
               "(check 'docker compose ps', stop it with 'docker compose down') or an Echidra "
               "started some other way. To see what holds a port: "
               f"ss -ltnp | grep ':{busy[0][1]} '")
+        for name, port in busy:
+            print(_move_port_hint(name, port))
         return 1
 
     procs: list[subprocess.Popen] = []
@@ -406,21 +408,43 @@ def _ports_in_use(api_host: str, api_port: int) -> list[tuple[str, int]]:
         ("Telnet", HOST, TELNET_PORT),
         ("API/dashboard", api_host, api_port),
     ]
-    busy = []
-    for name, host, port in wanted:
-        if not port:
-            continue
-        try:
-            family = socket.AF_INET6 if ":" in host else socket.AF_INET
-            with socket.socket(family, socket.SOCK_STREAM) as probe:
-                # Same as the real listeners (asyncio sets SO_REUSEADDR), so
-                # a port only in TIME_WAIT isn't reported as taken.
-                probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-                probe.bind((host, port))
-        except OSError as exc:
-            if exc.errno == errno.EADDRINUSE:
-                busy.append((name, port))
-    return busy
+    return [(name, port) for name, host, port in wanted if port and _port_in_use(host, port)]
+
+
+def _port_in_use(host: str, port: int) -> bool:
+    """Whether something already listens on host:port, found by trying to
+    bind it. Never connects: the honeypot would record a connection as an
+    attacker session. Only "address already in use" counts."""
+    try:
+        family = socket.AF_INET6 if ":" in host else socket.AF_INET
+        with socket.socket(family, socket.SOCK_STREAM) as probe:
+            # Same as the real listeners (asyncio sets SO_REUSEADDR), so a
+            # port only in TIME_WAIT isn't reported as taken.
+            probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            probe.bind((host, port))
+    except OSError as exc:
+        return exc.errno == errno.EADDRINUSE
+    return False
+
+
+# The .env setting that moves each decoy, for the busy-port message.
+_PORT_SETTINGS = {
+    "SSH-style shell": "ECHIDRA_PORT",
+    "HTTP": "ECHIDRA_HTTP_PORT",
+    "FTP": "ECHIDRA_FTP_PORT",
+    "Telnet": "ECHIDRA_TELNET_PORT",
+}
+
+
+def _move_port_hint(name: str, port: int) -> str:
+    if name == "API/dashboard":
+        return f"Or move the dashboard to a free port, eg. echidra start --api-port {port + 1}"
+    setting = _PORT_SETTINGS[name]
+    hint = f"Or move the {name} decoy to a free port: set eg. {setting}={port + 1} in .env"
+    # The SSH listener is required; the others turn off at port 0.
+    if setting != "ECHIDRA_PORT":
+        hint += " (0 turns it off)"
+    return hint + "."
 
 
 def _write_pid_file(pids) -> None:
@@ -776,6 +800,10 @@ def _check_honeypot_listeners() -> None:
     from honeypot.network.config import FTP_PORT, HOST, HTTP_PORT, PORT, TELNET_PORT
 
     check_host = "127.0.0.1" if HOST == "0.0.0.0" else HOST
+    echidra_running = (
+        any(_pid_is_echidra_process(pid) for pid in _read_pid_file())
+        or bool(_active_systemd_units())
+    )
     listeners = [
         ("SSH-style shell", PORT),
         ("HTTP", HTTP_PORT),
@@ -786,16 +814,14 @@ def _check_honeypot_listeners() -> None:
         if not port:
             print(f"  {name:<16} disabled (port 0)")
             continue
-        state = "listening" if _port_is_open(check_host, port) else "not reachable"
-        print(f"  {name:<16} {state} ({check_host}:{port})")
-
-
-def _port_is_open(host: str, port: int, timeout: float = 2.0) -> bool:
-    try:
-        with socket.create_connection((host, port), timeout=timeout):
-            return True
-    except OSError:
-        return False
+        # Checked by binding, not connecting (see _port_in_use).
+        if not _port_in_use(HOST, port):
+            print(f"  {name:<16} not listening ({check_host}:{port})")
+        elif echidra_running:
+            print(f"  {name:<16} listening ({check_host}:{port})")
+        else:
+            print(f"  {name:<16} in use, but not by 'echidra start' ({check_host}:{port}) -- "
+                  f"eg. the Docker Compose stack; see what holds it: ss -ltnp | grep ':{port} '")
 
 
 def _check_api(host: str, port: int) -> None:

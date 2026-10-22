@@ -155,6 +155,10 @@ All notable changes to Echidra are documented here. The format follows
   right repository.
 - `echidra start` reports busy ports up front, and `echidra start`/`stop`
   point to `systemctl` when Echidra is running as a systemd service.
+- `echidra status` checks the decoy ports without connecting to them, so it
+  no longer adds empty sessions from 127.0.0.1 to the dashboard. A port held
+  by something other than Echidra is named with how to find what holds it,
+  and `echidra start` says which setting moves a decoy to a free port.
 - The decoys keep answering at full speed when the database is slow or
   unreachable: the persona is loaded before the listeners start and
   reloaded in the background. If the database can't be reached, the decoys
