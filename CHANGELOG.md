@@ -168,6 +168,11 @@ All notable changes to Echidra are documented here. The format follows
   disk is full. Free some space on the database server, then try again.")
   instead of asking you to check that PostgreSQL is running, and the
   honeypot keeps the sessions to store once there's room.
+- When the database is up but takes too long to answer, the dashboard and
+  `echidra import` say so ("The database took too long to answer. Try
+  again in a moment.") instead of asking you to check that PostgreSQL is
+  running. A session the database is too slow to store is tried once more
+  without holding up the sessions captured after it.
 - A package install includes the dashboard's JavaScript, so its dropdowns
   look the same as in a source checkout.
 - `echidra start` reports busy ports up front, and `echidra start`/`stop`

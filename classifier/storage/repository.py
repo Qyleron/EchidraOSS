@@ -3390,14 +3390,27 @@ def _fetch_aggregate_batch(
         ]
 
 
+# SQLSTATEs psycopg raises as OperationalError although the database is up:
+# a statement timeout (57014), a deadlock (40P01) and a lock timeout (55P03).
+_DATABASE_BUSY_SQLSTATES = frozenset({"57014", "40P01", "55P03"})
+
+
 def is_database_unavailable(exc: Exception) -> bool:
     """True for psycopg's connection-level failures (refused, timed out,
-    dropped), as opposed to a bug in a query or the code around it."""
+    dropped), as opposed to a bug in a query or the code around it, or a
+    database that's up but busy (see is_database_busy)."""
     try:
         import psycopg
     except ModuleNotFoundError:
         return False
-    return isinstance(exc, psycopg.OperationalError)
+    return isinstance(exc, psycopg.OperationalError) and not is_database_busy(exc)
+
+
+def is_database_busy(exc: Exception) -> bool:
+    """True when the database is up but a statement took too long, waited too
+    long for a lock, or was chosen to end a deadlock. Trying again later
+    usually works; nothing else is affected."""
+    return getattr(exc, "sqlstate", None) in _DATABASE_BUSY_SQLSTATES
 
 
 def is_database_disk_full(exc: Exception) -> bool:

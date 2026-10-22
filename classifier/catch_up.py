@@ -98,6 +98,7 @@ def catch_up_pending_sessions(path: Path | None = None) -> int:
     from classifier.pipeline import classify_and_store
     from classifier.storage import (
         PostgresClassifierRepository,
+        is_database_busy,
         is_database_disk_full,
         is_database_unavailable,
     )
@@ -137,6 +138,16 @@ def catch_up_pending_sessions(path: Path | None = None) -> int:
                 except Exception as exc:
                     if is_database_unavailable(exc):
                         raise
+                    if is_database_busy(exc):
+                        # Not an outage: skip just this one, so it doesn't
+                        # hold up the sessions behind it.
+                        logger.error(
+                            "Could not store pending session %s: the database took too long "
+                            "to answer. It is still in the session log; store it with "
+                            "'echidra import' (see docs/DEPLOYMENT.md)",
+                            session.session_id,
+                        )
+                        continue
                     logger.exception(
                         "Could not store pending session %s; it is still in the session log",
                         session.session_id,
@@ -151,6 +162,8 @@ def catch_up_pending_sessions(path: Path | None = None) -> int:
             logger.warning("Database disk full; pending sessions will be retried")
         elif is_database_unavailable(exc):
             logger.warning("Database unreachable again; pending sessions will be retried")
+        elif is_database_busy(exc):
+            logger.warning("The database took too long to answer; pending sessions will be retried")
         else:
             logger.exception("Catching up pending sessions stopped")
         # Put back everything from the unfinished batch on. Sessions in it that
@@ -236,7 +249,7 @@ def import_session_log(
 
 def _import_batch(batch, repository, rules, result: ImportResult) -> None:
     from classifier.pipeline import classify_and_store
-    from classifier.storage import is_database_unavailable
+    from classifier.storage import is_database_busy, is_database_unavailable
 
     already_stored = repository.stored_session_ids([s.session_id for s in batch])
     for session in batch:
@@ -248,7 +261,13 @@ def _import_batch(batch, repository, rules, result: ImportResult) -> None:
         except Exception as exc:
             if is_database_unavailable(exc):
                 raise
-            logger.exception("Could not import session %s", session.session_id)
+            if is_database_busy(exc):
+                logger.error(
+                    "Could not import session %s: the database took too long to answer",
+                    session.session_id,
+                )
+            else:
+                logger.exception("Could not import session %s", session.session_id)
             result.failed += 1
             continue
         if stored is None:

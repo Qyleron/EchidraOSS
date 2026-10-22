@@ -707,6 +707,7 @@ def _cmd_import(args: argparse.Namespace) -> int:
     from classifier.storage import (
         DatabaseDriverMissingError,
         DatabaseNotConfiguredError,
+        is_database_busy,
         is_database_unavailable,
     )
 
@@ -736,6 +737,10 @@ def _cmd_import(args: argparse.Namespace) -> int:
         print(f"echidra import: {exc}", file=sys.stderr)
         return 1
     except Exception as exc:
+        if is_database_busy(exc):
+            print("echidra import: the database took too long to answer. Run it again in a "
+                  "moment; sessions already stored are skipped.", file=sys.stderr)
+            return 1
         if not is_database_unavailable(exc):
             raise
         print("echidra import: can't reach the database. Check that PostgreSQL is running, "

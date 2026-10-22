@@ -1137,6 +1137,18 @@ def test_database_disk_full_is_told_apart_from_an_unreachable_database():
     assert not is_database_disk_full(refused) and is_database_unavailable(refused)
 
 
+@pytest.mark.parametrize("error_name", ["QueryCanceled", "DeadlockDetected", "LockNotAvailable"])
+def test_a_busy_database_is_told_apart_from_an_unreachable_one(error_name):
+    psycopg = pytest.importorskip("psycopg")
+    from classifier.storage import is_database_busy, is_database_unavailable
+
+    busy = getattr(psycopg.errors, error_name)("took too long")
+    refused = psycopg.OperationalError("connection refused")
+
+    assert is_database_busy(busy) and not is_database_unavailable(busy)
+    assert not is_database_busy(refused)
+
+
 def test_stored_session_check_counts_a_run_of_any_classification_status():
     from classifier.storage.repository import SELECT_STORED_SESSION_IDS_SQL
 

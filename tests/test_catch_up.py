@@ -135,6 +135,52 @@ def test_catch_up_skips_a_session_that_fails_for_another_reason(
     assert catch_up_module.count_pending_sessions(path) == 0
 
 
+def test_catch_up_skips_a_session_the_database_took_too_long_to_store(
+    tmp_path, stored_and_alerted, monkeypatch, caplog
+):
+    path = tmp_path / "pending-sessions.jsonl"
+    slow, fine = _session(), _session()
+    catch_up_module.keep_pending_session(slow, path)
+    catch_up_module.keep_pending_session(fine, path)
+
+    def times_out_on_slow(session, repository):
+        if session.session_id == slow.session_id:
+            raise psycopg.errors.QueryCanceled("canceling statement due to statement timeout")
+        stored_and_alerted["stored"].append(session.session_id)
+        return None, object()
+
+    monkeypatch.setattr(pipeline_module, "classify_and_store", times_out_on_slow)
+
+    assert catch_up_module.catch_up_pending_sessions(path) == 1
+
+    # The slow one doesn't hold up the rest, and isn't retried forever.
+    assert stored_and_alerted["stored"] == [fine.session_id]
+    assert catch_up_module.count_pending_sessions(path) == 0
+    assert "took too long" in caplog.text and "echidra import" in caplog.text
+    assert "Database unreachable" not in caplog.text
+
+
+def test_import_counts_a_session_the_database_took_too_long_to_store(
+    tmp_path, stored_and_alerted, monkeypatch
+):
+    slow, fine = _session(), _session()
+    log = tmp_path / "sessions.jsonl"
+    log.write_text(slow.model_dump_json() + "\n" + fine.model_dump_json() + "\n", encoding="utf-8")
+
+    def times_out_on_slow(session, repository, rules=None):
+        if session.session_id == slow.session_id:
+            raise psycopg.errors.QueryCanceled("canceling statement due to statement timeout")
+        stored_and_alerted["stored"].append(session.session_id)
+        return None, object()
+
+    monkeypatch.setattr(pipeline_module, "classify_and_store", times_out_on_slow)
+
+    result = catch_up_module.import_session_log(log)
+
+    assert (result.stored, result.failed) == (1, 1)
+    assert stored_and_alerted["stored"] == [fine.session_id]
+
+
 def test_catch_up_resumes_a_catch_up_that_stopped_part_way(tmp_path, stored_and_alerted):
     path = tmp_path / "pending-sessions.jsonl"
     session = _session()
@@ -204,3 +250,24 @@ def test_auto_classification_keeps_the_session_when_the_database_is_unreachable(
     pipeline_module.auto_classify_and_store(session)
 
     assert kept == [session]
+
+
+def test_auto_classification_keeps_the_session_when_the_database_is_too_slow(
+    monkeypatch, caplog
+):
+    class Repository:
+        def record_session_and_count_from_ip(self, session):
+            return 1
+
+        def save_classifier_run(self, session, summary):
+            raise psycopg.errors.DeadlockDetected("deadlock detected")
+
+    kept = []
+    monkeypatch.setattr(storage_module, "PostgresClassifierRepository", Repository)
+    monkeypatch.setattr(catch_up_module, "keep_pending_session", kept.append)
+    session = _session()
+
+    pipeline_module.auto_classify_and_store(session)
+
+    assert kept == [session]
+    assert "took too long" in caplog.text and "Database unreachable" not in caplog.text

@@ -1313,6 +1313,24 @@ def test_dashboard_api_says_when_the_database_disk_is_full(monkeypatch):
     assert "Free some space" in exc_info.value.detail
 
 
+def test_dashboard_api_says_when_the_database_is_too_slow(monkeypatch):
+    psycopg = pytest.importorskip("psycopg")
+
+    class FakeRepository(_SessionVersionMixin):
+        def get_dashboard_report_summary(self):
+            raise psycopg.errors.QueryCanceled("canceling statement due to statement timeout")
+
+    monkeypatch.setattr(app_module, "PostgresClassifierRepository", FakeRepository)
+    route = route_for("/reports/summary", "GET")
+
+    with pytest.raises(HTTPException) as exc_info:
+        route.endpoint(dashboard_request())
+
+    assert exc_info.value.status_code == 503
+    assert exc_info.value.detail == app_module.DATABASE_BUSY_DETAIL
+    assert "PostgreSQL is running" not in exc_info.value.detail
+
+
 def test_dashboard_api_keeps_500_for_errors_other_than_the_database(monkeypatch):
     class FakeRepository(_SessionVersionMixin):
         def get_dashboard_report_summary(self):

@@ -54,6 +54,7 @@ from classifier.storage import (
     PostgresClassifierRepository,
     StoredClassifierRun,
     StoredSessionEvent,
+    is_database_busy,
     is_database_disk_full,
     is_database_unavailable,
 )
@@ -140,6 +141,7 @@ DATABASE_UNAVAILABLE_DETAIL = (
 DATABASE_DISK_FULL_DETAIL = (
     "The database's disk is full. Free some space on the database server, then try again."
 )
+DATABASE_BUSY_DETAIL = "The database took too long to answer. Try again in a moment."
 # Shown instead of the login page when a signed-in user's session can't be
 # checked because the database is down: sending them to log in would only
 # fail again, and reads as if they'd been logged out.
@@ -1329,11 +1331,13 @@ class _DashboardDatabaseUnavailableError(Exception):
 
 
 def _server_error(exc: Exception) -> HTTPException:
-    """A 503 saying what to do when the database can't be reached or its
-    disk is full; otherwise the generic 500 (the caller has already logged
-    the exception)."""
+    """A 503 saying what to do when the database can't be reached, its disk
+    is full or it took too long to answer; otherwise the generic 500 (the
+    caller has already logged the exception)."""
     if is_database_disk_full(exc):
         return HTTPException(status_code=503, detail=DATABASE_DISK_FULL_DETAIL)
+    if is_database_busy(exc):
+        return HTTPException(status_code=503, detail=DATABASE_BUSY_DETAIL)
     if is_database_unavailable(exc):
         return HTTPException(status_code=503, detail=DATABASE_UNAVAILABLE_DETAIL)
     return HTTPException(status_code=500, detail="Internal server error")
@@ -1596,7 +1600,8 @@ def _verify_dashboard_session_cookie(value: str) -> bool:
         logger.warning("Dashboard DB not configured; rejecting session cookie")
         return False
     except Exception as exc:
-        if is_database_unavailable(exc):
+        # A busy database isn't a reason to log the user out either.
+        if is_database_unavailable(exc) or is_database_busy(exc):
             logger.warning("Can't reach the database to verify a dashboard session")
             raise _DashboardDatabaseUnavailableError from exc
         logger.exception("Could not verify dashboard session revocation status")

@@ -967,3 +967,23 @@ def test_import_explains_an_unreachable_database(monkeypatch, tmp_path, capsys):
     err = capsys.readouterr().err
     assert "can't reach the database. Check that PostgreSQL is running" in err
     assert "sessions already stored are skipped" in err
+
+
+def test_import_explains_a_database_that_took_too_long(monkeypatch, tmp_path, capsys):
+    psycopg = pytest.importorskip("psycopg")
+    import classifier.catch_up as catch_up_module
+
+    log = tmp_path / "sessions.jsonl"
+    log.write_text("{}\n", encoding="utf-8")
+
+    def too_slow(path, on_progress=None):
+        raise psycopg.errors.QueryCanceled("canceling statement due to statement timeout")
+
+    monkeypatch.setattr(catch_up_module, "import_session_log", too_slow)
+
+    assert cli.main(["import", str(log)]) == 1
+
+    err = capsys.readouterr().err
+    assert "the database took too long to answer" in err
+    assert "sessions already stored are skipped" in err
+    assert "PostgreSQL is running" not in err
