@@ -277,10 +277,12 @@ def auto_classify_and_store(session: SessionRecord) -> None:
     the protocol handler that already finished serving its client.
     """
     from classifier.alerts import _maybe_send_alert
+    from classifier.catch_up import keep_pending_session
     from classifier.storage import (
         DatabaseDriverMissingError,
         DatabaseNotConfiguredError,
         PostgresClassifierRepository,
+        is_database_unavailable,
     )
 
     try:
@@ -310,8 +312,16 @@ def auto_classify_and_store(session: SessionRecord) -> None:
         run = repository.save_classifier_run(session, summary)
     except DatabaseDriverMissingError:
         return
-    except Exception:
-        logger.exception("save_classifier_run failed during auto classification")
+    except Exception as exc:
+        if is_database_unavailable(exc):
+            # classifier.catch_up stores it, and sends one summary alert,
+            # once the database is back.
+            logger.warning(
+                "Database unreachable; session %s kept to store later", session.session_id
+            )
+            keep_pending_session(session)
+        else:
+            logger.exception("save_classifier_run failed during auto classification")
         return
 
     try:
@@ -325,6 +335,27 @@ def auto_classify_and_store(session: SessionRecord) -> None:
         maybe_sync_issues_from_classifier_runs()
     except Exception:
         logger.exception("maybe_sync_issues_from_classifier_runs failed during auto classification")
+
+
+def classify_and_store(
+    session: SessionRecord,
+    repository,
+    rules: RuleSet | list[ClassificationRule] | None = None,
+):
+    """Classify a session and save the run, raising on any database error.
+
+    Used where a failure must stop the caller (catching up after an outage,
+    `echidra import`); auto_classify_and_store is the forgiving live path.
+    Returns (run, summary), or None when the session was already stored.
+    """
+    connection_count = None
+    if session.peer_ip:
+        connection_count = repository.record_session_and_count_from_ip(session)
+    summary = classify_session(session, rules, connection_count_from_same_ip=connection_count)
+    run = repository.save_classifier_run_if_new(session, summary)
+    if run is None:
+        return None
+    return run, summary
 
 
 def schedule_auto_classification(session: SessionRecord) -> None:

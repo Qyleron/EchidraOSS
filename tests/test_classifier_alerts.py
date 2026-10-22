@@ -717,3 +717,49 @@ def test_grouping_can_be_turned_off(slack_alerts, monkeypatch):
 def test_repeat_window_setting(monkeypatch, raw, expected_seconds):
     monkeypatch.setenv("ECHIDRA_ALERT_REPEAT_MINUTES", raw)
     assert alerts_module._repeat_window_seconds() == expected_seconds
+
+
+def test_catch_up_sends_one_alert_per_decoy_instead_of_one_per_session(monkeypatch):
+    monkeypatch.delenv("ECHIDRA_DASHBOARD_URL", raising=False)
+    fake = _FakeRepository(
+        _alert_config(),
+        _persona_config(alert_routing_level="email", contact_email="soc@example.com", slack_webhook=None),
+    )
+    monkeypatch.setattr(alerts_module, "PostgresClassifierRepository", lambda *a, **k: fake)
+    sent = []
+    monkeypatch.setattr(
+        alerts_module,
+        "_smtp_send",
+        lambda config, recipient, subject, body, html_body=None: sent.append((recipient, subject, body)),
+    )
+    stored = [(None, *_session_and_summary()) for _ in range(3)]
+
+    alerts_module.send_catch_up_alerts(stored)
+
+    assert len(sent) == 1
+    recipient, subject, body = sent[0]
+    assert recipient == "soc@example.com"
+    assert subject == "[Echidra] 3 sessions stored after a database outage on generic_linux"
+    assert "What to do: Review them on the Sessions page" in body
+    assert "http://127.0.0.1:8000/dashboard/sessions" in body
+    assert len(fake.inserted_events) == 1
+
+
+def test_catch_up_alert_skips_sessions_below_the_alert_level(monkeypatch):
+    fake = _FakeRepository(
+        _alert_config(global_min_risk_level="critical"),
+        _persona_config(alert_routing_level="email", contact_email="soc@example.com", slack_webhook=None),
+    )
+    monkeypatch.setattr(alerts_module, "PostgresClassifierRepository", lambda *a, **k: fake)
+    sent = []
+    monkeypatch.setattr(
+        alerts_module,
+        "_smtp_send",
+        lambda config, recipient, subject, body, html_body=None: sent.append(subject),
+    )
+    session, summary = _session_and_summary()
+    assert summary.risk_level != "critical"
+
+    alerts_module.send_catch_up_alerts([(None, session, summary)])
+
+    assert sent == []

@@ -48,13 +48,14 @@ fake command set. Nothing they type touches the real host or filesystem.
 
 Every completed session is logged, classified (actor type, risk, MITRE ATT&CK
 technique, intent), geolocated, and stored in PostgreSQL — or `logs/sessions.jsonl`
-if PostgreSQL isn't configured — for review in the dashboard.
+if PostgreSQL isn't configured, for `echidra import` to store later — for review
+in the dashboard.
 
 ## Features
 
 - **Honeypot listeners** — SSH server with an interactive fake shell, matching the OpenSSH version it announces, HTTP (fake Apache/nginx/WordPress/phpMyAdmin), and FTP and Telnet login prompts that record every credential tried, each independently enabled/disabled by port
 - **Classification** — deterministic YAML rules turn session features into an actor label, risk score, behavior stage, intent, and MITRE ATT&CK tags, plus a knowledge-base of recommended fixes
-- **Storage & API** — PostgreSQL schema for sessions/events/classifier runs, always mirrored to `logs/sessions.jsonl`; FastAPI backend serves the classifier endpoints and dashboard
+- **Storage & API** — PostgreSQL schema for sessions/events/classifier runs, always mirrored to `logs/sessions.jsonl`; sessions captured while the database is unreachable are stored automatically once it's back, and `echidra import` stores any session log; FastAPI backend serves the classifier endpoints and dashboard
 - **Dashboard** — Intelligence (recurring issues + fixes), Sessions, Analytics, Personas, and Alerts (email/Slack) that lead with the recommended fix, with repeats grouped
 - **Blocklist export** — `echidra blocklist` or Analytics → Export Blocklist lists attacker IPs for your firewall, fail2ban, or Cloudflare
 

@@ -35,7 +35,7 @@ def test_echidra_cli_help_lists_all_subcommands(capsys):
         cli.main(["--help"])
 
     captured = capsys.readouterr()
-    for subcommand in ("init", "start", "stop", "classify", "status", "blocklist", "reset-password", "help"):
+    for subcommand in ("init", "start", "stop", "classify", "import", "status", "blocklist", "reset-password", "help"):
         assert subcommand in captured.out
 
 
@@ -255,6 +255,23 @@ def test_check_database_reports_session_counts_when_connected(monkeypatch, capsy
     assert "connected" in captured.out
     assert "42" in captured.out
     assert "7" in captured.out
+
+
+@pytest.mark.parametrize("count, expected", [(0, ""), (1, "1 session "), (312, "312 sessions ")])
+def test_check_pending_sessions_reports_sessions_waiting_to_be_stored(
+    monkeypatch, capsys, count, expected
+):
+    import classifier.catch_up as catch_up_module
+    monkeypatch.setattr(catch_up_module, "count_pending_sessions", lambda: count)
+
+    cli._check_pending_sessions()
+
+    captured = capsys.readouterr()
+    if count:
+        assert f"Waiting to be stored: {expected}" in captured.out
+        assert "within a minute of the database being reachable again" in captured.out
+    else:
+        assert captured.out == ""
 
 
 # ---------------------------------------------------------------------------
@@ -822,3 +839,48 @@ def test_reset_password_reports_missing_database(monkeypatch, capsys):
     assert cli.main(["reset-password", "admin@example.com"]) == 1
 
     assert "no database configured" in capsys.readouterr().err
+
+
+def test_import_says_what_to_pass_when_the_file_is_missing(tmp_path, capsys):
+    assert cli.main(["import", str(tmp_path / "missing.jsonl")]) == 1
+
+    assert "Pass a session log, eg. logs/sessions.jsonl." in capsys.readouterr().err
+
+
+def test_import_reports_what_it_stored(monkeypatch, tmp_path, capsys):
+    import classifier.catch_up as catch_up_module
+
+    log = tmp_path / "sessions.jsonl"
+    log.write_text("{}\n", encoding="utf-8")
+    monkeypatch.setattr(
+        catch_up_module,
+        "import_session_log",
+        lambda path, on_progress=None: catch_up_module.ImportResult(
+            stored=312, already_stored=1204, invalid_lines=1
+        ),
+    )
+
+    assert cli.main(["import", str(log)]) == 0
+
+    out = capsys.readouterr().out
+    assert "Stored 312 sessions; 1,204 were already stored." in out
+    assert "Skipped 1 line that isn't a session record." in out
+
+
+def test_import_explains_an_unreachable_database(monkeypatch, tmp_path, capsys):
+    psycopg = pytest.importorskip("psycopg")
+    import classifier.catch_up as catch_up_module
+
+    log = tmp_path / "sessions.jsonl"
+    log.write_text("{}\n", encoding="utf-8")
+
+    def unreachable(path, on_progress=None):
+        raise psycopg.OperationalError("connection refused")
+
+    monkeypatch.setattr(catch_up_module, "import_session_log", unreachable)
+
+    assert cli.main(["import", str(log)]) == 1
+
+    err = capsys.readouterr().err
+    assert "can't reach the database. Check that PostgreSQL is running" in err
+    assert "sessions already stored are skipped" in err

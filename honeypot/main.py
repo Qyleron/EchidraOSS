@@ -2,6 +2,7 @@ import asyncio
 import logging
 import signal
 
+from classifier.catch_up import catch_up_pending_sessions
 from classifier.pipeline import start_classification_workers, stop_classification_workers
 from honeypot.network.config import HTTP_PORT, FTP_PORT, TELNET_PORT, HOST, MAX_CONNECTIONS, get_active_persona
 from honeypot.network.ftp_handler import FtpHandler
@@ -15,6 +16,19 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
 )
 logger = logging.getLogger(__name__)
+
+_CATCH_UP_INTERVAL_SECONDS = 60.0
+
+
+async def _catch_up_loop() -> None:
+    """Store sessions captured while the database was unreachable, within a
+    minute of it coming back (classifier/catch_up.py)."""
+    while True:
+        try:
+            await asyncio.to_thread(catch_up_pending_sessions)
+        except Exception:
+            logger.exception("Catching up pending sessions failed")
+        await asyncio.sleep(_CATCH_UP_INTERVAL_SECONDS)
 
 
 async def main():
@@ -55,6 +69,7 @@ async def main():
     tasks = [asyncio.create_task(ssh_server.start())]
     tasks += [asyncio.create_task(s.start()) for s in extra_servers]
     stop_task = asyncio.create_task(stop_event.wait())
+    catch_up_task = asyncio.create_task(_catch_up_loop())
 
     try:
         start_classification_workers()
@@ -93,9 +108,10 @@ async def main():
         await stop_classification_workers()
 
         stop_task.cancel()
+        catch_up_task.cancel()
         for task in tasks:
             task.cancel()
-        await asyncio.gather(stop_task, *tasks, return_exceptions=True)
+        await asyncio.gather(stop_task, catch_up_task, *tasks, return_exceptions=True)
 
 
 if __name__ == "__main__":

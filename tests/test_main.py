@@ -41,6 +41,7 @@ def _disable_extra_ports_and_classification(monkeypatch):
         pass
 
     monkeypatch.setattr(main_module, "stop_classification_workers", fake_stop_classification_workers)
+    monkeypatch.setattr(main_module, "catch_up_pending_sessions", lambda: 0)
 
 
 def test_main_exits_nonzero_when_every_listener_fails_to_bind(monkeypatch):

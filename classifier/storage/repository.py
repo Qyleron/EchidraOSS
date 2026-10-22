@@ -67,6 +67,11 @@ _ISSUE_SYNC_STATEMENT_TIMEOUT_SECONDS = 300
 # across processes -- the honeypot and the API process both start syncs.
 _ISSUE_SYNC_LOCK_KEY = 78_234_917
 
+# First key of the per-session advisory lock taken by save_classifier_run_if_new
+# (the second key comes from the session id), so the catch-up after an outage
+# and `echidra import` can't both store the same session.
+_SESSION_STORE_LOCK_CLASS = 78_234_918
+
 # connect_timeout only bounds the initial handshake, and statement_timeout is
 # enforced server-side -- neither helps once a connection is already
 # established and the network then dies silently (a partition, a middlebox
@@ -387,6 +392,16 @@ UPDATE dashboard_users SET session_version = session_version + 1 WHERE id = %(id
 
 COUNT_DASHBOARD_USERS_SQL = """
 SELECT COUNT(*) AS total FROM dashboard_users
+"""
+
+# Any classifier run means the session is stored, whatever its
+# classification_status: every stored run is for a finished session (live
+# classification of an open SSH session only drives alerts and is never
+# stored), and 'partial' / 'insufficient_data' just mean weak evidence.
+SELECT_STORED_SESSION_IDS_SQL = """
+SELECT DISTINCT session_id
+FROM classifier_runs
+WHERE session_id = ANY(%(session_ids)s::uuid[])
 """
 
 INSERT_LOGIN_FAILURE_SQL = """
@@ -1465,6 +1480,47 @@ class PostgresClassifierRepository:
             connect_timeout_seconds=_DB_PING_TIMEOUT_SECONDS,
         ) as connection:
             connection.execute("SELECT 1")
+
+    def stored_session_ids(self, session_ids: list[UUID]) -> set[UUID]:
+        """Which of these sessions already have a run for the finished
+        session, so catching up or importing a session log never stores one
+        twice."""
+        if not session_ids:
+            return set()
+        rows = _fetch_all(
+            self.database_url,
+            SELECT_STORED_SESSION_IDS_SQL,
+            {"session_ids": list(session_ids)},
+        )
+        return {row["session_id"] for row in rows}
+
+    def save_classifier_run_if_new(
+        self,
+        session: SessionRecord,
+        summary: ClassificationSummary,
+    ) -> ClassifierRunRecord | None:
+        """Persist the run unless the finished session is already stored;
+        return None when it is. The check and the write share one
+        transaction under a per-session lock, so two processes storing the
+        same session at once can't both write it."""
+        record = ClassifierRunRecord.from_session_summary(session=session, summary=summary)
+        lock_key = int.from_bytes(session.session_id.bytes[:4], "big", signed=True)
+        psycopg = _load_psycopg()
+        with _connect(psycopg, self.database_url) as connection:
+            with connection.transaction():
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        "SELECT pg_advisory_xact_lock(%s, %s)",
+                        (_SESSION_STORE_LOCK_CLASS, lock_key),
+                    )
+                    cursor.execute(
+                        SELECT_STORED_SESSION_IDS_SQL, {"session_ids": [session.session_id]}
+                    )
+                    if cursor.fetchone() is not None:
+                        return None
+                    for sql, params in classifier_run_statements(record):
+                        cursor.execute(sql, params)
+        return record
 
     def save_classifier_run(
         self,
@@ -3312,6 +3368,16 @@ def _fetch_aggregate_batch(
             _fetch_one(database_url, sql, params) if fetch_one else _fetch_all(database_url, sql, params)
             for sql, params, fetch_one in queries
         ]
+
+
+def is_database_unavailable(exc: Exception) -> bool:
+    """True for psycopg's connection-level failures (refused, timed out,
+    dropped), as opposed to a bug in a query or the code around it."""
+    try:
+        import psycopg
+    except ModuleNotFoundError:
+        return False
+    return isinstance(exc, psycopg.OperationalError)
 
 
 def _load_psycopg():

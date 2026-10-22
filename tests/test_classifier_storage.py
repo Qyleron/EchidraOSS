@@ -1072,6 +1072,69 @@ def test_repository_ping_uses_short_timeouts(monkeypatch):
     assert connect_kwargs["options"] == "-c statement_timeout=2000"
 
 
+def test_stored_session_check_counts_a_run_of_any_classification_status():
+    from classifier.storage.repository import SELECT_STORED_SESSION_IDS_SQL
+
+    # Weak-evidence sessions are stored as 'partial' or 'insufficient_data';
+    # they must count as stored, or `echidra import` stores them again on
+    # every run.
+    assert "classification_status" not in SELECT_STORED_SESSION_IDS_SQL
+
+
+@pytest.mark.parametrize("already_stored", [True, False])
+def test_save_classifier_run_if_new_checks_and_writes_under_one_lock(monkeypatch, already_stored):
+    executed = []
+
+    class FakeCursor:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def execute(self, sql, params=None):
+            executed.append(sql)
+
+        def fetchone(self):
+            return {"session_id": "stored"} if already_stored else None
+
+    class FakeConnection:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        @contextmanager
+        def transaction(self):
+            yield
+
+        def cursor(self):
+            return FakeCursor()
+
+    class FakePsycopg:
+        @staticmethod
+        def connect(database_url, **kwargs):
+            return FakeConnection()
+
+    monkeypatch.setattr("classifier.storage.repository._load_psycopg", lambda: FakePsycopg)
+    session = SessionRecord.model_validate(make_record())
+    summary = classify_session_record(make_record())
+
+    run = PostgresClassifierRepository("postgresql://example/echidra").save_classifier_run_if_new(
+        session, summary
+    )
+
+    assert "pg_advisory_xact_lock" in executed[0]
+    assert "FROM classifier_runs" in executed[1]
+    if already_stored:
+        assert run is None
+        assert len(executed) == 2
+    else:
+        assert run is not None and run.session_id == session.session_id
+        assert len(executed) > 2
+
+
 def test_repository_issue_sync_transaction_uses_longer_timeout_and_lock(monkeypatch):
     executed = []
     connect_kwargs = {}

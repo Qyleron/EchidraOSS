@@ -271,8 +271,44 @@ python -m echidra status
 Reports whether each honeypot listener is accepting connections, whether the
 API responds to `/health`, whether the database is reachable, and how many
 sessions have been classified so far. Run this after any deploy before
-declaring it done — a listening honeypot with an unreachable database will
-still accept connections and log to JSONL, but the dashboard will be empty.
+declaring it done — a listening honeypot with an unreachable database still
+accepts connections and logs to JSONL, but nothing reaches the dashboard
+until the database is back (see the next section).
+
+## If the database goes down
+
+Nothing captured is lost:
+
+- The decoys keep answering, and every session is still written to
+  `logs/sessions.jsonl`.
+- Each session that couldn't be stored is also kept in
+  `logs/pending-sessions.jsonl`. `echidra status` shows how many are
+  waiting.
+- The dashboard shows "Can't reach the database" instead of the login page,
+  and `/health` reports `"database": "unreachable"`.
+
+Within a minute of the database being reachable again, the honeypot stores
+the waiting sessions (skipping any already stored) and sends one summary
+alert per decoy, instead of one late alert per session. They appear on the
+Sessions page at the time they were captured.
+
+### Storing sessions from a session log: `echidra import`
+
+`echidra import` stores every session in a session log that isn't in the
+database yet; sessions already stored are skipped, so it's safe to run more
+than once. Use it for sessions captured before a database was set up, or
+skipped while the honeypot was under a heavy flood. It sends no alerts.
+
+```bash
+echidra import logs/sessions.jsonl
+# Docker Compose:
+docker compose exec honeypot echidra import logs/sessions.jsonl
+```
+
+It prints progress every 5,000 sessions, then a summary, eg.
+`Stored 312 sessions; 1,204 were already stored.` (`echidra classify`, by
+contrast, only prints the classification of each session and stores
+nothing.)
 
 ## Resetting a dashboard password
 

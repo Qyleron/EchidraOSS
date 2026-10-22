@@ -54,6 +54,7 @@ from classifier.storage import (
     PostgresClassifierRepository,
     StoredClassifierRun,
     StoredSessionEvent,
+    is_database_unavailable,
 )
 from honeypot.core.persona import PRESET_PERSONAS, Persona
 
@@ -1323,20 +1324,10 @@ class _DashboardDatabaseUnavailableError(Exception):
     database (for revocation) because the database can't be reached."""
 
 
-def _is_database_unavailable(exc: Exception) -> bool:
-    """True for psycopg's connection-level failures (refused, timed out,
-    dropped), as opposed to a bug in a query or the code around it."""
-    try:
-        import psycopg
-    except ModuleNotFoundError:
-        return False
-    return isinstance(exc, psycopg.OperationalError)
-
-
 def _server_error(exc: Exception) -> HTTPException:
     """A 503 saying what to do when the database can't be reached; otherwise
     the generic 500 (the caller has already logged the exception)."""
-    if _is_database_unavailable(exc):
+    if is_database_unavailable(exc):
         return HTTPException(status_code=503, detail=DATABASE_UNAVAILABLE_DETAIL)
     return HTTPException(status_code=500, detail="Internal server error")
 
@@ -1598,7 +1589,7 @@ def _verify_dashboard_session_cookie(value: str) -> bool:
         logger.warning("Dashboard DB not configured; rejecting session cookie")
         return False
     except Exception as exc:
-        if _is_database_unavailable(exc):
+        if is_database_unavailable(exc):
             logger.warning("Can't reach the database to verify a dashboard session")
             raise _DashboardDatabaseUnavailableError from exc
         logger.exception("Could not verify dashboard session revocation status")

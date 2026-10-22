@@ -51,6 +51,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_start(args)
     if args.command == "classify":
         return _cmd_classify(args)
+    if args.command == "import":
+        return _cmd_import(args)
     if args.command == "status":
         return _cmd_status(args)
     if args.command == "stop":
@@ -98,7 +100,8 @@ def _build_parser() -> argparse.ArgumentParser:
 
     classify_parser = subparsers.add_parser(
         "classify",
-        help="classify every session record in a JSONL log file",
+        help="classify every session record in a JSONL log file and print the results "
+        "(nothing is stored; use 'echidra import' to store them)",
     )
     classify_parser.add_argument("input_path", help="path to a JSONL file emitted by SessionLogger")
     classify_parser.add_argument(
@@ -112,6 +115,16 @@ def _build_parser() -> argparse.ArgumentParser:
         "--skip-invalid",
         action="store_true",
         help="skip lines that fail to parse or validate instead of aborting the whole run",
+    )
+
+    import_parser = subparsers.add_parser(
+        "import",
+        help="store the sessions in a session log that aren't in the database yet "
+        "(eg. captured before the database was set up); already stored ones are skipped",
+    )
+    import_parser.add_argument(
+        "input_path",
+        help="path to a session log, eg. logs/sessions.jsonl",
     )
 
     status_parser = subparsers.add_parser(
@@ -660,6 +673,68 @@ def _cmd_classify(args: argparse.Namespace) -> int:
 
 
 # ---------------------------------------------------------------------------
+# import
+# ---------------------------------------------------------------------------
+
+_IMPORT_PROGRESS_EVERY = 5_000
+
+
+def _cmd_import(args: argparse.Namespace) -> int:
+    from classifier.catch_up import import_session_log
+    from classifier.storage import (
+        DatabaseDriverMissingError,
+        DatabaseNotConfiguredError,
+        is_database_unavailable,
+    )
+
+    path = Path(args.input_path)
+    if not path.is_file():
+        print(f"echidra import: {path} isn't a file. Pass a session log, eg. "
+              "logs/sessions.jsonl.", file=sys.stderr)
+        return 1
+
+    reported = 0
+
+    def progress(result) -> None:
+        nonlocal reported
+        if result.checked // _IMPORT_PROGRESS_EVERY > reported:
+            reported = result.checked // _IMPORT_PROGRESS_EVERY
+            print(f"  {result.checked:,} sessions checked, {result.stored:,} stored so far...",
+                  flush=True)
+
+    print(f"Importing {path}...", flush=True)
+    try:
+        result = import_session_log(path, on_progress=progress)
+    except DatabaseNotConfiguredError:
+        print("echidra import: no database configured. Set ECHIDRA_DATABASE_URL in .env, "
+              "then run it again.", file=sys.stderr)
+        return 1
+    except DatabaseDriverMissingError as exc:
+        print(f"echidra import: {exc}", file=sys.stderr)
+        return 1
+    except Exception as exc:
+        if not is_database_unavailable(exc):
+            raise
+        print("echidra import: can't reach the database. Check that PostgreSQL is running, "
+              "then run it again; sessions already stored are skipped.", file=sys.stderr)
+        return 1
+
+    def sessions(count: int) -> str:
+        return f"{count:,} session{'' if count == 1 else 's'}"
+
+    print(f"Stored {sessions(result.stored)}; {result.already_stored:,} "
+          f"{'was' if result.already_stored == 1 else 'were'} already stored.")
+    if result.invalid_lines == 1:
+        print("Skipped 1 line that isn't a session record.")
+    elif result.invalid_lines:
+        print(f"Skipped {result.invalid_lines:,} lines that aren't session records.")
+    if result.failed:
+        print(f"Couldn't store {sessions(result.failed)}; the messages above say why.")
+        return 1
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # status
 # ---------------------------------------------------------------------------
 
@@ -672,7 +747,19 @@ def _cmd_status(args: argparse.Namespace) -> int:
     _check_honeypot_listeners()
     _check_api(args.api_host, args.api_port)
     _check_database()
+    _check_pending_sessions()
     return 0
+
+
+def _check_pending_sessions() -> None:
+    from classifier.catch_up import count_pending_sessions
+
+    count = count_pending_sessions()
+    if count:
+        noun = "session" if count == 1 else "sessions"
+        print(f"  Waiting to be stored: {count} {noun} (the database was unreachable "
+              "when they ended). They're stored within a minute of the database "
+              "being reachable again.")
 
 
 def _check_start_process() -> None:

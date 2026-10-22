@@ -54,8 +54,10 @@ mismatched durations, and duplicate decoy paths.
 (mode `0600`, since it may contain captured credentials). This file is
 always written regardless of database configuration. `finalize_and_schedule()`
 then schedules auto-classification, which is what writes the session into
-PostgreSQL — a session captured before a database was configured will not
-retroactively appear in the dashboard once one is added.
+PostgreSQL. If the database can't be reached at that moment, the session is
+also kept in `logs/pending-sessions.jsonl`, and `classifier/catch_up.py`
+stores it once the database is back. A session captured before a database
+was configured is stored with `echidra import logs/sessions.jsonl`.
 
 - `honeypot/core/session.py` — `SessionState.to_record()`
 - `classifier/schemas/session.py` — `SessionRecord`, `CommandEvent`

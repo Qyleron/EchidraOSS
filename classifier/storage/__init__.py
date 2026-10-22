@@ -31,6 +31,7 @@ from classifier.storage.repository import (
     DatabaseDriverMissingError,
     PersonaConfigAlreadyExistsError,
     PostgresClassifierRepository,
+    is_database_unavailable,
 )
 
 __all__ = [
@@ -58,6 +59,7 @@ __all__ = [
     "PersonaConfigInput",
     "PersonaConfigRecord",
     "PostgresClassifierRepository",
+    "is_database_unavailable",
     "StoredClassifierRun",
     "StoredClassifierSignal",
     "StoredSessionEvent",

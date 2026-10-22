@@ -439,10 +439,14 @@ def _session_link(session_id) -> str:
     `ssh -L 8000:127.0.0.1:8000` tunnel `echidra start` suggests -- and
     ECHIDRA_DASHBOARD_URL overrides it for any other setup.
     """
+    return f"{_dashboard_base_url()}/dashboard/sessions?session={urllib.parse.quote(str(session_id))}"
+
+
+def _dashboard_base_url() -> str:
     base = os.getenv("ECHIDRA_DASHBOARD_URL", "").strip().rstrip("/")
     if not base.startswith(("http://", "https://")):
         base = _DEFAULT_DASHBOARD_URL
-    return f"{base}/dashboard/sessions?session={urllib.parse.quote(str(session_id))}"
+    return base
 
 
 def _alert_content(
@@ -516,12 +520,19 @@ def _html_escape(value: str) -> str:
     )
 
 
+# Fields whose value is a dashboard link, with the text it's shown as.
+_LINK_FIELD_TEXT = {
+    "Open": "Open this session in the dashboard",
+    "Review": "Open the Sessions page",
+}
+
+
 def _alert_html_field_rows(fields: list[tuple[str, str]]) -> str:
     def cell(label: str, value: str) -> str:
-        if label == "Open":
-            # Built by _session_link, never from attacker input.
+        if label in _LINK_FIELD_TEXT:
+            # Built from the dashboard URL, never from attacker input.
             href = html.escape(value, quote=True)
-            return f'<a href="{href}">Open this session in the dashboard</a>'
+            return f'<a href="{href}">{_LINK_FIELD_TEXT[label]}</a>'
         return _html_escape(value)
 
     return "\n".join(
@@ -588,6 +599,129 @@ def _dispatch_alert_slack(
         + "\n".join(f"- {item}" for item in evidence)
     )
     return _slack_post(webhook_url, text)
+
+
+def send_catch_up_alerts(stored: list[tuple]) -> None:
+    """One alert per decoy for sessions stored after a database outage
+    (classifier/catch_up.py), instead of one late alert per session.
+
+    stored holds (run, session, summary) tuples. Only sessions that would
+    have alerted on their own count, with each decoy's usual routing and
+    risk threshold.
+    """
+    by_persona: dict[str, list[tuple]] = {}
+    targets_by_persona = {}
+    for run, session, summary in stored:
+        if summary.alert_action is None:
+            continue
+        try:
+            targets = _alert_targets(session, summary)
+        except Exception:
+            logger.exception("Could not check the alert settings for session %s", session.session_id)
+            continue
+        if targets is None:
+            continue
+        by_persona.setdefault(session.persona_id, []).append((run, session, summary))
+        targets_by_persona[session.persona_id] = targets
+
+    for persona_id, items in by_persona.items():
+        repository, config, persona_config = targets_by_persona[persona_id]
+        try:
+            _dispatch_catch_up_alert(repository, config, persona_config, items)
+        except Exception:
+            logger.exception("Catch-up alert for %s failed", persona_id)
+
+
+def _utc_time(timestamp: float) -> str:
+    return datetime.fromtimestamp(timestamp, timezone.utc).strftime("%d %b %Y, %H:%M")
+
+
+def _catch_up_content(items: list[tuple]) -> dict:
+    """What a catch-up alert says, shared by the email and Slack versions.
+    items is non-empty and all from one decoy."""
+    ranked = sorted(items, key=lambda item: _RISK_RANKS.get(item[2].risk_level, 0), reverse=True)
+    persona_id = ranked[0][1].persona_id
+    count = len(items)
+    noun = "session" if count == 1 else "sessions"
+    risk_counts: dict[str, int] = {}
+    for _, _, summary in ranked:
+        risk_counts[summary.risk_level] = risk_counts.get(summary.risk_level, 0) + 1
+    started = min(session.started_at for _, session, _ in items)
+    ended = max(session.ended_at for _, session, _ in items)
+    top_risk = _humanize(ranked[0][2].risk_level).lower()
+    return {
+        "subject": f"[Echidra] {count} {noun} stored after a database outage on {persona_id}",
+        "heading": f"Echidra: {count} {noun} stored after a database outage",
+        "fix": (
+            f"Review them on the Sessions page, starting with the {top_risk}-risk ones. "
+            "They weren't alerted on one by one because the database was unreachable "
+            "when they ended."
+        ),
+        "fields": [
+            ("Decoy", persona_id),
+            ("Captured", f"{_utc_time(started)} to {_utc_time(ended)} UTC"),
+            ("Sessions", f"{count} at or above this decoy's alert level"),
+            ("By risk", ", ".join(
+                f"{_humanize(level)} {risk_counts[level]}"
+                for level in _RISK_LEVEL_ORDER
+                if level in risk_counts
+            )),
+            ("Review", f"{_dashboard_base_url()}/dashboard/sessions"),
+        ],
+        # Recorded in the alert history as the session this alert stands for.
+        "top": ranked[0],
+    }
+
+
+def _dispatch_catch_up_alert(repository, config, persona_config, items: list[tuple]) -> None:
+    content = _catch_up_content(items)
+    run, session, summary = content["top"]
+
+    if persona_config.alert_routing_level in ("email", "both") and persona_config.contact_email:
+        body = (
+            f"{content['heading']}\n\n"
+            f"What to do: {content['fix']}\n\n"
+            + "\n".join(f"{label + ':':<12}{value}" for label, value in content["fields"])
+            + "\n"
+        )
+        html_body = (
+            '<div style="font-family:sans-serif;font-size:14px;color:#111;">'
+            f'<h2 style="margin:0 0 12px;">{_html_escape(content["heading"])}</h2>'
+            '<p style="margin:0 0 16px;padding:10px 12px;background:#f4f6f8;border-left:3px solid #111;">'
+            f"<b>What to do:</b> {_html_escape(content['fix'])}</p>"
+            f'<table cellspacing="0" cellpadding="0">{_alert_html_field_rows(content["fields"])}</table>'
+            "</div>"
+        )
+        err = _smtp_send(config, persona_config.contact_email, content["subject"], body, html_body)
+        _record_alert_event(
+            repository,
+            _build_alert_event(
+                run, session, summary,
+                channel="email",
+                contact_email=persona_config.contact_email,
+                error=err,
+            ),
+        )
+
+    if persona_config.alert_routing_level in ("slack", "both") and persona_config.slack_webhook:
+        text = (
+            f"*{content['subject']}*\n"
+            f"*What to do:* {content['fix']}\n"
+            + "\n".join(
+                f"<{value}|{_LINK_FIELD_TEXT[label]}>" if label in _LINK_FIELD_TEXT else f"{label}: {value}"
+                for label, value in content["fields"]
+            )
+        )
+        err = _slack_post(persona_config.slack_webhook, text)
+        _record_alert_event(
+            repository,
+            _build_alert_event(
+                run, session, summary,
+                channel="slack",
+                contact_email=None,
+                error=err,
+            ),
+        )
 
 
 def _slack_post(webhook_url: str, text: str) -> str | None:

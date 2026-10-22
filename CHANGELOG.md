@@ -53,6 +53,14 @@ All notable changes to Echidra are documented here. The format follows
   `touch`, `mkdir`, `cp`, `rm` and `chmod` work, with GNU or BusyBox
   messages; and a file made runnable can be run as `./file`. What a
   session writes is kept in that session only, never on the host.
+- Sessions captured while the database is unreachable are kept in
+  `logs/pending-sessions.jsonl` and stored automatically within a minute of
+  the database coming back, followed by one summary alert per decoy instead
+  of one late alert per session. `echidra status` shows how many are
+  waiting.
+- `echidra import <session log>`: store the sessions in a session log that
+  aren't in the database yet (eg. captured before a database was set up),
+  skipping any already stored. No alerts are sent.
 - GitHub Actions: tests on Python 3.11–3.13, CodeQL, and OpenSSF Scorecard; Dependabot for pip,
   Docker, and Actions.
 
