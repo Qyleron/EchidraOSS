@@ -72,5 +72,5 @@ include = ["classifier*", "honeypot*", "echidra*", "dashboard*", "assets*"]
 # setuptools has something to hang this package-data on; classifier/api/app.py
 # resolves them via importlib.resources first, falling back to the previous
 # source-tree-relative path for any install where that lookup doesn't apply.
-"dashboard" = ["public/*.html", "public/*.css"]
+"dashboard" = ["public/*.html", "public/*.css", "public/*.js"]
 "assets" = ["*.png"]

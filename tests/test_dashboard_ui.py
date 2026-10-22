@@ -1,8 +1,28 @@
+import fnmatch
 import re
+import tomllib
 from pathlib import Path
 
 
 DASHBOARD_PUBLIC_PATH = Path(__file__).resolve().parents[1] / "dashboard/public"
+
+
+def test_every_dashboard_file_is_included_in_the_package():
+    # pyproject.toml's package-data decides which files a pip install gets;
+    # a file it misses works from a clone but is absent once installed.
+    pyproject = Path(__file__).resolve().parents[1] / "pyproject.toml"
+    patterns = tomllib.loads(pyproject.read_text(encoding="utf-8"))["tool"]["setuptools"][
+        "package-data"
+    ]["dashboard"]
+
+    missing = [
+        path.name
+        for path in sorted(DASHBOARD_PUBLIC_PATH.iterdir())
+        if path.is_file()
+        and not any(fnmatch.fnmatch(f"public/{path.name}", pattern) for pattern in patterns)
+    ]
+
+    assert missing == []
 
 
 def test_all_dashboard_html_pages_use_shared_branding_and_tablet_viewport():

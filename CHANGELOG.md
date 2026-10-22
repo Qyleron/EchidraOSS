@@ -153,6 +153,8 @@ All notable changes to Echidra are documented here. The format follows
 - Fields in two-column forms (eg. Persona ID and Display Name) line up.
 - The `test` extra includes `httpx`, and the project URLs point at the
   right repository.
+- A package install includes the dashboard's JavaScript, so its dropdowns
+  look the same as in a source checkout.
 - `echidra start` reports busy ports up front, and `echidra start`/`stop`
   point to `systemctl` when Echidra is running as a systemd service.
 - Classification reads the rules file once and again only when it changes,
