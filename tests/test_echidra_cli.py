@@ -444,7 +444,7 @@ def test_cmd_start_refuses_to_start_over_a_still_running_previous_instance(monke
 
     captured = capsys.readouterr()
     assert exit_code == 1
-    assert "still appears to be running" in captured.out
+    assert "Echidra is already running" in captured.out
     # Must refuse before spawning anything new on top of the stuck ports.
     assert popen_calls == []
     # The still-running instance's pidfile is left alone, not clobbered.

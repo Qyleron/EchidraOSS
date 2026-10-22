@@ -269,9 +269,7 @@ def _ensure_env_var(key: str, value_factory) -> None:
 def _cmd_start(args: argparse.Namespace) -> int:
     existing_pids = [pid for pid in _read_pid_file() if _pid_is_echidra_process(pid)]
     if existing_pids:
-        print(f"A previous 'echidra start' still appears to be running (PID {', '.join(map(str, existing_pids))}).")
-        print("Run 'echidra stop' first (or 'sudo echidra stop' if that reports permission denied), "
-              "then try again.")
+        print("Echidra is already running. To restart it, run 'echidra stop', then 'echidra start'.")
         return 1
     PID_PATH.unlink(missing_ok=True)  # clears a stale pidfile left by a process that's already gone
 
