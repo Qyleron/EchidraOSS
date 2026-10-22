@@ -25,6 +25,7 @@ from classifier.storage.models import (
     StoredSessionEvent,
 )
 from classifier.storage.repository import (
+    AlertSecretMissingError,
     DashboardEmailAlreadyRegisteredError,
     DashboardSignupNotAllowedError,
     DatabaseNotConfiguredError,
@@ -40,6 +41,7 @@ __all__ = [
     "AlertConfigInput",
     "AlertConfigRecord",
     "AlertEventRecord",
+    "AlertSecretMissingError",
     "AnalyticsSummary",
     "ClassifierRunRecord",
     "ClassifyAndStoreResponse",

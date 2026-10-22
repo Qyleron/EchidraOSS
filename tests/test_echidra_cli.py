@@ -61,6 +61,7 @@ def test_echidra_init_creates_env_from_example_and_generates_api_key(monkeypatch
     monkeypatch.setattr(cli, "ENV_PATH", env_path)
     monkeypatch.setattr(cli, "ENV_EXAMPLE_PATH", env_example_path)
     monkeypatch.delenv("ECHIDRA_DATABASE_URL", raising=False)
+    _without_alert_secrets(monkeypatch)
 
     exit_code = cli.main(["init"])
 
@@ -84,6 +85,7 @@ def test_echidra_init_does_not_overwrite_existing_env_or_key(monkeypatch, tmp_pa
     monkeypatch.setattr(cli, "ENV_PATH", env_path)
     monkeypatch.setattr(cli, "ENV_EXAMPLE_PATH", tmp_path / "does-not-exist.example")
     monkeypatch.delenv("ECHIDRA_DATABASE_URL", raising=False)
+    _without_alert_secrets(monkeypatch)
 
     exit_code = cli.main(["init"])
 
@@ -95,11 +97,47 @@ def test_echidra_init_does_not_overwrite_existing_env_or_key(monkeypatch, tmp_pa
     assert "already set" in captured.out
 
 
+def _without_alert_secrets(monkeypatch):
+    # init loads .env into the environment; this also makes the test undo it.
+    monkeypatch.delenv("ECHIDRA_ALERT_SECRET", raising=False)
+    monkeypatch.delenv("ECHIDRA_SECRET_KEY", raising=False)
+
+
+def test_echidra_init_generates_the_alert_secret(monkeypatch, tmp_path):
+    env_path = tmp_path / ".env"
+    monkeypatch.setattr(cli, "ENV_PATH", env_path)
+    monkeypatch.setattr(cli, "ENV_EXAMPLE_PATH", tmp_path / "does-not-exist.example")
+    monkeypatch.delenv("ECHIDRA_DATABASE_URL", raising=False)
+    _without_alert_secrets(monkeypatch)
+
+    assert cli.main(["init"]) == 0
+
+    from dotenv import dotenv_values
+
+    assert len(dotenv_values(env_path)["ECHIDRA_ALERT_SECRET"]) > 10
+
+
+def test_echidra_init_leaves_the_alert_secret_to_an_existing_secret_key(monkeypatch, tmp_path):
+    # A new alert secret would replace ECHIDRA_SECRET_KEY as the encryption
+    # key, and a saved SMTP password would stop decrypting.
+    env_path = tmp_path / ".env"
+    env_path.write_text("ECHIDRA_SECRET_KEY=existing-key\n", encoding="utf-8")
+    monkeypatch.setattr(cli, "ENV_PATH", env_path)
+    monkeypatch.setattr(cli, "ENV_EXAMPLE_PATH", tmp_path / "does-not-exist.example")
+    monkeypatch.delenv("ECHIDRA_DATABASE_URL", raising=False)
+    _without_alert_secrets(monkeypatch)
+
+    assert cli.main(["init"]) == 0
+
+    assert "ECHIDRA_ALERT_SECRET" not in env_path.read_text(encoding="utf-8")
+
+
 def test_echidra_init_runs_schema_setup_when_database_configured(monkeypatch, tmp_path, capsys):
     env_path = tmp_path / ".env"
     monkeypatch.setattr(cli, "ENV_PATH", env_path)
     monkeypatch.setattr(cli, "ENV_EXAMPLE_PATH", tmp_path / "does-not-exist.example")
     monkeypatch.setenv("ECHIDRA_DATABASE_URL", "postgresql://example/echidra")
+    _without_alert_secrets(monkeypatch)
 
     calls = []
 

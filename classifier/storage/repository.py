@@ -1384,6 +1384,11 @@ class PersonaConfigAlreadyExistsError(RuntimeError):
     """Raised when creating a persona config whose slug ID is already taken."""
 
 
+class AlertSecretMissingError(RuntimeError):
+    """Raised when saving an SMTP password without ECHIDRA_ALERT_SECRET or
+    ECHIDRA_SECRET_KEY to encrypt it with."""
+
+
 # Arbitrary constant advisory-lock key scoping the signup bootstrap check below
 # to a single serialized critical section — see create_dashboard_user_if_eligible.
 _DASHBOARD_SIGNUP_LOCK_KEY = 78_234_916
@@ -1413,8 +1418,8 @@ _alert_password_key_cache: dict[tuple[str, str], bytes] = {}
 def _alert_password_key(database_url: str) -> bytes:
     """Return a stable encryption key derived from an environment secret.
 
-    Raises RuntimeError if neither ECHIDRA_ALERT_SECRET nor ECHIDRA_SECRET_KEY
-    is set.
+    Raises AlertSecretMissingError if neither ECHIDRA_ALERT_SECRET nor
+    ECHIDRA_SECRET_KEY is set.
 
     Cached in-process per (secret, database_url) pair: PBKDF2 here is
     deliberately expensive (480k iterations) to resist brute-forcing the
@@ -1427,7 +1432,7 @@ def _alert_password_key(database_url: str) -> bytes:
     """
     key = os.environ.get("ECHIDRA_ALERT_SECRET") or os.environ.get("ECHIDRA_SECRET_KEY")
     if not key:
-        raise RuntimeError(
+        raise AlertSecretMissingError(
             "ECHIDRA_ALERT_SECRET or ECHIDRA_SECRET_KEY must be set to store SMTP passwords"
         )
 

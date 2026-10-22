@@ -173,6 +173,10 @@ All notable changes to Echidra are documented here. The format follows
   again in a moment.") instead of asking you to check that PostgreSQL is
   running. A session the database is too slow to store is tried once more
   without holding up the sessions captured after it.
+- `echidra init` generates `ECHIDRA_ALERT_SECRET`, which encrypts the SMTP
+  password (unless `ECHIDRA_SECRET_KEY` is already set). When neither is
+  set, saving an SMTP password says which setting to add instead of
+  showing a server error.
 - A package install includes the dashboard's JavaScript, so its dropdowns
   look the same as in a source checkout.
 - `echidra start` reports busy ports up front, and `echidra start`/`stop`

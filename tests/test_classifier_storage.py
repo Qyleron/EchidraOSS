@@ -125,6 +125,16 @@ def test_alert_password_encryption_round_trips_plaintext(monkeypatch):
     assert _decrypt_alert_password(database_url, encrypted) == "secret-password"
 
 
+def test_saving_an_alert_password_without_a_secret_raises_its_own_error(monkeypatch):
+    from classifier.storage import AlertSecretMissingError
+
+    monkeypatch.delenv("ECHIDRA_ALERT_SECRET", raising=False)
+    monkeypatch.delenv("ECHIDRA_SECRET_KEY", raising=False)
+
+    with pytest.raises(AlertSecretMissingError):
+        _encrypt_alert_password("postgresql://example/echidra", "secret-password")
+
+
 def test_alert_password_salt_is_per_installation_not_hardcoded(monkeypatch):
     """Two installations (independent persisted salts) with the same
     ECHIDRA_ALERT_SECRET must derive different keys -- a fixed source-embedded

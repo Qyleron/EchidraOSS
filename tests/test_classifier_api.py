@@ -1331,6 +1331,24 @@ def test_dashboard_api_says_when_the_database_is_too_slow(monkeypatch):
     assert "PostgreSQL is running" not in exc_info.value.detail
 
 
+def test_saving_an_smtp_password_without_an_alert_secret_says_what_to_set(monkeypatch):
+    from classifier.storage import AlertConfigInput, AlertSecretMissingError
+
+    class FakeRepository(_SessionVersionMixin):
+        def upsert_alert_config(self, payload):
+            raise AlertSecretMissingError("no secret")
+
+    monkeypatch.setattr(app_module, "PostgresClassifierRepository", FakeRepository)
+    route = route_for("/alerts/config", "PUT")
+
+    with pytest.raises(HTTPException) as exc_info:
+        route.endpoint(AlertConfigInput(smtp_password="secret"), dashboard_request())
+
+    assert exc_info.value.status_code == 400
+    assert exc_info.value.detail == app_module.ALERT_SECRET_MISSING_DETAIL
+    assert "ECHIDRA_ALERT_SECRET" in exc_info.value.detail
+
+
 def test_dashboard_api_keeps_500_for_errors_other_than_the_database(monkeypatch):
     class FakeRepository(_SessionVersionMixin):
         def get_dashboard_report_summary(self):

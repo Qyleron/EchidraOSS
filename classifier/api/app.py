@@ -34,6 +34,7 @@ from classifier.storage import (
     AlertConfigInput,
     AlertConfigRecord,
     AlertEventRecord,
+    AlertSecretMissingError,
     AnalyticsSummary,
     ClassifierRunRecord,
     ClassifyAndStoreResponse,
@@ -142,6 +143,11 @@ DATABASE_DISK_FULL_DETAIL = (
     "The database's disk is full. Free some space on the database server, then try again."
 )
 DATABASE_BUSY_DETAIL = "The database took too long to answer. Try again in a moment."
+ALERT_SECRET_MISSING_DETAIL = (
+    "Set ECHIDRA_ALERT_SECRET in .env (generate one with: "
+    "python -c \"import secrets; print(secrets.token_urlsafe(32))\"), "
+    "restart Echidra, then save again."
+)
 # Shown instead of the login page when a signed-in user's session can't be
 # checked because the database is down: sending them to log in would only
 # fail again, and reads as if they'd been logged out.
@@ -1123,6 +1129,8 @@ def create_app() -> FastAPI:
             return repository.upsert_alert_config(payload)
         except (DatabaseDriverMissingError, DatabaseNotConfiguredError) as exc:
             raise HTTPException(status_code=503, detail=_user_facing_error_detail(exc))
+        except AlertSecretMissingError:
+            raise HTTPException(status_code=400, detail=ALERT_SECRET_MISSING_DETAIL)
         except Exception as exc:
             logger.exception("Unhandled exception in update_alert_config_endpoint: %s", exc)
             raise _server_error(exc)

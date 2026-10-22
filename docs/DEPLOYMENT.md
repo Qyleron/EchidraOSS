@@ -64,12 +64,10 @@ python -c "import secrets; print(secrets.token_urlsafe(32))"   # ECHIDRA_SESSION
   window ends. A higher risk level, or a critical session, always alerts
   at once. `0` sends every alert. Every session is still recorded and shown
   in the dashboard either way.
-- `ECHIDRA_ALERT_SECRET` — required before SMTP email alerting actually
-  works (falls back to `ECHIDRA_SECRET_KEY` if unset). Encrypts the SMTP
-  password stored in `alert_config`. Unlike the keys above, omitting it
-  doesn't fail at startup — it raises the first time an alert email is
-  actually sent, so an operator who never configures SMTP may never notice
-  it's missing.
+- `ECHIDRA_ALERT_SECRET` — encrypts the SMTP password saved in the
+  dashboard's alert settings (falls back to `ECHIDRA_SECRET_KEY` if unset).
+  `echidra init` generates it. Without either, Echidra still starts, and
+  saving an SMTP password asks you to set it first.
 
 ## Docker Compose
 

@@ -211,6 +211,7 @@ def _build_parser() -> argparse.ArgumentParser:
 def _cmd_init(args: argparse.Namespace) -> int:
     _ensure_env_file()
     _ensure_env_var("ECHIDRA_INGEST_API_KEY", lambda: secrets.token_urlsafe(32))
+    _ensure_alert_secret()
 
     from dotenv import load_dotenv
 
@@ -259,6 +260,19 @@ def _ensure_env_var(key: str, value_factory) -> None:
     value = value_factory()
     set_key(str(ENV_PATH), key, value, quote_mode="never")
     print(f"Generated {key} and wrote it to {ENV_PATH.name}.")
+
+
+def _ensure_alert_secret() -> None:
+    """Generate ECHIDRA_ALERT_SECRET, which encrypts the saved SMTP password,
+    unless ECHIDRA_SECRET_KEY already does that job: a new alert secret would
+    take its place, and a password saved with it would stop decrypting."""
+    from dotenv import dotenv_values
+
+    if dotenv_values(ENV_PATH).get("ECHIDRA_SECRET_KEY") or os.getenv("ECHIDRA_SECRET_KEY"):
+        return
+    if os.getenv("ECHIDRA_ALERT_SECRET"):
+        return  # set outside .env (eg. by systemd); don't add a second one
+    _ensure_env_var("ECHIDRA_ALERT_SECRET", lambda: secrets.token_urlsafe(32))
 
 
 # ---------------------------------------------------------------------------
