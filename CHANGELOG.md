@@ -116,6 +116,9 @@ All notable changes to Echidra are documented here. The format follows
 - When sessions can't be written to the session log (eg. a full disk), the
   honeypot logs the first error in full, then a count at most every 30
   seconds, and points to "Disk space" in `docs/DEPLOYMENT.md`.
+- The honeypot brings the database tables up to date each time it starts,
+  so upgrading needs no separate `init-db` step; `docs/DEPLOYMENT.md` has
+  an "Upgrading" section for each way of running Echidra.
 - `SECURITY.md` rewritten to describe Echidra's security model.
 - `echidra start` prints a short summary: decoy ports, dashboard URL, an
   SSH-tunnel hint, and how to stop.

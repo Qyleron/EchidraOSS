@@ -65,3 +65,49 @@ def test_main_returns_normally_on_graceful_shutdown(monkeypatch):
     # No SystemExit -- a listener that's still running when the shutdown
     # signal arrives is a clean stop, not the all-failed error path.
     asyncio.run(run_and_signal_shutdown())
+
+
+def test_start_updates_the_database_tables(monkeypatch):
+    """An upgrade must work without running init-db by hand."""
+    import classifier.storage.repository as repository_module
+
+    calls = []
+    monkeypatch.setenv("ECHIDRA_DATABASE_URL", "postgresql://echidra:secret@db/echidra")
+    monkeypatch.setattr(
+        repository_module,
+        "apply_schema",
+        lambda url, **kwargs: calls.append((url, kwargs)),
+    )
+
+    main_module._update_database_schema()
+
+    assert calls == [("postgresql://echidra:secret@db/echidra", {"lock_timeout_seconds": 5})]
+
+
+def test_start_without_a_database_leaves_the_tables_alone(monkeypatch):
+    import classifier.storage.repository as repository_module
+
+    def must_not_run(*args, **kwargs):
+        raise AssertionError("no database is configured")
+
+    monkeypatch.setattr(repository_module, "apply_schema", must_not_run)
+
+    main_module._update_database_schema()
+
+
+def test_a_failed_table_update_says_what_to_run_and_still_starts(monkeypatch, caplog):
+    import classifier.storage.repository as repository_module
+
+    def unreachable(url, **kwargs):
+        raise OSError("connection to postgresql://echidra:secret@db/echidra failed")
+
+    monkeypatch.setenv("ECHIDRA_DATABASE_URL", "postgresql://echidra:secret@db/echidra")
+    monkeypatch.setattr(repository_module, "apply_schema", unreachable)
+
+    with caplog.at_level("WARNING", logger=main_module.logger.name):
+        main_module._update_database_schema()
+
+    assert len(caplog.records) == 1
+    message = caplog.records[0].message
+    assert "init-db" in message and "Upgrading" in message
+    assert "secret" not in message

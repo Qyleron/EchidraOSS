@@ -1072,6 +1072,60 @@ def test_repository_ping_uses_short_timeouts(monkeypatch):
     assert connect_kwargs["options"] == "-c statement_timeout=2000"
 
 
+@pytest.mark.parametrize("lock_timeout_seconds", [0, 5])
+def test_apply_schema_runs_under_one_lock(monkeypatch, tmp_path, lock_timeout_seconds):
+    """The honeypot applies the schema at start, possibly while init-db
+    runs: the advisory lock makes one wait for the other."""
+    from classifier.storage.repository import _SCHEMA_LOCK_KEY, apply_schema
+
+    executed = []
+    connect_kwargs = {}
+
+    class FakeCursor:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def execute(self, sql, params=None):
+            executed.append((sql, params))
+
+    class FakeConnection:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def transaction(self):
+            return self
+
+        def cursor(self):
+            return FakeCursor()
+
+    class FakePsycopg:
+        @staticmethod
+        def connect(database_url, **kwargs):
+            connect_kwargs.update(kwargs)
+            return FakeConnection()
+
+    monkeypatch.setattr("classifier.storage.repository._load_psycopg", lambda: FakePsycopg)
+    schema_path = tmp_path / "schema.sql"
+    schema_path.write_text("CREATE TABLE example(id integer);", encoding="utf-8")
+
+    apply_schema("postgresql://example/echidra", schema_path, lock_timeout_seconds=lock_timeout_seconds)
+
+    assert executed[0] == ("SELECT pg_advisory_xact_lock(%s)", (_SCHEMA_LOCK_KEY,))
+    if lock_timeout_seconds:
+        assert executed[1] == ("SET LOCAL lock_timeout = '5s'", None)
+    assert executed[-1] == ("CREATE TABLE example(id integer);", None)
+    assert len(executed) == (3 if lock_timeout_seconds else 2)
+    # No statement timeout: a new index on a large table may take a while.
+    assert connect_kwargs["options"] == "-c statement_timeout=0"
+    assert connect_kwargs["connect_timeout"] == 10
+
+
 def test_database_disk_full_is_told_apart_from_an_unreachable_database():
     psycopg = pytest.importorskip("psycopg")
     from classifier.storage import is_database_disk_full, is_database_unavailable

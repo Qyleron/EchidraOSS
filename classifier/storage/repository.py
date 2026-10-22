@@ -72,6 +72,11 @@ _ISSUE_SYNC_LOCK_KEY = 78_234_917
 # and `echidra import` can't both store the same session.
 _SESSION_STORE_LOCK_CLASS = 78_234_918
 
+# Advisory-lock key serializing apply_schema() across processes.
+_SCHEMA_LOCK_KEY = 78_234_919
+
+SCHEMA_PATH = Path(__file__).with_name("schema.sql")
+
 # connect_timeout only bounds the initial handshake, and statement_timeout is
 # enforced server-side -- neither helps once a connection is already
 # established and the network then dies silently (a partition, a middlebox
@@ -3029,13 +3034,28 @@ def _execute_insert(database_url: str, sql: str, params: dict[str, Any]) -> None
     _execute_statements(database_url, [(sql, params)])
 
 
-def apply_schema(database_url: str, schema_path: str | Path) -> None:
-    """Apply the PostgreSQL schema file to an existing database."""
+def apply_schema(
+    database_url: str,
+    schema_path: str | Path = SCHEMA_PATH,
+    *,
+    lock_timeout_seconds: int = 0,
+) -> None:
+    """Apply the PostgreSQL schema file to an existing database.
+
+    Safe to run again, and from two processes at once (the honeypot at
+    start and `init-db`): an advisory lock makes the second wait for the
+    first. lock_timeout_seconds > 0 gives up instead of waiting longer for a
+    table lock: ALTER TABLE queues behind a long dashboard query, and every
+    later query on that table would queue behind it.
+    """
     schema_sql = Path(schema_path).read_text(encoding="utf-8")
     psycopg = _load_psycopg()
-    with psycopg.connect(database_url) as connection:
+    with _connect(psycopg, database_url, statement_timeout_seconds=0) as connection:
         with connection.transaction():
             with connection.cursor() as cursor:
+                cursor.execute("SELECT pg_advisory_xact_lock(%s)", (_SCHEMA_LOCK_KEY,))
+                if lock_timeout_seconds:
+                    cursor.execute(f"SET LOCAL lock_timeout = '{int(lock_timeout_seconds)}s'")
                 cursor.execute(schema_sql)
 
 

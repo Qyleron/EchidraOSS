@@ -18,6 +18,31 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 _CATCH_UP_INTERVAL_SECONDS = 60.0
+# How long applying the schema at start may wait for a table lock before
+# giving up (see apply_schema).
+_SCHEMA_LOCK_TIMEOUT_SECONDS = 5
+
+
+def _update_database_schema() -> None:
+    """Add any tables and columns this version needs, so an upgrade works
+    without running init-db by hand. The schema is safe to apply again; on
+    an up-to-date database it changes nothing."""
+    from classifier.storage import get_database_url
+    from classifier.storage.config import redact_database_url
+    from classifier.storage.repository import apply_schema
+
+    database_url = get_database_url()
+    if database_url is None:
+        return
+    try:
+        apply_schema(database_url, lock_timeout_seconds=_SCHEMA_LOCK_TIMEOUT_SECONDS)
+    except Exception as exc:
+        reason = (str(exc).strip().splitlines() or [type(exc).__name__])[0]
+        logger.warning(
+            "Couldn't update the database tables at start (%s). If sessions fail "
+            "to store, run init-db: see 'Upgrading' in docs/DEPLOYMENT.md",
+            redact_database_url(reason),
+        )
 
 
 async def _catch_up_loop() -> None:
@@ -42,6 +67,10 @@ async def main():
     loop.add_signal_handler(signal.SIGINT, shutdown_signal)
     if hasattr(signal, "SIGTERM"):
         loop.add_signal_handler(signal.SIGTERM, shutdown_signal)
+
+    # Before the persona lookup and the first session, both of which read
+    # tables an upgrade may add to.
+    await asyncio.to_thread(_update_database_schema)
 
     # Load the persona once, off the event loop, before anything listens:
     # after this, connections get the cached persona and stale reloads run

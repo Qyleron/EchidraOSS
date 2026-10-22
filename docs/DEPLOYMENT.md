@@ -116,8 +116,10 @@ clean checkout, rather than relying on Compose's implicit auto-build).
 The `--rm` migration container is temporary and removed once `init-db`
 finishes -- three long-running containers remain afterward: `db`,
 `honeypot` (the four listeners), and `api` (dashboard + classifier API on
-port 8000). The `init-db` step only needs to run once — it's idempotent,
-so re-running it against an existing database is safe.
+port 8000). The `init-db` step only needs to run once: after that, the
+honeypot brings the tables up to date at each start (see
+[Upgrading](#upgrading)). Re-running it against an existing database is
+safe.
 
 `docker compose up -d` returns before uvicorn has finished booting inside
 `api`, so opening the dashboard in the first few seconds can fail with
@@ -228,12 +230,7 @@ SSH host keys (an RSA, an ECDSA and an Ed25519 key, generated on first
 start and kept owner-readable only). The manual step is still the one to run yourself the first
 time, since `logs/` isn't auto-provisioned the same way.
 
-When you upgrade, run the same `init-db` command before restarting the
-services. It adds any new tables and columns and keeps your data. After the
-restart, the first issue sync rebuilds every Intelligence issue from all
-stored classifier runs, in the background. On a large database this takes a
-few minutes, and the Intelligence page shows the previous issues until the
-rebuild finishes. Later syncs merge only new runs.
+To upgrade, see [Upgrading](#upgrading).
 
 Check status:
 
@@ -260,6 +257,45 @@ sudo ufw status verbose
 ```
 
 Access the dashboard remotely via SSH tunnel as described above.
+
+## Upgrading
+
+Your data is kept. Each time the honeypot starts, it adds any tables and
+columns the new version needs, so there's no separate database step.
+
+```bash
+# Local (stop 'echidra start' first)
+git pull
+pip install -e .
+echidra start
+
+# Docker Compose
+git pull
+docker compose up -d --build
+
+# systemd
+cd /opt/echidra
+sudo git pull
+sudo ./venv/bin/pip install -e .
+sudo systemctl restart echidra-honeypot echidra-api
+```
+
+After the restart, the first issue sync rebuilds every Intelligence issue
+from all stored classifier runs, in the background. On a large database
+this takes a few minutes, and the Intelligence page shows the previous
+issues until the rebuild finishes. Later syncs merge only new runs.
+
+If the honeypot's log says "Couldn't update the database tables at start",
+fix what it names (usually the database being unreachable), then update the
+tables yourself and restart:
+
+```bash
+echidra init
+# Docker Compose:
+docker compose run --rm api python -m classifier.storage.cli init-db
+# systemd (from /opt/echidra):
+sudo -u echidra venv/bin/python -m classifier.storage.cli init-db
+```
 
 ## Any of these: confirm it's actually working
 
