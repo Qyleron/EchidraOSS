@@ -193,12 +193,12 @@ def import_session_log(
     DatabaseNotConfiguredError, or psycopg's OperationalError when the
     database can't be reached; running it again skips what's stored.
     """
-    from classifier.pipeline import DEFAULT_RULES_PATH, load_rules
+    from classifier.pipeline import default_rules
     from classifier.storage import PostgresClassifierRepository
 
     repository = PostgresClassifierRepository()
     repository.ping()
-    rules = load_rules(DEFAULT_RULES_PATH)
+    rules = default_rules()
     result = ImportResult()
     batch: list[SessionRecord] = []
     with path.open(encoding="utf-8") as handle:

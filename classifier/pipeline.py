@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import threading
 import time
 from collections.abc import Iterable
 from pathlib import Path
@@ -27,6 +28,38 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_RULES_PATH = Path(__file__).parent / "rules" / "default_rules.yaml"
 
+# (modification time, rules) of the last read of DEFAULT_RULES_PATH. The
+# classification workers are threads, hence the lock.
+_default_rules_cache: tuple[int, RuleSet] | None = None
+_default_rules_lock = threading.Lock()
+
+
+def default_rules() -> RuleSet:
+    """The default ruleset, read from disk only when the file has changed.
+
+    Re-reading and validating the YAML for every session made bulk runs
+    (`echidra classify` on a large log) slow; checking the modification time
+    instead still applies an edit from the next session on. An edit that
+    doesn't load (eg. a YAML typo) is logged and the previous rules are kept.
+    """
+    global _default_rules_cache
+    modified = DEFAULT_RULES_PATH.stat().st_mtime_ns
+    with _default_rules_lock:
+        if _default_rules_cache is not None and _default_rules_cache[0] == modified:
+            return _default_rules_cache[1]
+        try:
+            rules = load_rules(DEFAULT_RULES_PATH)
+        except Exception:
+            if _default_rules_cache is None:
+                raise
+            logger.exception(
+                "Could not load the edited %s; still using the rules loaded before",
+                DEFAULT_RULES_PATH,
+            )
+            rules = _default_rules_cache[1]
+        _default_rules_cache = (modified, rules)
+        return rules
+
 
 def classify_session(
     session: SessionRecord,
@@ -44,7 +77,7 @@ def classify_session(
     store-time path (/classify/session/store) after a DB lookup; the stateless
     /classify/session endpoint always leaves it None.
     """
-    active_rules = rules if rules is not None else load_rules(DEFAULT_RULES_PATH)
+    active_rules = rules if rules is not None else default_rules()
     features = extract_session_features(
         session,
         connection_count_from_same_ip=connection_count_from_same_ip,

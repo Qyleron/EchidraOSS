@@ -155,6 +155,10 @@ All notable changes to Echidra are documented here. The format follows
   right repository.
 - `echidra start` reports busy ports up front, and `echidra start`/`stop`
   point to `systemctl` when Echidra is running as a systemd service.
+- Classification reads the rules file once and again only when it changes,
+  instead of for every session, so `echidra classify` on a large log is much
+  faster. An edit to the rules still applies from the next session; an edit
+  that doesn't load is logged and the previous rules are kept.
 - `echidra status` checks the decoy ports without connecting to them, so it
   no longer adds empty sessions from 127.0.0.1 to the dashboard. A port held
   by something other than Echidra is named with how to find what holds it,

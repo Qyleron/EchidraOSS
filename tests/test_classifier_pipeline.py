@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import os
 import uuid
 
 import pytest
@@ -65,6 +66,63 @@ def make_record(**overrides):
     record = json.loads(session.model_dump_json())
     record.update(overrides)
     return record
+
+
+@pytest.fixture
+def fresh_default_rules(monkeypatch, tmp_path):
+    """A private copy of the default rules, with nothing cached yet."""
+    path = tmp_path / "default_rules.yaml"
+    path.write_text(pipeline_module.DEFAULT_RULES_PATH.read_text(encoding="utf-8"), encoding="utf-8")
+    monkeypatch.setattr(pipeline_module, "DEFAULT_RULES_PATH", path)
+    monkeypatch.setattr(pipeline_module, "_default_rules_cache", None)
+    return path
+
+
+def _edit_rules(path, old, new):
+    text = path.read_text(encoding="utf-8").replace(old, new)
+    path.write_text(text, encoding="utf-8")
+    # Make sure the modification time moves even on a coarse-clock filesystem.
+    stat = path.stat()
+    os.utime(path, ns=(stat.st_atime_ns, stat.st_mtime_ns + 1_000_000_000))
+
+
+def test_default_rules_are_read_once_for_many_sessions(fresh_default_rules, monkeypatch):
+    reads = []
+    real_load_rules = pipeline_module.load_rules
+    monkeypatch.setattr(
+        pipeline_module, "load_rules", lambda path: reads.append(path) or real_load_rules(path)
+    )
+    session = SessionRecord.model_validate(make_record())
+
+    for _ in range(5):
+        classify_session(session)
+
+    assert len(reads) == 1
+
+
+def test_default_rules_give_the_same_result_as_loading_the_file(fresh_default_rules):
+    session = SessionRecord.model_validate(make_record())
+
+    cached = classify_session(session)
+    loaded = classify_session(session, pipeline_module.load_rules(fresh_default_rules))
+
+    assert cached == loaded
+
+
+def test_an_edit_to_the_rules_applies_to_the_next_session(fresh_default_rules):
+    assert pipeline_module.default_rules().rules_version == "1.0.0"
+
+    _edit_rules(fresh_default_rules, 'rules_version: "1.0.0"', 'rules_version: "1.0.1"')
+
+    assert pipeline_module.default_rules().rules_version == "1.0.1"
+
+
+def test_a_broken_edit_keeps_the_rules_loaded_before(fresh_default_rules):
+    before = pipeline_module.default_rules()
+
+    _edit_rules(fresh_default_rules, "rules:", "rules: [")
+
+    assert pipeline_module.default_rules() is before
 
 
 def test_classify_session_runs_default_post_session_pipeline():
