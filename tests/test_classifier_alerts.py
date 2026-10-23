@@ -739,7 +739,8 @@ def test_catch_up_sends_one_alert_per_decoy_instead_of_one_per_session(monkeypat
     assert len(sent) == 1
     recipient, subject, body = sent[0]
     assert recipient == "soc@example.com"
-    assert subject == "[Echidra] 3 sessions stored after a database outage on generic_linux"
+    assert subject == "[Echidra] 3 sessions stored late on generic_linux"
+    assert "or Echidra was stopping" in body
     assert "What to do: Review them on the Sessions page" in body
     assert "http://127.0.0.1:8000/dashboard/sessions" in body
     assert len(fake.inserted_events) == 1

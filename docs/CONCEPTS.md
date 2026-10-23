@@ -56,7 +56,9 @@ always written regardless of database configuration. `finalize_and_schedule()`
 then schedules auto-classification, which is what writes the session into
 PostgreSQL. If the database can't be reached at that moment, the session is
 also kept in `logs/pending-sessions.jsonl`, and `classifier/catch_up.py`
-stores it once the database is back. A session captured before a database
+stores it once the database is back. Sessions still waiting to be stored
+when the honeypot stops are kept there too, and stored within a minute of
+the next start. A session captured before a database
 was configured is stored with `echidra import logs/sessions.jsonl`.
 
 - `honeypot/core/session.py` — `SessionState.to_record()`

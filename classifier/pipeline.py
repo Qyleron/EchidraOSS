@@ -187,7 +187,7 @@ _dropped_queue_full_last_logged: float | None = None
 _WORKER_STOP = object()
 
 # Log threshold (not a hard deadline) for how long stop_classification_workers
-# waits for already-queued sessions to finish classifying. Every blocking
+# waits for sessions the workers have already started to finish. Every blocking
 # call reachable from auto_classify_and_store now has its own timeout --
 # DB connect/statement timeouts (classifier/storage/repository.py) and
 # alert-delivery socket timeouts (classifier/alerts.py) -- so the wait below
@@ -238,14 +238,15 @@ def start_classification_workers(
 async def stop_classification_workers(
     drain_timeout: float = _CLASSIFICATION_SHUTDOWN_DRAIN_TIMEOUT,
 ) -> None:
-    """Close intake, drain already-queued classification work, then stop workers.
+    """Close intake, keep still-queued sessions to store after the restart,
+    finish the ones in progress, then stop workers.
 
     Clears the module-level queue reference up front so schedule_auto_
     classification() starts rejecting (and logging) new sessions immediately,
-    before waiting for the queue to fully empty -- so sessions enqueued right
-    before shutdown began still get classified and stored instead of being
-    silently dropped, while nothing enqueued after can land behind the stop
-    sentinels below and get stranded once their worker has already exited.
+    so nothing enqueued after can land behind the stop sentinels below and
+    get stranded once their worker has already exited. Sessions still
+    waiting are written to the pending file (see classifier.catch_up) rather
+    than dropped or classified against the clock.
     Once drained, each now-idle worker gets a stop sentinel so its loop
     returns on its own. Workers are never cancelled: cancelling a task awaiting
     asyncio.to_thread does not stop the underlying thread, which would keep
@@ -269,23 +270,26 @@ async def stop_classification_workers(
     # that would have processed it have already exited.
     _classification_queue = None
 
+    # Sessions still waiting go to the pending file at once, instead of
+    # being classified now: `echidra stop` and Docker kill the process
+    # 10 s after asking it to stop, too soon for a full queue. Catch-up
+    # stores them within a minute of the next start.
+    waiting = []
+    while True:
+        try:
+            waiting.append(queue.get_nowait())
+        except asyncio.QueueEmpty:
+            break
+        queue.task_done()
+    if waiting:
+        await asyncio.to_thread(_keep_waiting_sessions, waiting)
+
     try:
         await asyncio.wait_for(queue.join(), timeout=drain_timeout)
     except asyncio.TimeoutError:
-        dropped = 0
-        while True:
-            try:
-                queue.get_nowait()
-            except asyncio.QueueEmpty:
-                break
-            else:
-                queue.task_done()
-                dropped += 1
         logger.warning(
-            "Classification queue did not drain after %.1fs; "
-            "dropping %d pending sessions and waiting for in-flight work",
+            "Sessions already being stored are taking more than %.1fs; still waiting",
             drain_timeout,
-            dropped,
         )
         await queue.join()
 
@@ -293,6 +297,16 @@ async def stop_classification_workers(
         await queue.put(_WORKER_STOP)
     await asyncio.gather(*_classification_workers)
     _classification_workers.clear()
+
+
+def _keep_waiting_sessions(sessions: list[SessionRecord]) -> None:
+    from classifier.catch_up import keep_pending_sessions
+    from classifier.storage import get_database_url
+
+    if get_database_url() is None:
+        return  # nothing would store them; they're in the session log
+    keep_pending_sessions(sessions)
+    logger.info("Kept %d queued session(s) to store after the restart", len(sessions))
 
 
 def auto_classify_and_store(session: SessionRecord) -> None:

@@ -173,6 +173,10 @@ All notable changes to Echidra are documented here. The format follows
   again in a moment.") instead of asking you to check that PostgreSQL is
   running. A session the database is too slow to store is tried once more
   without holding up the sessions captured after it.
+- Stopping the honeypot keeps sessions still waiting to be stored, and
+  stores them within a minute of the next start, so a stop or restart under
+  load doesn't drop them. Their summary alert reads "N sessions stored
+  late".
 - `echidra init` generates `ECHIDRA_ALERT_SECRET`, which encrypts the SMTP
   password (unless `ECHIDRA_SECRET_KEY` is already set). When neither is
   set, saving an SMTP password says which setting to add instead of

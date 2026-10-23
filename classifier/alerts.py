@@ -602,8 +602,8 @@ def _dispatch_alert_slack(
 
 
 def send_catch_up_alerts(stored: list[tuple]) -> None:
-    """One alert per decoy for sessions stored after a database outage
-    (classifier/catch_up.py), instead of one late alert per session.
+    """One alert per decoy for sessions stored late, after a database outage
+    or a stop (classifier/catch_up.py), instead of one late alert per session.
 
     stored holds (run, session, summary) tuples. Only sessions that would
     have alerted on their own count, with each decoy's usual routing and
@@ -650,12 +650,12 @@ def _catch_up_content(items: list[tuple]) -> dict:
     ended = max(session.ended_at for _, session, _ in items)
     top_risk = _humanize(ranked[0][2].risk_level).lower()
     return {
-        "subject": f"[Echidra] {count} {noun} stored after a database outage on {persona_id}",
-        "heading": f"Echidra: {count} {noun} stored after a database outage",
+        "subject": f"[Echidra] {count} {noun} stored late on {persona_id}",
+        "heading": f"Echidra: {count} {noun} stored late",
         "fix": (
             f"Review them on the Sessions page, starting with the {top_risk}-risk ones. "
-            "They weren't alerted on one by one because the database was unreachable "
-            "when they ended."
+            "They weren't alerted on one by one because they couldn't be stored when "
+            "they ended (the database was unreachable, or Echidra was stopping)."
         ),
         "fields": [
             ("Decoy", persona_id),

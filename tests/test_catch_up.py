@@ -1,8 +1,10 @@
 """Tests for classifier/catch_up.py: keeping sessions the database couldn't
 take, and storing them once it's reachable again."""
 
+import asyncio
 import os
 import stat
+import time
 import uuid
 
 import pytest
@@ -250,6 +252,55 @@ def test_auto_classification_keeps_the_session_when_the_database_is_unreachable(
     pipeline_module.auto_classify_and_store(session)
 
     assert kept == [session]
+
+
+def _stop_with_queued_sessions(monkeypatch, sessions):
+    """Start one worker, queue the sessions, stop once the worker has taken
+    the first; return the sessions the worker stored."""
+    stored = []
+
+    def slow_store(session):
+        time.sleep(0.2)
+        stored.append(session.session_id)
+
+    monkeypatch.setattr(pipeline_module, "auto_classify_and_store", slow_store)
+
+    async def scenario():
+        pipeline_module.start_classification_workers(worker_count=1, queue_maxsize=10)
+        for session in sessions:
+            pipeline_module.schedule_auto_classification(session)
+        while pipeline_module._classification_queue.qsize() == len(sessions):
+            await asyncio.sleep(0)
+        await pipeline_module.stop_classification_workers()
+
+    asyncio.run(scenario())
+    return stored
+
+
+def test_stop_keeps_queued_sessions_to_store_after_the_restart(tmp_path, monkeypatch):
+    path = tmp_path / "pending-sessions.jsonl"
+    monkeypatch.setattr(catch_up_module, "pending_sessions_path", lambda: path)
+    monkeypatch.setattr(storage_module, "get_database_url", lambda: "postgresql://example/echidra")
+    first, second, third = _session(), _session(), _session()
+
+    stored = _stop_with_queued_sessions(monkeypatch, [first, second, third])
+
+    # The one in progress finishes; the rest wait in the pending file
+    # instead of being dropped.
+    assert stored == [first.session_id]
+    kept = [SessionRecord.model_validate_json(line).session_id
+            for line in path.read_text(encoding="utf-8").splitlines()]
+    assert kept == [second.session_id, third.session_id]
+
+
+def test_stop_without_a_database_keeps_nothing(tmp_path, monkeypatch):
+    path = tmp_path / "pending-sessions.jsonl"
+    monkeypatch.setattr(catch_up_module, "pending_sessions_path", lambda: path)
+    monkeypatch.setattr(storage_module, "get_database_url", lambda: None)
+
+    _stop_with_queued_sessions(monkeypatch, [_session(), _session()])
+
+    assert not path.exists()
 
 
 def test_auto_classification_keeps_the_session_when_the_database_is_too_slow(

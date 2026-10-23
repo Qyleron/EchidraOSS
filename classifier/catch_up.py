@@ -3,7 +3,8 @@
 Every session is written to the session log first. When saving one to the
 database then fails because the database can't be reached,
 auto_classify_and_store also adds it to pending-sessions.jsonl, next to the
-session log. The honeypot calls catch_up_pending_sessions every minute: once
+session log; so does the honeypot, at stop, for sessions still waiting in
+the classification queue. The honeypot calls catch_up_pending_sessions every minute: once
 the database answers again, it stores those sessions, skipping any already
 stored, and sends one summary alert per decoy instead of one late alert per
 session.
@@ -65,6 +66,21 @@ def keep_pending_session(session: SessionRecord, path: Path | None = None) -> No
         logger.exception(
             "Could not keep session %s to store later; it is still in the session log",
             session.session_id,
+        )
+
+
+def keep_pending_sessions(sessions: list[SessionRecord], path: Path | None = None) -> None:
+    """Add sessions the honeypot stopped before storing to the pending file,
+    in one write."""
+    path = path or pending_sessions_path()
+    try:
+        with _pending_lock:
+            _append_lines(path, [session.model_dump_json() + "\n" for session in sessions])
+    except OSError:
+        logger.exception(
+            "Could not keep %d session(s) to store later; they are still in the session log. "
+            "To store them: echidra import logs/sessions.jsonl",
+            len(sessions),
         )
 
 
@@ -176,7 +192,7 @@ def catch_up_pending_sessions(path: Path | None = None) -> int:
 
     if stored:
         logger.info(
-            "Stored %d session(s) captured while the database was unreachable", len(stored)
+            "Stored %d session(s) kept to store later", len(stored)
         )
         send_catch_up_alerts(stored)
         try:
