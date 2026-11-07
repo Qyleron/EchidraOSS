@@ -30,7 +30,7 @@
     </header>
 
     <div id="logoutConfirmModal" class="modal-backdrop" hidden aria-modal="true" role="dialog" aria-labelledby="logoutConfirmTitle">
-      <div class="modal" style="max-width:380px;">
+      <div class="modal" tabindex="-1" style="max-width:380px;outline:none;">
         <div class="modal-header">
           <h2 id="logoutConfirmTitle">Log Out</h2>
           <button class="modal-close modal-close-danger" id="logoutConfirmCloseBtn" type="button" aria-label="Close">&times;</button>
@@ -40,6 +40,21 @@
           <div style="display:flex;justify-content:flex-end;gap:8px;">
             <button type="button" class="text-button" id="logoutCancelBtn">Cancel</button>
             <button type="button" class="text-button" id="logoutConfirmBtn" style="border-color:rgba(255,92,112,0.3);color:#ff9aa6;">Log Out</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div id="removePasswordModal" class="modal-backdrop" hidden aria-modal="true" role="dialog" aria-labelledby="removePasswordTitle">
+      <div class="modal" tabindex="-1" style="max-width:380px;outline:none;">
+        <div class="modal-header">
+          <h2 id="removePasswordTitle">Remove Password</h2>
+          <button class="modal-close modal-close-danger" id="removePasswordCloseBtn" type="button" aria-label="Close">&times;</button>
+        </div>
+        <div class="modal-body" style="padding:22px;">
+          <p style="margin:0 0 18px;color:var(--label);">Remove the saved password? Email alerts won't be sent until you add one.</p>
+          <div style="display:flex;justify-content:flex-end;gap:8px;">
+            <button type="button" class="text-button" id="removePasswordCancelBtn">Cancel</button>
+            <button type="button" class="text-button" id="removePasswordConfirmBtn" style="border-color:rgba(255,92,112,0.3);color:#ff9aa6;">Remove</button>
           </div>
         </div>
       </div>
@@ -86,17 +101,19 @@
                 <input class="form-input" id="smtpPort" type="number" min="1" max="65535" value="587" />
               </div>
               <div class="form-row">
-                <label class="form-label">Username</label>
+                <label class="form-label">Username (if your mail server needs a login)</label>
                 <input class="form-input" id="smtpUsername" type="text" placeholder="alerts@example.com" autocomplete="off" />
               </div>
               <div class="form-row">
-                <label class="form-label">Email App Password</label>
+                <label class="form-label">Password (for Gmail, an app password)</label>
                 <div class="password-field-wrapper">
-                  <input class="form-input" id="smtpPassword" type="password" placeholder="leave blank to keep existing" autocomplete="new-password" />
+                  <input class="form-input" id="smtpPassword" type="password" autocomplete="new-password" />
                   <button type="button" class="password-toggle-btn" id="smtpPasswordToggle" aria-label="Show password" aria-pressed="false"></button>
                 </div>
-                <span id="pwConfigured" class="secret-state"></span>
-              </div>
+                <span class="secret-state-row">
+                  <span id="pwConfigured" class="secret-state"></span>
+                  <button type="button" class="text-button secret-remove" id="removePasswordBtn" hidden>Remove</button>
+                </span>              </div>
               <div class="form-row">
                 <label class="form-label">From Email</label>
                 <input class="form-input" id="smtpFromEmail" type="email" placeholder="echidra@example.com" />
@@ -128,10 +145,7 @@
                 <label class="form-label" for="excludedIps">Excluded IPs (never trigger an alert)</label>
                 <textarea class="form-input" id="excludedIps" rows="3" style="resize:vertical;font-family:monospace;padding-top:8px;" placeholder="One IP per line, e.g. 127.0.0.1"></textarea>
                 <span class="form-hint">
-                  Some rules (for example, repeated connections from one IP) flag a source by how often it
-                  connects, not by what it does. Testing against your own decoys from the same IP will
-                  eventually trigger a brute-force alert. List IPs here (such as <code>127.0.0.1</code>
-                  while testing) to never alert on them.
+                  Your own addresses, such as <code>127.0.0.1</code> while testing, or your own scanners.
                 </span>
               </div>
 
@@ -370,7 +384,6 @@
         document.getElementById("excludedIps").value = cfg.excluded_ips || "";
         renderPasswordState(cfg.smtp_password_configured);
         updateSmtpFieldsDisabled();
-        savedFormState = alertFormState();
       } catch (err) {
         smtpStatus.textContent = "Couldn't load alert settings: " + err.message;
         smtpStatus.style.color = "var(--critical)";
@@ -405,30 +418,22 @@
       };
     }
 
-    // Send Test Email uses the saved settings, so the form as last loaded or
-    // saved is remembered: testing while it differs would test something
-    // other than what's on screen. A typed password counts as a change.
-    var savedFormState = null;
-
-    function alertFormState() {
-      var payload = buildAlertConfigPayload();
-      payload.smtp_password = Boolean(payload.smtp_password);
-      return JSON.stringify(payload);
-    }
-
-    // Persistent state under the password field (shown for as long as a
-    // password is stored), not a one-off message.
+    // The saved password is never shown again, so a short mark under the
+    // field says one is stored (nothing when none is), and the empty field
+    // itself says leaving it blank keeps it.
     function renderPasswordState(configured) {
       var pwEl = document.getElementById("pwConfigured");
-      pwEl.textContent = configured
-        ? "✓ App password saved. Leave the field blank to keep it."
-        : "No app password saved.";
+      pwEl.textContent = configured ? "✓ Password saved" : "";
       pwEl.classList.toggle("is-set", Boolean(configured));
+      document.getElementById("removePasswordBtn").hidden = !configured;
+      document.getElementById("smtpPassword").placeholder = configured
+        ? "Leave blank to keep the saved password"
+        : "";
     }
 
+    // Saves the form. savedMessage is the notice on success; null saves
+    // quietly (Send Test Email reports the whole thing in one notice).
     async function saveAlertConfig(payload, savedMessage) {
-      // The notice says how the save went; the button is just held so a
-      // double-click can't save twice.
       var saveBtn = smtpForm.querySelector('button[type="submit"]');
       saveBtn.disabled = true;
       smtpStatus.textContent = "";
@@ -442,8 +447,14 @@
         var cfg = await r.json();
         document.getElementById("smtpPassword").value = "";
         renderPasswordState(cfg.smtp_password_configured);
-        savedFormState = alertFormState();
-        showNotice(savedMessage, { success: true });
+        // The "✓ Password saved" mark looks the same before and after a
+        // change, so the notice says when the password itself was replaced.
+        // (An empty string, not null, is the Remove button's explicit
+        // "remove"; null keeps the saved password.)
+        if (savedMessage !== null) {
+          if (payload.smtp_password) savedMessage += " New password saved.";
+          showNotice(savedMessage, { success: true });
+        }
         return true;
       } catch (err) {
         showNotice("Couldn't save: " + alertRequestError(err), { error: true });
@@ -453,8 +464,81 @@
       }
     }
 
+    // Removing the saved password asks first (email alerts stop until a new
+    // one is added), then saves at once, like the Enable switch, so the mark
+    // under the field and the database never disagree. The dialog works
+    // like the Logout one: focus stays inside, Escape or a click outside
+    // cancels.
+    var removePasswordBtn = document.getElementById("removePasswordBtn");
+    var removePasswordModal = document.getElementById("removePasswordModal");
+
+    function getRemovePasswordFocusable() {
+      return Array.prototype.slice.call(
+        removePasswordModal.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')
+      ).filter(function (el) { return !el.disabled; });
+    }
+
+    // Focus moves into the dialog and back either way, but a button only
+    // gets the focused look when the dialog was opened from the keyboard
+    // (a keyboard "click" has event.detail 0): after a mouse click, focus
+    // lands on the dialog box itself, which shows nothing.
+    var removeOpenedByKeyboard = false;
+
+    function openRemovePasswordConfirm(event) {
+      removeOpenedByKeyboard = Boolean(event && event.detail === 0);
+      removePasswordModal.hidden = false;
+      if (removeOpenedByKeyboard) {
+        var focusable = getRemovePasswordFocusable();
+        if (focusable[0]) focusable[0].focus();
+      } else {
+        removePasswordModal.querySelector(".modal").focus();
+      }
+    }
+
+    function closeRemovePasswordConfirm() {
+      removePasswordModal.hidden = true;
+      if (removeOpenedByKeyboard && !removePasswordBtn.hidden) removePasswordBtn.focus();
+    }
+
+    async function performRemovePassword() {
+      closeRemovePasswordConfirm();
+      var payload = buildAlertConfigPayload();
+      payload.smtp_password = "";
+      await saveAlertConfig(payload, "Password removed.");
+      // The Remove button is gone now; keyboard users need focus somewhere.
+      if (removeOpenedByKeyboard) document.getElementById("smtpPassword").focus();
+    }
+
+    removePasswordBtn.addEventListener("click", openRemovePasswordConfirm);
+    document.getElementById("removePasswordCloseBtn").addEventListener("click", closeRemovePasswordConfirm);
+    document.getElementById("removePasswordCancelBtn").addEventListener("click", closeRemovePasswordConfirm);
+    document.getElementById("removePasswordConfirmBtn").addEventListener("click", performRemovePassword);
+    removePasswordModal.addEventListener("click", function (event) {
+      if (event.target === removePasswordModal) closeRemovePasswordConfirm();
+    });
+    document.addEventListener("keydown", function (event) {
+      if (removePasswordModal.hidden) return;
+      if (event.key === "Escape") {
+        closeRemovePasswordConfirm();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      var focusable = getRemovePasswordFocusable();
+      if (focusable.length === 0) return;
+      var first = focusable[0];
+      var last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    });
+
     smtpForm.addEventListener("submit", async function(evt) {
       evt.preventDefault();
+      var payload = buildAlertConfigPayload();
       // SMTP fields are locked (greyed out, unreachable by typing) while
       // alerts are disabled, so a save in that state can only be updating
       // the still-editable risk threshold/excluded IPs -- call that out so
@@ -463,7 +547,7 @@
       var savedMessage = document.getElementById("alertEnabled").checked
         ? "Saved Configuration."
         : "Saved Configuration. Email alerts are disabled, so SMTP settings won't be used until re-enabled.";
-      await saveAlertConfig(buildAlertConfigPayload(), savedMessage);
+      await saveAlertConfig(payload, savedMessage);
     });
 
     // The enable/disable switch is styled and behaves like an instant
@@ -481,15 +565,19 @@
 
     var testEmailStatus = document.getElementById("testEmailStatus");
 
+    // Tests what's on screen: saves the form first, then sends with it, so
+    // there's no "save first" rule to learn. A missing or wrong setting is
+    // reported by the send itself, in plain words.
     document.getElementById("testEmailBtn").addEventListener("click", async function() {
       var btn = this;
-      if (savedFormState !== null && alertFormState() !== savedFormState) {
-        showNotice("You have unsaved changes. Click Save Configuration first: the test email uses your saved settings.", { error: true });
-        return;
-      }
       btn.disabled = true;
       btn.textContent = "Sending…";
       testEmailStatus.textContent = "";
+      if (!(await saveAlertConfig(buildAlertConfigPayload(), null))) {
+        btn.disabled = false;
+        btn.textContent = "Send Test Email";
+        return;
+      }
       var emailSending = showNotice("Sending a test email. This can take a few seconds.", { persist: true });
       try {
         var r = await fetch("/alerts/test", { method: "POST" });
@@ -667,15 +755,25 @@
       ).filter(function (el) { return !el.disabled; });
     }
 
-    function openLogoutConfirm() {
+    // A button only gets the focused look when the dialog was opened from
+    // the keyboard (a keyboard "click" has event.detail 0); after a mouse
+    // click, focus lands on the dialog box itself, which shows nothing.
+    var logoutOpenedByKeyboard = false;
+
+    function openLogoutConfirm(event) {
+      logoutOpenedByKeyboard = Boolean(event && event.detail === 0);
       logoutConfirmModal.hidden = false;
-      var focusable = getLogoutModalFocusable();
-      if (focusable[0]) focusable[0].focus();
+      if (logoutOpenedByKeyboard) {
+        var focusable = getLogoutModalFocusable();
+        if (focusable[0]) focusable[0].focus();
+      } else {
+        logoutConfirmModal.querySelector(".modal").focus();
+      }
     }
 
     function closeLogoutConfirm() {
       logoutConfirmModal.hidden = true;
-      logoutButton.focus();
+      if (logoutOpenedByKeyboard) logoutButton.focus();
     }
 
     function trapLogoutModalTab(event) {

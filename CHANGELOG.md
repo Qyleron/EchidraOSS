@@ -155,9 +155,14 @@ All notable changes to Echidra are documented here. The format follows
   dashboard, so alert links use it.
 - Small fixes to the sign-in page, form layout, startup notices and
   package metadata.
-- Send Test Email on the Alerts page asks you to save first when the form
-  has unsaved changes, since the test uses the saved settings. Both test
-  buttons say they're sending straight away.
+- Alerts page: labels say the username is only for servers that need a
+  login; a saved password shows as a short "✓ Password saved", with a
+  Remove button that asks before clearing it; saving a new one says so.
+- Confirmation dialogs no longer leave a button highlighted after a mouse
+  click; keyboard users still see where focus is.
+- Send Test Email on the Alerts page saves the form and then sends, so it
+  always tests what's on screen. Both test buttons say they're sending
+  straight away.
 - Saving a preset persona in the dashboard keeps the preset's files, login
   identity, SUID binaries and decoy credentials, with the saved decoy files
   added on top, so its home directory never turns up empty. A new custom

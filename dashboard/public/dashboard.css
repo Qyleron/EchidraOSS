@@ -2874,7 +2874,6 @@ button.custom-date-cell:hover,
 .dashboard-notice.notice-success {
   border-left-color: var(--low);
 }
-
 /* Spinner over the Overview map until its first data load finishes;
    sits above Leaflet's panes (z-index up to 400). */
 .map-frame {
@@ -2901,6 +2900,21 @@ button.custom-date-cell:hover,
 
 .secret-state.is-set {
   color: var(--low);
+}
+
+.secret-state-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* A small version of the dashboard's outlined button, tinted like the
+   Log Out confirm: removing a password is rare and stops email alerts. */
+.text-button.secret-remove {
+  padding: 3px 10px;
+  font-size: 13px;
+  border-color: rgba(255, 92, 112, 0.3);
+  color: #ff9aa6;
 }
 
 @media (prefers-reduced-motion: reduce) {

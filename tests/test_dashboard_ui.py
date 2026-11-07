@@ -290,14 +290,17 @@ def test_alerts_page_history_table_distinguishes_channel():
     assert '{slack: "Slack", both: "Slack + Email"}[ev.channel] || "Email"' in html
 
 
-def test_alerts_page_test_email_asks_to_save_unsaved_changes_first():
-    """Send Test Email uses the saved settings, so testing an edited but
-    unsaved form would report on settings the user isn't looking at."""
+def test_alerts_page_test_email_tests_what_is_on_screen():
+    """Send Test Email saves the form first, then sends with it, so there's
+    no "save first" rule and the result always matches what's on screen."""
     html = (DASHBOARD_PUBLIC_PATH / "alerts.html").read_text(encoding="utf-8")
 
-    assert "savedFormState = alertFormState();" in html
-    assert "alertFormState() !== savedFormState" in html
-    assert "You have unsaved changes. Click Save Configuration first" in html
+    assert "if (!(await saveAlertConfig(buildAlertConfigPayload(), null))) {" in html
+    assert html.index("await saveAlertConfig(buildAlertConfigPayload(), null)") < html.index(
+        'var r = await fetch("/alerts/test", { method: "POST" });'
+    )
+    assert "You have unsaved changes" not in html
+    assert "savedFormState" not in html
 
 
 def test_alerts_page_says_a_test_is_sending_and_names_a_saved_configuration():
@@ -389,6 +392,40 @@ def test_notices_stack_and_stay_long_enough_to_read():
         assert 'closeBtn.addEventListener("click", dismiss);' in html, page
 
 
+def test_alerts_form_labels_say_which_fields_are_optional():
+    """Neither login field is required: some mail servers need no login.
+    The form doesn't second-guess combinations; the test email reports
+    what's wrong."""
+    html = (DASHBOARD_PUBLIC_PATH / "alerts.html").read_text(encoding="utf-8")
+
+    assert "Username (if your mail server needs a login)" in html
+    assert "Password (for Gmail, an app password)" in html
+    assert "smtpLoginProblem" not in html
+    assert "pwLoginHint" not in html
+
+
+def test_alerts_password_state_is_short_and_says_when_it_changed():
+    html = (DASHBOARD_PUBLIC_PATH / "alerts.html").read_text(encoding="utf-8")
+
+    assert 'pwEl.textContent = configured ? "✓ Password saved" : "";' in html
+    assert '? "Leave blank to keep the saved password"' in html
+    assert "No app password saved." not in html
+    assert 'if (payload.smtp_password) savedMessage += " New password saved.";' in html
+    # A saved password can be removed: an explicit "" (null keeps it).
+    assert 'class="text-button secret-remove" id="removePasswordBtn" hidden>Remove</button>' in html
+    # It asks first, in the same dialog style as Log Out.
+    assert 'id="removePasswordModal" class="modal-backdrop" hidden aria-modal="true" role="dialog"' in html
+    assert "Remove the saved password? Email alerts won't be sent until you add one." in html
+    assert 'removePasswordBtn.addEventListener("click", openRemovePasswordConfirm);' in html
+    assert "event.target === removePasswordModal" in html
+    # A mouse click leaves no focus highlight; keyboard use still shows it.
+    assert "removeOpenedByKeyboard = Boolean(event && event.detail === 0);" in html
+    assert "if (removeOpenedByKeyboard && !removePasswordBtn.hidden) removePasswordBtn.focus();" in html
+    assert 'document.getElementById("removePasswordBtn").hidden = !configured;' in html
+    assert 'payload.smtp_password = "";' in html
+    assert 'await saveAlertConfig(payload, "Password removed.");' in html
+
+
 def test_saving_shows_one_message_not_a_second_inline_one():
     """The notice reports the save; an inline "Saving…" next to the button
     only repeated it."""
@@ -424,6 +461,21 @@ def test_persona_and_finding_changes_confirm_what_happened():
     intelligence = (DASHBOARD_PUBLIC_PATH / "intelligence.html").read_text(encoding="utf-8")
     assert '"Marked as closed." : "Marked as open."' in intelligence
     assert 'showNotice("Couldn\'t update the finding: " + requestErrorMessage(error), { error: true });' in intelligence
+
+
+def test_logout_dialog_leaves_no_focus_highlight_after_a_mouse_click():
+    for page in (
+        "index.html",
+        "sessions.html",
+        "analytics.html",
+        "intelligence.html",
+        "personas.html",
+        "alerts.html",
+    ):
+        html = (DASHBOARD_PUBLIC_PATH / page).read_text(encoding="utf-8")
+        assert "logoutOpenedByKeyboard = Boolean(event && event.detail === 0);" in html, page
+        assert "if (logoutOpenedByKeyboard) logoutButton.focus();" in html, page
+        assert 'aria-labelledby="logoutConfirmTitle">\n      <div class="modal" tabindex="-1"' in html, page
 
 
 def test_every_password_field_has_a_show_hide_toggle():

@@ -30,7 +30,7 @@
     </header>
 
     <div id="logoutConfirmModal" class="modal-backdrop" hidden aria-modal="true" role="dialog" aria-labelledby="logoutConfirmTitle">
-      <div class="modal" style="max-width:380px;">
+      <div class="modal" tabindex="-1" style="max-width:380px;outline:none;">
         <div class="modal-header">
           <h2 id="logoutConfirmTitle">Log Out</h2>
           <button class="modal-close modal-close-danger" id="logoutConfirmCloseBtn" type="button" aria-label="Close">&times;</button>
@@ -1059,15 +1059,25 @@
       ).filter((el) => !el.disabled);
     }
 
-    function openLogoutConfirm() {
+    // A button only gets the focused look when the dialog was opened from
+    // the keyboard (a keyboard "click" has event.detail 0); after a mouse
+    // click, focus lands on the dialog box itself, which shows nothing.
+    let logoutOpenedByKeyboard = false;
+
+    function openLogoutConfirm(event) {
+      logoutOpenedByKeyboard = Boolean(event && event.detail === 0);
       logoutConfirmModal.hidden = false;
-      const [first] = getLogoutModalFocusable();
-      if (first) first.focus();
+      if (logoutOpenedByKeyboard) {
+        const [first] = getLogoutModalFocusable();
+        if (first) first.focus();
+      } else {
+        logoutConfirmModal.querySelector(".modal").focus();
+      }
     }
 
     function closeLogoutConfirm() {
       logoutConfirmModal.hidden = true;
-      logoutButton.focus();
+      if (logoutOpenedByKeyboard) logoutButton.focus();
     }
 
     function trapLogoutModalTab(event) {
