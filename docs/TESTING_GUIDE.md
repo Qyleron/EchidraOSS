@@ -220,10 +220,8 @@ directly. To confirm a *specific* decoy actually surfaces during a session,
 `cat` its exact path over the SSH-shell listener (section 1) and check
 `decoy_files_surfaced` in the resulting log line, as shown above.
 
-Note: each preset persona also declares `suid_binaries` (e.g.
-`/usr/bin/sudo`, `/bin/su`) — this is returned by `GET /personas` but the
-interactive shell (`honeypot/core/engine.py`) has no `find`/`sudo` command
-that surfaces it yet, so there's nothing to test interactively here today.
+Each preset persona's `suid_binaries` (eg. `/usr/bin/sudo`, `/bin/su`) are
+returned by `GET /personas`.
 
 **`http_server_type` decides what the HTTP listener pretends to be — and
 whether it responds at all.** This is a dedicated field
@@ -232,9 +230,9 @@ whether it responds at all.** This is a dedicated field
 anything from `running_processes`, which stays free text purely for the
 fake `ps` output over the SSH shell and has no effect on HTTP behavior.
 `none` closes every HTTP connection for that persona with no response,
-instead of risking a page that contradicts what it claims to be (the same
-reasoning as the busybox_router fix above: a mismatched Server header/page
-body is exactly the kind of tell that gives a honeypot away) — this is a
+instead of risking a page that contradicts what it claims to be (a
+mismatched Server header or page body is exactly the kind of tell that gives
+a honeypot away) — this is a
 deliberate, explicit choice an operator makes, not a side effect of leaving
 a field blank, and (unlike free text) the API rejects anything outside
 those four values at save time. To test: create a custom persona (see
@@ -311,7 +309,8 @@ Expected (verified against the current rule set):
   "matched_rule_ids": ["automated_discovery_burst"]
 }
 ```
-(full response also includes `feature_summary`, `evidence`,
+(full response also includes `classifier_version`, `rules_version`,
+`classification_status`, `actor_votes`, `feature_summary`, `evidence`,
 `deception_action`, `alert_action`, `analyst_recommendation`, and
 `persona_context`).
 
@@ -393,7 +392,7 @@ print(resolve_country('1.1.1.1'))   # expect: Australia
 "
 ```
 
-`resolve_country()` now returns `NULL` for private/reserved/unresolved lookups, so use public IPs for positive geolocation checks.
+`resolve_country()` returns `None` for private, reserved or unknown addresses, so use public IPs for positive geolocation checks.
 
 To see it end-to-end through storage, POST to `/classify/session/store`
 (with the `X-Api-Key` header from section 3) with `"peer_ip": "8.8.8.8"` and
@@ -510,11 +509,11 @@ credentials, and walk each page:
 
 | Page | URL | What to check |
 |---|---|---|
-| Sessions | `/dashboard/sessions` | Table is a flat, one-row-per-session log (no grouping/collapsing), newest first; clicking a row opens a slide-over Session Inspector drawer (not an inline row) with end time, classification status (Complete/Partial), any per-session evidence, command history, and, once loaded, a "View in Intelligence" badge (with a trailing arrow) for each Intelligence issue the session was aggregated into (many-to-many: one session can exhibit multiple MITRE techniques and link to several issues) — the Inspector doesn't repeat fields already on the row (Source IP, Persona, Time, Risk); Complete means enough commands were observed and one confidently matched a rule, Partial covers everything short of that (too few commands, or only a coincidental rule match) — treat a Partial session's Actor/Intent as a low-confidence guess; the date-range control sits next to Export CSV/XLSX in the header — the underlying date fields are still native `<input type="date">`, but their calendar chrome is replaced by a custom-rendered popup grid, not the OS's native calendar UI; the From/To hour dropdowns and the Risk/Actor/Persona filters are all the same custom-built dropdown, not a mix of custom and native; search box has a magnifying-glass icon |
+| Sessions | `/dashboard/sessions` | One row per session, newest first. Clicking a row opens the Session Inspector with classification status (Complete, or Partial when too few commands were seen to be sure), evidence, the commands typed, and a "View in Intelligence" link for each finding the session belongs to. The search box, the Risk/Actor/Persona filters, the date range and Export CSV/XLSX all work |
 | Analytics | `/dashboard/analytics` | Aggregate charts render (not blank) once at least one session/classifier run exists; the date-range filter uses the same custom calendar popup as Sessions, and its From/To hour dropdowns are also custom-built (not native `<select>` popups) |
 | Intelligence | `/dashboard/intelligence` | 4 seeded issues appear with title, severity, MITRE tags, session count (linking to that actor's sessions), a truncated Recommended Fix preview, and status; toggling status calls `PATCH /issues/{id}/status`; clicking a row opens the Issue Inspector slide-over (same drawer component as Sessions, not an inline expansion) showing full Evidence (a summary line plus a matched-commands list), Recommended Fix, and Impact — no separate "Linked Sessions" ID dump |
 | Personas | `/dashboard/personas` | Table of preset + custom personas; "Customize"/"Edit Config" opens the modal — check all three dropdowns (HTTP Server Type, Alert Routing, Min Risk Level) show rounded corners, grey hover, and a pointer cursor, not the browser's native blue highlight; save and confirm the row updates; switch to the Analytics tab and confirm the "N/A" placeholder shows until you pick a persona. Alert Routing/Min Risk Level/Recipient Email/Slack Webhook are per-persona fields inside this modal's Alerting section — not the same thing as the global SMTP config on the separate Alerts page below |
-| Alerts | `/dashboard/alerts` | SMTP config form saves via `PUT /alerts/config`; "Send test alert" only succeeds once `enabled`, `smtp_host`, and `smtp_from_email` are set — otherwise expect `400 Alerts are not enabled` or `400 SMTP host and from email are required`. Per-persona routing overrides (Alert Routing, Min Risk Level, Recipient Email, Slack Webhook) are set on the Personas page, not here |
+| Alerts | `/dashboard/alerts` | SMTP config form saves via `PUT /alerts/config`; "Send test alert" only succeeds once `enabled`, `smtp_host`, and `smtp_from_email` are set — otherwise expect `400` with "Turn on alerts and save the settings first." or "Enter the SMTP host and From email, then save." Per-persona routing overrides (Alert Routing, Min Risk Level, Recipient Email, Slack Webhook) are set on the Personas page, not here |
 
 ---
 
@@ -531,9 +530,9 @@ pytest tests/test_session_features.py -v # timing/feature extraction
 pytest tests/test_issue_sync.py -v        # issue rollup + brute-force-by-IP logic
 ```
 Note: `FtpHandler`, `HttpHandler`, and `TelnetHandler` already have dedicated
-automated coverage in [tests/test_ftp_handler.py](tests/test_ftp_handler.py),
-[tests/test_http_handler.py](tests/test_http_handler.py), and
-[tests/test_telnet_handler.py](tests/test_telnet_handler.py). Those tests are
+automated coverage in [tests/test_ftp_handler.py](../tests/test_ftp_handler.py),
+[tests/test_http_handler.py](../tests/test_http_handler.py), and
+[tests/test_telnet_handler.py](../tests/test_telnet_handler.py). Those tests are
 the right place to confirm listener behavior alongside the broader suite.
 
 ---

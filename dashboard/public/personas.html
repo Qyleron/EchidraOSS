@@ -8,6 +8,21 @@
   <link rel="stylesheet" href="/dashboard.css" />
   <!-- In the head (it only defines functions and document listeners) so the
        persona dropdown can be styled before the page is first drawn. -->
+  <script>
+    // A request answered 401 means the sign-in has ended: go to the sign-in
+    // page, which returns here afterwards.
+    (function () {
+      var originalFetch = window.fetch;
+      window.fetch = function () {
+        return originalFetch.apply(this, arguments).then(function (response) {
+          if (response.status === 401) {
+            window.location.assign("/auth?" + new URLSearchParams({ next: window.location.pathname + window.location.search }));
+          }
+          return response;
+        });
+      };
+    })();
+  </script>
   <script src="/custom-select.js"></script>
 </head>
 <body>
@@ -280,24 +295,78 @@
     if (typeof initCustomSelects === "function") initCustomSelects(analyticsView);
   </script>
   <script>
-    // In-page notice (bottom-right), used instead of the browser's alert().
-    var noticeTimer = null;
+    // In-page notices (bottom-right), used instead of the browser's alert().
+    // They stack, so a quick second action doesn't hide the first message.
+    // Each closes after 5 s (errors 9 s), waits while hovered, and has a
+    // close button. A persist notice (eg. "Sending…") stays until a later
+    // one is shown with { replace: <the returned notice> }.
     function showNotice(message, options) {
-      var notice = document.getElementById("dashboardNotice");
-      if (!notice) {
-        notice = document.createElement("div");
-        notice.id = "dashboardNotice";
-        notice.className = "dashboard-notice";
-        notice.setAttribute("role", "status");
-        notice.setAttribute("aria-live", "polite");
-        document.body.appendChild(notice);
-        void notice.offsetWidth; // let the fade-in transition run on first use
+      options = options || {};
+      var stack = document.getElementById("dashboardNotices");
+      if (!stack) {
+        stack = document.createElement("div");
+        stack.id = "dashboardNotices";
+        stack.className = "dashboard-notices";
+        document.body.appendChild(stack);
       }
-      notice.textContent = message;
-      notice.classList.toggle("notice-error", Boolean(options && options.error));
+      var notice = document.createElement("div");
+      notice.className = "dashboard-notice"
+        + (options.error ? " notice-error" : "")
+        + (options.success ? " notice-success" : "");
+      notice.setAttribute("role", "status");
+      notice.setAttribute("aria-live", "polite");
+      var text = document.createElement("span");
+      text.textContent = message;
+      var closeBtn = document.createElement("button");
+      closeBtn.type = "button";
+      closeBtn.className = "notice-close";
+      closeBtn.setAttribute("aria-label", "Close");
+      closeBtn.textContent = "×";
+      notice.append(text, closeBtn);
+      if (options.replace && options.replace.parentNode === stack) {
+        stack.replaceChild(notice, options.replace);
+      } else {
+        stack.appendChild(notice);
+      }
+      while (stack.children.length > 4) stack.firstChild.remove();
+      void notice.offsetWidth; // let the fade-in transition run
       notice.classList.add("visible");
-      clearTimeout(noticeTimer);
-      noticeTimer = setTimeout(function() { notice.classList.remove("visible"); }, 4000);
+      var timer = null;
+      function dismiss() {
+        clearTimeout(timer);
+        notice.classList.remove("visible");
+        setTimeout(function() { notice.remove(); }, 200);
+      }
+      function startTimer() {
+        if (!options.persist) timer = setTimeout(dismiss, options.error ? 9000 : 5000);
+      }
+      closeBtn.addEventListener("click", dismiss);
+      notice.addEventListener("mouseenter", function() { clearTimeout(timer); });
+      notice.addEventListener("mouseleave", startTimer);
+      startTimer();
+      return notice;
+    }
+
+    // A failed request in plain words: the server's own message when it gave
+    // one, otherwise what the status means. Never a bare status code.
+    function requestFailedMessage(status) {
+      if (status === 404) return "That item no longer exists. Reload the page.";
+      if (status >= 500) return "Something went wrong inside Echidra. Try again; if it keeps happening, the Echidra log has the details.";
+      return "Echidra couldn't complete that. Reload the page and try again.";
+    }
+    async function responseErrorMessage(response) {
+      var body = await response.json().catch(function() { return {}; });
+      return typeof body.detail === "string" ? body.detail : requestFailedMessage(response.status);
+    }
+
+    // fetch() itself failing means the browser couldn't reach Echidra at all,
+    // and its own message ("Failed to fetch") says nothing useful; an aborted
+    // request is one that took too long.
+    function requestErrorMessage(err) {
+      if (err && err.name === "AbortError") return "Echidra didn't answer in time. Try again.";
+      return err instanceof TypeError
+        ? "Can't reach Echidra. Check your connection or SSH tunnel, then try again."
+        : err.message;
     }
 
     // ── State ──────────────────────────────────────────────────────────────────
@@ -1028,17 +1097,18 @@
         });
         if (!resp.ok) {
           var err = await resp.json().catch(function() { return {}; });
-          throw new Error(extractErrorDetail(err, "HTTP " + resp.status));
+          throw new Error(extractErrorDetail(err, requestFailedMessage(resp.status)));
         }
         var saved = await resp.json();
         allConfigs[targetId] = saved;
         renderPersonaRows(allPresets, allConfigs);
         populateSelector(allPresets, Object.values(allConfigs));
-        // The refreshed table row is the confirmation. Only close if the
-        // analyst hasn't already switched to another persona mid-save.
+        showNotice(isNew ? "Created persona " + targetId + "." : "Saved Persona.", { success: true });
+        // Only close if the analyst hasn't already switched to another
+        // persona mid-save.
         if (!modalBackdrop.hidden && expandedPersonaId === personaId) closeModal();
       } catch (err) {
-        statusEl.textContent = "Couldn't save: " + err.message;
+        statusEl.textContent = "Couldn't save: " + requestErrorMessage(err);
         statusEl.style.color = "var(--critical)";
       } finally {
         saveBtn.disabled = false;
@@ -1114,7 +1184,7 @@
           method: "DELETE",
           signal: controller.signal,
         });
-        if (!resp.ok && resp.status !== 404) throw new Error("HTTP " + resp.status);
+        if (!resp.ok && resp.status !== 404) throw new Error(await responseErrorMessage(resp));
         delete allConfigs[personaId];
         hideDeleteConfirm();
         closeModal();
@@ -1124,9 +1194,10 @@
         // longer exists after the re-render above -- land focus on a stable
         // element instead of silently dropping it back to <body>.
         document.getElementById("createPersonaBtn").focus();
+        showNotice("Deleted persona " + personaId + ".", { success: true });
       } catch (err) {
         closeDeleteConfirm();
-        showNotice("Couldn't delete the persona: " + err.message, { error: true });
+        showNotice("Couldn't delete the persona: " + requestErrorMessage(err), { error: true });
       } finally {
         clearTimeout(timeoutId);
         deleteInFlight = false;
@@ -1358,7 +1429,7 @@
         loading.hidden = true;
         content.hidden = true;
         empty.hidden = false;
-        empty.textContent = "Couldn't load analytics: " + err.message;
+        empty.textContent = "Couldn't load analytics: " + requestErrorMessage(err);
       }
     }
 

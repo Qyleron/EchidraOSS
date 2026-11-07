@@ -143,6 +143,9 @@ DATABASE_DISK_FULL_DETAIL = (
     "The database's disk is full. Free some space on the database server, then try again."
 )
 DATABASE_BUSY_DETAIL = "The database took too long to answer. Try again in a moment."
+# Reloading a dashboard page sends a signed-out user to the sign-in page,
+# which then returns them to that page.
+DASHBOARD_SIGNED_OUT_DETAIL = "You've been signed out. Reload the page to sign in again."
 ALERT_SECRET_MISSING_DETAIL = (
     "Set ECHIDRA_ALERT_SECRET in .env (generate one with: "
     "python -c \"import secrets; print(secrets.token_urlsafe(32))\"), "
@@ -1158,7 +1161,7 @@ def create_app() -> FastAPI:
 
         err = _dispatch_test_email(config)
         if err:
-            raise HTTPException(status_code=502, detail=f"Couldn't send the test email. {err}")
+            raise HTTPException(status_code=502, detail=err)
         return {"status": "sent"}
 
     @api.post(
@@ -1182,7 +1185,7 @@ def create_app() -> FastAPI:
             "*[Echidra] Test message*\nThis Slack webhook works, so alerts for this persona will be posted here.",
         )
         if err:
-            raise HTTPException(status_code=502, detail=f"Couldn't send to Slack. {err}")
+            raise HTTPException(status_code=502, detail=err)
         return {"status": "sent"}
 
     @api.get(
@@ -1330,7 +1333,7 @@ def _require_dashboard_auth(request: Request) -> None:
     except _DashboardDatabaseUnavailableError:
         raise HTTPException(status_code=503, detail=DATABASE_UNAVAILABLE_DETAIL)
     if not authenticated:
-        raise HTTPException(status_code=401, detail="Dashboard authentication required")
+        raise HTTPException(status_code=401, detail=DASHBOARD_SIGNED_OUT_DETAIL)
 
 
 class _DashboardDatabaseUnavailableError(Exception):

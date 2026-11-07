@@ -135,6 +135,58 @@ def test_active_persona_injects_home_dir_file_when_config_has_none_there(monkeyp
     )
 
 
+def _saved_persona(monkeypatch, record):
+    config.clear_active_persona_cache()
+    monkeypatch.setenv("ECHIDRA_PERSONA", record.id)
+    monkeypatch.setenv("ECHIDRA_DATABASE_URL", "postgresql://fake/fake")
+
+    class FakeRepository:
+        def get_persona_config(self, persona_id):
+            return record
+
+    monkeypatch.setattr("classifier.storage.PostgresClassifierRepository", FakeRepository)
+    return config.get_active_persona()
+
+
+def test_saved_preset_persona_keeps_the_preset_files_and_adds_its_decoys(monkeypatch):
+    """Saving a preset in the dashboard must not empty its home directory:
+    an attacker who finds nothing there has a hint it's a decoy."""
+    from classifier.storage import DecoyFile
+    from honeypot.core.persona import PRESET_PERSONAS
+
+    record = make_persona_config_record(
+        id="generic_linux",
+        hostname="ip-10-0-0-12",
+        decoy_files=[
+            DecoyFile(path="/home/admin/notes.txt", content="saved notes"),
+            DecoyFile(path="/home/admin/.aws/credentials", content="[default]"),
+        ],
+    )
+
+    persona = _saved_persona(monkeypatch, record)
+
+    files = persona.file_map()
+    preset = PRESET_PERSONAS["generic_linux"]
+    assert files["/home/admin/readme.txt"] == "Welcome to the system.\n"
+    assert "/etc/passwd" in files
+    assert files["/home/admin/notes.txt"] == "saved notes"  # the saved file wins
+    assert files["/home/admin/.aws/credentials"] == "[default]"
+    assert persona.suid_binaries == preset.suid_binaries
+    assert persona.fake_credentials == preset.fake_credentials
+    assert (persona.username, persona.home_dir) == (preset.username, preset.home_dir)
+
+
+def test_new_custom_persona_starts_with_lived_in_files(monkeypatch):
+    persona = _saved_persona(monkeypatch, make_persona_config_record(decoy_files=[]))
+
+    files = persona.file_map()
+    assert "/home/admin/.bashrc" in files and "/home/admin/.profile" in files
+    assert files["/etc/hostname"] == "custom-demo-box\n"
+    assert "127.0.1.1 custom-demo-box" in files["/etc/hosts"]
+    passwd_users = [line.split(":")[0] for line in files["/etc/passwd"].splitlines()]
+    assert passwd_users == ["root", "deploy", "backup", "admin"]
+
+
 def test_active_persona_falls_back_to_preset_when_no_matching_db_row(monkeypatch):
     config.clear_active_persona_cache()
     monkeypatch.setenv("ECHIDRA_PERSONA", "generic_linux")

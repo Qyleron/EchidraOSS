@@ -22,12 +22,12 @@ web dashboard — without ever executing real commands or exposing real data.
 
 ## Why Echidra
 
-Nobody legitimate touches a decoy, so an Echidra alert is worth reading.
+On your own network, nobody legitimate touches a decoy, so an Echidra alert is worth reading.
 Instead of raw logs, you get **findings**: attacker sessions grouped by
 behavior, mapped to MITRE ATT&CK, each with a recommended fix. Every
 classification traces back to a YAML rule you can read and change. It's one
-install, light enough for a small VPS, and it exports attacker IPs straight
-into your firewall.
+install, light enough for a small VPS, and it exports attacker IPs as a list
+for your firewall, fail2ban, or Cloudflare.
 
 | | Echidra | T-Pot | Cowrie | Thinkst Canary |
 |---|---|---|---|---|
@@ -66,14 +66,16 @@ See the [Console guide](https://qyleron.com/console-guide/) for a full field-by-
 ### Method A: Native (Recommended for trying it out)
 
 ```bash
+git clone https://github.com/Qyleron/EchidraOSS.git
+cd EchidraOSS
 pip install -e .    # installs Echidra + puts the `echidra` command on your PATH
-echidra init         # creates .env, generates ECHIDRA_INGEST_API_KEY, initializes the schema
+echidra init         # creates .env, generates the ingest key and alert secret, and sets up the database if ECHIDRA_DATABASE_URL is set
 echidra start        # runs the honeypot listeners and the API/dashboard together until Ctrl+C
 ```
 
 ### Method B: Docker Compose
 
-Set `ECHIDRA_DB_PASSWORD`, `ECHIDRA_INGEST_API_KEY`, and `ECHIDRA_SESSION_SECRET` in a `.env` file (see [docker-compose.yml](docker-compose.yml) for the full list of environment variables), then:
+Set `ECHIDRA_DB_PASSWORD`, `ECHIDRA_INGEST_API_KEY`, and `ECHIDRA_SESSION_SECRET` in a `.env` file, plus `ECHIDRA_ALERT_SECRET` if you'll use email alerts (see [docker-compose.yml](docker-compose.yml) for the full list of environment variables), then:
 
 ```bash
 docker compose up -d

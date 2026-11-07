@@ -2806,14 +2806,26 @@ button.custom-date-cell:hover,
 
 /* In-page notice for export results, used instead of the browser's
    native alert() popup. */
-.dashboard-notice {
+/* Notices stack bottom-right, newest at the bottom. */
+.dashboard-notices {
   position: fixed;
   right: 24px;
   bottom: 24px;
   z-index: 3000;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
+  pointer-events: none;
+}
+
+.dashboard-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
   min-width: 300px;
   max-width: 440px;
-  padding: 16px 20px;
+  padding: 16px 14px 16px 20px;
   border: 1px solid var(--border-strong);
   border-left: 4px solid var(--label);
   border-radius: 8px;
@@ -2831,6 +2843,28 @@ button.custom-date-cell:hover,
 .dashboard-notice.visible {
   opacity: 1;
   transform: translateY(0);
+  pointer-events: auto;
+}
+
+.dashboard-notice > span {
+  flex: 1;
+}
+
+.notice-close {
+  flex: none;
+  margin: -2px 0 0;
+  padding: 0 4px;
+  border: 0;
+  background: none;
+  color: var(--hint);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.notice-close:hover,
+.notice-close:focus-visible {
+  color: var(--text);
 }
 
 .dashboard-notice.notice-error {

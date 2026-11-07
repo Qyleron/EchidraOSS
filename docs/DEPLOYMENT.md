@@ -11,14 +11,10 @@ Three supported paths:
   containers. The right choice if Docker is available and you want
   a self-contained deployment without managing Python or Postgres directly.
 
-> **Important:** Run only one of these on a given host at a time. All three
-> bind the same ports (2222/8080/2121/2323, and 8000 for the dashboard) —
-> starting a second path while another is already running (e.g. `echidra
-> start` on a machine that also has `docker compose up` running) fails with
-> "address already in use", or worse, silently binds whichever ports the
-> first one hadn't already claimed. `echidra stop` and `docker compose down`
-> stop their respective path; nothing currently detects the other one
-> running, so that's on you to track.
+> **Important:** Run only one of these on a host at a time; all three use the
+> same ports (2222/8080/2121/2323, and 8000 for the dashboard). `echidra
+> start` checks the ports first and tells you what's already holding one,
+> eg. a systemd service or Docker Compose, and how to stop it.
 
 Docker Compose and systemd both require `ECHIDRA_INGEST_API_KEY`.
 `ECHIDRA_SESSION_SECRET` is required for Compose; for a bare-metal systemd
@@ -39,7 +35,11 @@ dedicated `echidra` user — just a clone, a virtualenv, and `.env`.
 ```bash
 python -c "import secrets; print(secrets.token_urlsafe(32))"   # ECHIDRA_INGEST_API_KEY
 python -c "import secrets; print(secrets.token_urlsafe(32))"   # ECHIDRA_SESSION_SECRET (optional, see below)
+python -c "import secrets; print(secrets.token_urlsafe(32))"   # ECHIDRA_ALERT_SECRET (for email alerts)
 ```
+
+`echidra init` generates the ingest key and the alert secret for you; with
+Docker Compose or systemd, generate them with the lines above.
 
 - `ECHIDRA_INGEST_API_KEY` — required. `POST /classify/session/store` refuses
   every request until this is set.
@@ -96,8 +96,8 @@ remembering never to prune volumes.
 
 ```bash
 cp .env.example .env
-# edit .env: set ECHIDRA_DB_PASSWORD, ECHIDRA_INGEST_API_KEY, and
-# ECHIDRA_SESSION_SECRET (see above)
+# edit .env: set ECHIDRA_DB_PASSWORD, ECHIDRA_INGEST_API_KEY,
+# ECHIDRA_SESSION_SECRET and ECHIDRA_ALERT_SECRET (see above)
 docker compose up -d --build db
 docker compose run --rm --build api python -m classifier.storage.cli init-db
 docker compose up -d --build honeypot api
@@ -195,7 +195,7 @@ else:
 
 ```bash
 sudo useradd --system --home /opt/echidra --shell /usr/sbin/nologin echidra
-sudo git clone <this-repo-url> /opt/echidra
+sudo git clone https://github.com/Qyleron/EchidraOSS.git /opt/echidra
 cd /opt/echidra
 sudo python3 -m venv venv
 sudo ./venv/bin/pip install -e .
@@ -259,7 +259,8 @@ Access the dashboard remotely via SSH tunnel as described above.
 ## Upgrading
 
 Your data is kept. Each time the honeypot starts, it adds any tables and
-columns the new version needs, so there's no separate database step.
+columns the new version needs, so there's no separate database step. Back
+up the database first (see [Backups](#backups)).
 
 ```bash
 # Local (stop 'echidra start' first)
@@ -277,6 +278,10 @@ sudo git pull
 sudo ./venv/bin/pip install -e .
 sudo systemctl restart echidra-honeypot echidra-api
 ```
+
+With systemd, if the update changed `deploy/systemd/`, copy the two unit
+files to `/etc/systemd/system/` again and run `sudo systemctl daemon-reload`
+before restarting.
 
 After the restart, the first issue sync rebuilds every Intelligence issue
 from all stored classifier runs, in the background. On a large database
@@ -331,8 +336,10 @@ Sessions page at the time they were captured.
 
 `echidra import` stores every session in a session log that isn't in the
 database yet; sessions already stored are skipped, so it's safe to run more
-than once. Use it for sessions captured before a database was set up, or
-skipped while the honeypot was under a heavy flood. It sends no alerts.
+than once. Use it for sessions captured before a database was set up.
+Under a very heavy flood, the decoys keep answering first; any session they
+couldn't store at the time is still in the session log, and `echidra
+import` stores it. It sends no alerts.
 
 ```bash
 echidra import logs/sessions.jsonl
@@ -353,9 +360,9 @@ written to `logs/sessions.jsonl` (they still reach the database if it's on
 another disk or has room), and Postgres stops accepting new data, which
 the dashboard reports as "The database's disk is full".
 
-The session log grows slowly (about 1 MB a day on an internet-facing test
-server of ours), and it's reopened for every write, so a plain logrotate rule works
-without `copytruncate`:
+The session log grows slowly (about 1–2 MB a day on an internet-facing
+server of ours), and it's reopened for every write, so a plain logrotate
+rule works without `copytruncate`:
 
 ```
 /opt/echidra/logs/sessions.jsonl {
@@ -372,6 +379,22 @@ rotated log later, decompress it and run `echidra import` on it.
 
 With Docker Compose, each container's own output (what
 `docker compose logs` shows) is capped at 3 files of 10 MB per service.
+
+## Backups
+
+Back up the database before each upgrade, and regularly. One command makes a
+compressed copy; then move it off the server:
+
+```bash
+sudo -u postgres pg_dump -Fc echidra > echidra-$(date +%F).dump
+# Docker Compose:
+docker compose exec -T db pg_dump -U echidra -Fc echidra > echidra-$(date +%F).dump
+```
+
+Use your database's name if it isn't `echidra`. To check a backup is
+readable, `pg_restore -l echidra-YYYY-MM-DD.dump` lists what's in it. Keep
+the session log too (`logs/sessions.jsonl` and its rotated copies): with
+`echidra import`, it can rebuild the sessions on its own.
 
 ## Resetting a dashboard password
 

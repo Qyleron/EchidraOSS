@@ -38,7 +38,7 @@ All notable changes to Echidra are documented here. The format follows
   personas, the key exchange, cipher, MAC, compression and host key lists
   follow the defaults of the OpenSSH version the persona announces. An
   existing Ed25519 key is kept.
-- The FTP decoy recognises other protocols sent to its port. TLS and
+- The FTP decoy recognizes other protocols sent to its port. TLS and
   remote-desktop openings are logged as readable markers, and a classifier
   rule labels web, SSH, TLS and remote-desktop openings as a scan for
   services on unexpected ports (T1046, Network Service Discovery), with a
@@ -97,13 +97,16 @@ All notable changes to Echidra are documented here. The format follows
   to the session in the dashboard (set `ECHIDRA_DASHBOARD_URL` if you don't
   open it at `http://127.0.0.1:8000`).
 - Dashboard: tables, the Overview map and event list, and Analytics show a
-  loading spinner until their data arrives; brighter form labels, hints and
-  placeholders; larger notices; save and test results on the Alerts page
-  appear as notices, with a lasting "App password saved" indicator under
-  the password field; smoother scrolling in the persona editor; creating
-  and editing a persona use the same form style, with required fields
-  marked; more space between form fields; hovered table rows stand apart
-  from the header row; better default fonts on Linux.
+  loading spinner until their data arrives; messages appear as in-page
+  notices instead of browser popups, and save and test results on the
+  Alerts page appear there too, with a lasting "App password saved"
+  indicator under the password field; the sign-in and persona forms show
+  their own validation messages; brighter form labels, hints and
+  placeholders; smoother scrolling in the persona editor; creating and
+  editing a persona use the same form style, with required fields marked;
+  more space between form fields; hovered table rows stand apart from the
+  header row; dark scrollbars and autofill styling; better default fonts
+  on Linux; empty pages explain what happens next.
 - Logging in now returns you to the dashboard page you were sent to the
   login page from (eg. an alert's session link) instead of the Overview.
 - Clearer sign-in, sign-up, alert test, error and notice messages that say
@@ -122,9 +125,6 @@ All notable changes to Echidra are documented here. The format follows
 - `SECURITY.md` rewritten to describe Echidra's security model.
 - `echidra start` prints a short summary: decoy ports, dashboard URL, an
   SSH-tunnel hint, and how to stop.
-- Dashboard: messages appear as in-page notices instead of browser popups;
-  the sign-in and persona forms show their own validation messages; dark
-  scrollbars and autofill styling; empty pages explain what happens next.
 - Dependencies updated: FastAPI 0.143.0, Pydantic 2.14.1, psycopg 3.3.6.
 - Dashboard charts (Attacks by Hour and Risk Trend on Analytics, Sessions
   and Peak Attack Hours on Persona analytics) are bar charts with a value
@@ -153,14 +153,28 @@ All notable changes to Echidra are documented here. The format follows
   own.
 - Docker Compose passes `ECHIDRA_DASHBOARD_URL` to the honeypot and
   dashboard, so alert links use it.
-- The `ECHIDRA_COOKIE_SECURE` startup notice is logged once instead of
-  twice, and says when it applies.
-- Spacing between the sign-in page's message box and the form below it.
-- Server validation messages no longer show a raw "Value error," prefix on
-  the sign-in page.
-- Fields in two-column forms (eg. Persona ID and Display Name) line up.
-- The `test` extra includes `httpx`, and the project URLs point at the
-  right repository.
+- Small fixes to the sign-in page, form layout, startup notices and
+  package metadata.
+- Send Test Email on the Alerts page asks you to save first when the form
+  has unsaved changes, since the test uses the saved settings. Both test
+  buttons say they're sending straight away.
+- Saving a preset persona in the dashboard keeps the preset's files, login
+  identity, SUID binaries and decoy credentials, with the saved decoy files
+  added on top, so its home directory never turns up empty. A new custom
+  persona starts with a few lived-in files (`.bashrc`, `.profile`,
+  `/etc/hostname`, `/etc/hosts`, and an `/etc/passwd` listing its users).
+- Dashboard notices stack instead of replacing each other, stay 5 seconds
+  (errors 9), wait while you hover over them, and can be closed. Saving,
+  creating or deleting a persona and opening or closing a finding now say
+  so, and a lost connection says "Can't reach Echidra" instead of the
+  browser's own error. No message shows a bare status code: the dashboard
+  gives the server's own explanation, or a plain sentence saying what to
+  do, and a rejected Slack webhook says to check or recreate it.
+- When a dashboard sign-in ends, the next action on any page goes straight
+  to the sign-in page, and signing in returns you to that page.
+- A failed email or Slack send says what went wrong and what to do (server
+  not found, no answer, wrong password, TLS and so on), in the dashboard and
+  the alert history, with the technical detail in the log.
 - A session is still stored in the database when writing it to
   `logs/sessions.jsonl` fails (eg. a full disk), so the database keeps
   receiving sessions when it's on another disk or still has room.
@@ -221,7 +235,7 @@ All notable changes to Echidra are documented here. The format follows
   Oct, 5 PM") when the range isn't whole days, and the exact range on
   hover.
 - Chart tooltips appear as soon as you hover, beside the pointer; Risk
-  Trend tooltips list each risk level with its colour, and the total.
+  Trend tooltips list each risk level with its color, and the total.
 - While the database can't be reached, signed-in dashboard pages say
   "Can't reach the database. Check that PostgreSQL is running, then
   reload this page." instead of returning to the login page, and API

@@ -290,6 +290,32 @@ def test_alerts_page_history_table_distinguishes_channel():
     assert '{slack: "Slack", both: "Slack + Email"}[ev.channel] || "Email"' in html
 
 
+def test_alerts_page_test_email_asks_to_save_unsaved_changes_first():
+    """Send Test Email uses the saved settings, so testing an edited but
+    unsaved form would report on settings the user isn't looking at."""
+    html = (DASHBOARD_PUBLIC_PATH / "alerts.html").read_text(encoding="utf-8")
+
+    assert "savedFormState = alertFormState();" in html
+    assert "alertFormState() !== savedFormState" in html
+    assert "You have unsaved changes. Click Save Configuration first" in html
+
+
+def test_alerts_page_says_a_test_is_sending_and_names_a_saved_configuration():
+    """A test can take seconds, so the page says so at once; the notice stays
+    until the result replaces it."""
+    html = (DASHBOARD_PUBLIC_PATH / "alerts.html").read_text(encoding="utf-8")
+
+    assert 'showNotice("Sending a test email. This can take a few seconds.", { persist: true });' in html
+    assert 'showNotice("Sending a test message to Slack. This can take a few seconds.", { persist: true });' in html
+    assert "if (!options.persist) timer = setTimeout(dismiss" in html
+    # The result replaces its own "Sending…" notice, not some other one.
+    assert "{ success: true, replace: emailSending }" in html
+    assert "{ error: true, replace: emailSending }" in html
+    assert "{ success: true, replace: slackSending }" in html
+    assert '? "Saved Configuration."' in html
+    assert "Can't reach Echidra. Check your connection or SSH tunnel" in html
+
+
 def test_every_dashboard_page_confirms_logout_with_an_in_page_modal():
     """window.confirm() is a native dialog that some browser contexts (eg. a
     sandboxed iframe without allow-modals) suppress outright, so clicking
@@ -317,6 +343,79 @@ def test_every_dashboard_page_confirms_logout_with_an_in_page_modal():
         # the modal -- not just the explicit Cancel/close button.
         assert "event.target === logoutConfirmModal" in html, page
         assert 'event.key === "Escape"' in html, page
+
+
+def test_every_dashboard_page_goes_to_sign_in_when_signed_out():
+    """When a sign-in ends, the next request answers 401; every page sends
+    the user to the sign-in page, which returns them to that page."""
+    pages = [
+        "index.html",
+        "sessions.html",
+        "analytics.html",
+        "intelligence.html",
+        "personas.html",
+        "alerts.html",
+    ]
+    for page in pages:
+        html = (DASHBOARD_PUBLIC_PATH / page).read_text(encoding="utf-8")
+
+        assert "if (response.status === 401) {" in html, page
+        assert 'window.location.assign("/auth?" + new URLSearchParams({ next: window.location.pathname + window.location.search }));' in html, page
+        # Set up before the page's own requests, so all of them are covered.
+        assert html.index("window.fetch = function") < html.index('fetch("/'), page
+
+
+def test_notices_stack_and_stay_long_enough_to_read():
+    """A quick second action must not hide the first message: notices stack
+    (newest at the bottom, at most four), stay 5 s (errors 9 s), wait while
+    hovered and can be closed."""
+    css = (DASHBOARD_PUBLIC_PATH / "dashboard.css").read_text(encoding="utf-8")
+    assert ".dashboard-notices {" in css
+    assert ".notice-close {" in css
+
+    for page in (
+        "index.html",
+        "sessions.html",
+        "analytics.html",
+        "intelligence.html",
+        "personas.html",
+        "alerts.html",
+    ):
+        html = (DASHBOARD_PUBLIC_PATH / page).read_text(encoding="utf-8")
+        assert 'stack.className = "dashboard-notices";' in html, page
+        assert "while (stack.children.length > 4) stack.firstChild.remove();" in html, page
+        assert "options.error ? 9000 : 5000" in html, page
+        assert 'notice.addEventListener("mouseenter", function() { clearTimeout(timer); });' in html, page
+        assert 'closeBtn.addEventListener("click", dismiss);' in html, page
+
+
+def test_failed_requests_never_show_a_bare_status_code():
+    """Users get the server's own message or a plain sentence that helps
+    them act, never "HTTP 503" or "Request failed (500)"."""
+    for page in (
+        "index.html",
+        "sessions.html",
+        "analytics.html",
+        "intelligence.html",
+        "personas.html",
+        "alerts.html",
+    ):
+        html = (DASHBOARD_PUBLIC_PATH / page).read_text(encoding="utf-8")
+        assert "function requestFailedMessage(status)" in html, page
+        assert "Request failed for ${url}" not in html, page
+        assert 'extractErrorDetail(e, "HTTP "' not in html, page
+        assert 'extractErrorDetail(err, "HTTP "' not in html, page
+
+
+def test_persona_and_finding_changes_confirm_what_happened():
+    personas = (DASHBOARD_PUBLIC_PATH / "personas.html").read_text(encoding="utf-8")
+    assert '"Created persona " + targetId + "." : "Saved Persona."' in personas
+    assert 'showNotice("Deleted persona " + personaId + ".", { success: true });' in personas
+    assert "Can't reach Echidra. Check your connection or SSH tunnel" in personas
+
+    intelligence = (DASHBOARD_PUBLIC_PATH / "intelligence.html").read_text(encoding="utf-8")
+    assert '"Marked as closed." : "Marked as open."' in intelligence
+    assert 'showNotice("Couldn\'t update the finding: " + requestErrorMessage(error), { error: true });' in intelligence
 
 
 def test_every_password_field_has_a_show_hide_toggle():
@@ -628,11 +727,11 @@ def test_personas_page_reopens_the_last_persona_and_tab():
     # loads in the head, so the persona dropdown is styled and shows the
     # known persona (not the raw "Select a persona…" select) from the start.
     assert html.index('<script src="/custom-select.js"></script>') < html.index("</head>")
-    assert html.index("function showTab(tab)") < html.index("var noticeTimer = null;")
+    assert html.index("function showTab(tab)") < html.index("function showNotice(message, options)")
     assert (
         'document.getElementById("personaSelector").options[0].textContent = knownPersona || "Loading personas…";'
     ) in html
-    assert html.index("initCustomSelects(analyticsView);") < html.index("var noticeTimer = null;")
+    assert html.index("initCustomSelects(analyticsView);") < html.index("function showNotice(message, options)")
     assert "sel.options[0].textContent = PERSONA_PLACEHOLDER_TEXT;" in html
     assert "prefetchedPersona = knownPersona;" in html
     # If the persona list fails, the first-load spinner gives way to a note.

@@ -6,7 +6,13 @@ from pathlib import PurePosixPath
 
 from dotenv import load_dotenv
 
-from honeypot.core.persona import FakeFile, Persona, get_persona, validate_persona
+from honeypot.core.persona import (
+    PRESET_PERSONAS,
+    FakeFile,
+    Persona,
+    get_persona,
+    validate_persona,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -186,11 +192,9 @@ def clear_active_persona_cache() -> None:
     _cached_persona_expires_at = None
 
 
-# Fields a saved persona_configs row doesn't capture yet (real login identity,
-# SUID binaries, decoy credentials) — these stay fixed until the config
-# schema grows to cover them; everything else an operator sets in the
-# Personas dashboard tab (banners, hostname, timezone, users, processes,
-# decoy files, visible ports) does take effect on the live honeypot.
+# Login identity for a saved persona that isn't a preset (a preset's id keeps
+# the preset's own; see _persona_from_config_record). Everything an operator
+# sets in the Personas dashboard tab takes effect on the live honeypot.
 _DB_PERSONA_USERNAME = "root"
 _DB_PERSONA_HOME_DIR = "/home/admin"
 
@@ -239,21 +243,63 @@ def _load_persona_from_db(persona_id: str) -> Persona | None:
     return persona
 
 
-def _persona_from_config_record(record) -> Persona:
-    """Bridge one dashboard-saved PersonaConfigRecord into a live Persona."""
-    hostname = record.hostname or record.id
-    fake_filesystem = tuple(
-        FakeFile(path=decoy.path, content=decoy.content)
-        for decoy in record.decoy_files
+_STARTER_BASHRC = (
+    "# ~/.bashrc: executed by bash(1) for non-login shells.\n"
+    "case $- in\n    *i*) ;;\n      *) return;;\nesac\n"
+    "HISTCONTROL=ignoreboth\nHISTSIZE=1000\nHISTFILESIZE=2000\n"
+    "alias ll='ls -alF'\nalias la='ls -A'\n"
+)
+_STARTER_PROFILE = (
+    "# ~/.profile: executed by the command interpreter for login shells.\n"
+    'if [ -n "$BASH_VERSION" ]; then\n'
+    '    if [ -f "$HOME/.bashrc" ]; then\n        . "$HOME/.bashrc"\n    fi\nfi\n'
+)
+
+
+def _starter_files(hostname: str, home_dir: str, users) -> tuple[FakeFile, ...]:
+    """A lived-in minimum for a persona that isn't a preset: with no files at
+    all, the home directory and /etc look empty, which gives a decoy away."""
+    home_user = PurePosixPath(home_dir).name
+    others = [user for user in dict.fromkeys([*users, home_user]) if user and user != "root"]
+    passwd = "root:x:0:0:root:/root:/bin/bash\n" + "".join(
+        f"{user}:x:{1000 + i}:{1000 + i}:{user}:/home/{user}:/bin/bash\n"
+        for i, user in enumerate(others)
     )
-    if not any(
-        PurePosixPath(decoy.path).is_relative_to(_DB_PERSONA_HOME_DIR)
-        for decoy in fake_filesystem
-    ):
-        # validate_persona() requires at least one file under home_dir.
-        fake_filesystem = fake_filesystem + (
-            FakeFile(path=f"{_DB_PERSONA_HOME_DIR}/.bash_history", content=""),
-        )
+    return (
+        FakeFile(path=f"{home_dir}/.bashrc", content=_STARTER_BASHRC),
+        FakeFile(path=f"{home_dir}/.profile", content=_STARTER_PROFILE),
+        FakeFile(path=f"{home_dir}/.bash_history", content=""),
+        FakeFile(path="/etc/hostname", content=f"{hostname}\n"),
+        FakeFile(path="/etc/hosts", content=f"127.0.0.1 localhost\n127.0.1.1 {hostname}\n"),
+        FakeFile(path="/etc/passwd", content=passwd),
+    )
+
+
+def _persona_from_config_record(record) -> Persona:
+    """Bridge one dashboard-saved PersonaConfigRecord into a live Persona.
+
+    A saved persona with a preset's id starts from that preset's files,
+    login identity, SUID binaries, ports and decoy credentials, which the
+    dashboard doesn't edit; any other persona starts from a small set of
+    starter files. Saved decoy files are added on top, and replace a starting
+    file with the same path."""
+    hostname = record.hostname or record.id
+    preset = PRESET_PERSONAS.get(record.id)
+    username = preset.username if preset else _DB_PERSONA_USERNAME
+    home_dir = preset.home_dir if preset else _DB_PERSONA_HOME_DIR
+    starting_files = (
+        preset.fake_filesystem if preset
+        else _starter_files(hostname, home_dir, record.fake_users)
+    )
+    files = {fake_file.path: fake_file for fake_file in starting_files}
+    decoy_paths = set()
+    for decoy in record.decoy_files:
+        # A decoy may replace a starting file, but two decoys with one path
+        # is a broken row: fail, so the caller falls back to the preset.
+        if decoy.path in decoy_paths:
+            raise ValueError(f"Duplicate decoy file path: {decoy.path}")
+        decoy_paths.add(decoy.path)
+        files[decoy.path] = FakeFile(path=decoy.path, content=decoy.content)
 
     return Persona(
         persona_id=record.id,
@@ -263,18 +309,15 @@ def _persona_from_config_record(record) -> Persona:
         uname_output=(
             f"Linux {hostname} 5.15.0-91-generic #101-Ubuntu SMP x86_64 GNU/Linux"
         ),
-        username=_DB_PERSONA_USERNAME,
-        home_dir=_DB_PERSONA_HOME_DIR,
-        fake_filesystem=fake_filesystem,
+        username=username,
+        home_dir=home_dir,
+        fake_filesystem=tuple(files.values()),
         running_processes=tuple(record.running_processes),
         http_server_type=record.http_server_type,
         fake_users=tuple(record.fake_users),
-        suid_binaries=(),
-        # No source data for this anymore -- the ssh/http/ftp/telnet
-        # *_enabled+*_port pairs that used to derive it implied per-persona
-        # listener control that never existed (the four listeners are
-        # controlled once, globally, by ECHIDRA_*_PORT env vars). Presets
-        # still show their own real, hardcoded open_ports_visible.
-        open_ports_visible=(),
-        fake_credentials=(),
+        suid_binaries=preset.suid_binaries if preset else (),
+        # The four listeners are controlled once, globally, by ECHIDRA_*_PORT
+        # env vars, so a saved persona has no ports of its own to show.
+        open_ports_visible=preset.open_ports_visible if preset else (),
+        fake_credentials=preset.fake_credentials if preset else (),
     )

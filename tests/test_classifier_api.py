@@ -1020,7 +1020,7 @@ def test_get_classifier_run_endpoint_fails_auth_when_database_missing(monkeypatc
         route.endpoint(run_id, dashboard_request())
 
     assert exc_info.value.status_code == 401
-    assert exc_info.value.detail == "Dashboard authentication required"
+    assert exc_info.value.detail == app_module.DASHBOARD_SIGNED_OUT_DETAIL
 
 
 def test_list_session_events_endpoint_returns_ordered_timeline(monkeypatch):
@@ -1066,7 +1066,7 @@ def test_list_session_events_endpoint_fails_auth_when_database_missing(monkeypat
         route.endpoint(session_id, dashboard_request())
 
     assert exc_info.value.status_code == 401
-    assert exc_info.value.detail == "Dashboard authentication required"
+    assert exc_info.value.detail == app_module.DASHBOARD_SIGNED_OUT_DETAIL
 
 
 def test_list_session_events_endpoint_requires_dashboard_auth():
@@ -1181,7 +1181,7 @@ def test_list_classifier_runs_endpoint_fails_auth_when_database_missing(monkeypa
         route.endpoint(dashboard_request(), limit=100)
 
     assert exc_info.value.status_code == 401
-    assert exc_info.value.detail == "Dashboard authentication required"
+    assert exc_info.value.detail == app_module.DASHBOARD_SIGNED_OUT_DETAIL
 
 
 def test_list_classifier_runs_endpoint_requires_dashboard_session():
@@ -1191,7 +1191,7 @@ def test_list_classifier_runs_endpoint_requires_dashboard_session():
         route.endpoint(dashboard_request(authenticated=False), limit=100)
 
     assert exc_info.value.status_code == 401
-    assert exc_info.value.detail == "Dashboard authentication required"
+    assert exc_info.value.detail == app_module.DASHBOARD_SIGNED_OUT_DETAIL
 
 
 def test_dashboard_report_summary_endpoint_returns_aggregates(monkeypatch):
@@ -1224,7 +1224,7 @@ def test_dashboard_report_summary_endpoint_requires_dashboard_session():
         route.endpoint(dashboard_request(authenticated=False))
 
     assert exc_info.value.status_code == 401
-    assert exc_info.value.detail == "Dashboard authentication required"
+    assert exc_info.value.detail == app_module.DASHBOARD_SIGNED_OUT_DETAIL
 
 
 def _unreachable_session_check_repository():
@@ -1467,7 +1467,7 @@ def test_analytics_summary_endpoint_fails_auth_when_database_missing(monkeypatch
         route.endpoint(dashboard_request(), from_ts=1000.0, to_ts=2000.0)
 
     assert exc_info.value.status_code == 401
-    assert exc_info.value.detail == "Dashboard authentication required"
+    assert exc_info.value.detail == app_module.DASHBOARD_SIGNED_OUT_DETAIL
 
 
 def test_get_manual_label_endpoint_returns_stored_label(monkeypatch):
@@ -1561,7 +1561,7 @@ def test_list_manual_labels_endpoint_fails_auth_when_database_missing(monkeypatc
         route.endpoint(dashboard_request(), limit=100)
 
     assert exc_info.value.status_code == 401
-    assert exc_info.value.detail == "Dashboard authentication required"
+    assert exc_info.value.detail == app_module.DASHBOARD_SIGNED_OUT_DETAIL
 
 
 def test_classify_session_route_accepts_session_record_body_model():
@@ -1611,7 +1611,7 @@ def test_list_issues_endpoint_requires_dashboard_session():
         route.endpoint(dashboard_request(authenticated=False), status=None, limit=100)
 
     assert exc_info.value.status_code == 401
-    assert exc_info.value.detail == "Dashboard authentication required"
+    assert exc_info.value.detail == app_module.DASHBOARD_SIGNED_OUT_DETAIL
 
 
 def test_list_issues_endpoint_fails_auth_when_database_missing(monkeypatch):
@@ -1630,7 +1630,7 @@ def test_list_issues_endpoint_fails_auth_when_database_missing(monkeypatch):
         route.endpoint(dashboard_request(), status=None, limit=100)
 
     assert exc_info.value.status_code == 401
-    assert exc_info.value.detail == "Dashboard authentication required"
+    assert exc_info.value.detail == app_module.DASHBOARD_SIGNED_OUT_DETAIL
 
 
 def test_update_issue_status_endpoint_returns_updated_issue(monkeypatch):
@@ -1680,7 +1680,7 @@ def test_update_issue_status_endpoint_requires_dashboard_session():
         )
 
     assert exc_info.value.status_code == 401
-    assert exc_info.value.detail == "Dashboard authentication required"
+    assert exc_info.value.detail == app_module.DASHBOARD_SIGNED_OUT_DETAIL
 
 
 def test_issue_status_update_rejects_unsupported_status_value():

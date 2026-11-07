@@ -9,7 +9,7 @@ than opening a public GitHub issue, either:
   ([direct link](https://github.com/Qyleron/EchidraOSS/security/advisories/new)), or
 - by email to security@qyleron.com.
 
-We respond within 72 hours.
+We aim to respond within 72 hours.
 
 Please include the affected version or commit, steps to reproduce, and the
 impact you observed. We'll keep you updated while we work on a fix and
@@ -58,7 +58,7 @@ the internet. See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
 ## Dependencies and code scanning
 
-Dependencies are pinned. Every change runs the test suite and CodeQL code
+Dependencies are pinned to tested versions. Every change runs the test suite and CodeQL code
 scanning, Dependabot tracks dependency and base-image updates, and the
 project is checked by the OpenSSF Scorecard. Security fixes are listed in
 the [CHANGELOG](CHANGELOG.md).

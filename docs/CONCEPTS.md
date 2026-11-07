@@ -19,12 +19,19 @@ Five presets are hardcoded `Persona` dataclasses. At runtime,
 `get_active_persona()` reads `ECHIDRA_PERSONA` (default `generic_linux`),
 first tries to build a `Persona` from a dashboard-saved `persona_configs`
 row, and falls back to the hardcoded preset if no matching DB row exists (or
-no database is configured).
+no database is configured). The persona is loaded once before the decoys
+start and refreshed in the background, so a dashboard edit applies within a
+short while; if the database can't be reached, the decoys keep the persona
+they already have.
 
 The dashboard's `PersonaConfigInput` is a narrower, analyst-editable subset
 of a persona — banners, hostname, users, processes, `http_server_type`,
-decoy files, plus alert settings (see [Alerts](#alerts) below). Login
-identity, SUID binaries, and credentials use the built-in persona defaults.
+decoy files, plus alert settings (see [Alerts](#alerts) below). A saved
+persona with a preset's id keeps that preset's files, login identity, SUID
+binaries and credentials, with its decoy files added on top (a decoy file
+with the same path replaces the preset's). Any other saved persona starts
+from a few lived-in files (`.bashrc`, `.profile`, `/etc/hostname`,
+`/etc/hosts`, an `/etc/passwd` listing its users) plus its decoy files.
 
 - `honeypot/core/persona.py` — `Persona`, `PRESET_PERSONAS`, `get_persona()`
 - `honeypot/network/config.py` — `get_active_persona()`,
@@ -47,7 +54,8 @@ directory, and which decoy files were surfaced to it.
 On completion, `to_record()` produces a dict validated into a
 `SessionRecord` — schema version, protocol (`tcp_shell`/`http`/`ftp`/
 `telnet`), peer ip/port, persona id, timing, end reason, commands, and
-decoy files surfaced — with validators that catch inconsistent ordering,
+decoy files surfaced, plus for SSH the client's version line and how far
+the connection got (`client_version`, `end_stage`, `end_error`) — with validators that catch inconsistent ordering,
 mismatched durations, and duplicate decoy paths.
 
 `SessionLogger.log()` appends the record as a line to `logs/sessions.jsonl`
@@ -102,9 +110,11 @@ The Intelligence page doesn't show individual sessions — it shows recurring
 *issues*, one per `(actor_label, MITRE technique)` pair, each with a
 recommended fix.
 
-`classifier/rules/issue_playbook.yaml` maps an `(actor, technique)` pair to
-a title, recommended fix, and impact (falling back to a generic entry if the
-pair isn't catalogued). `sync_issues_from_classifier_runs()` groups
+Each issue's title, recommended fix and impact come from two playbooks:
+`classifier/rules/mitre_playbook.yaml`, with one entry per ATT&CK
+technique, and `classifier/rules/issue_playbook.yaml`, with entries for
+specific `(actor, technique)` pairs (falling back to a generic entry if
+neither covers the pair). `sync_issues_from_classifier_runs()` groups
 classifier runs by that pair, looks up the playbook entry, and writes an
 `IssueRecord` with a deterministic id, so syncing again refreshes counts
 without resetting an analyst's open/closed status. A closed issue that
@@ -131,7 +141,7 @@ The first sync on a new database, or after upgrading from a version
 without the queue, rebuilds every issue from all stored runs.
 `sync-issues --full` does the same rebuild on demand.
 
-- `classifier/rules/issue_playbook.yaml`
+- `classifier/rules/mitre_playbook.yaml`, `classifier/rules/issue_playbook.yaml`
 - `classifier/storage/issue_sync.py` — `sync_issues_from_classifier_runs()`
 - `classifier/storage/repository.py` — `IssueSyncStore` and the "Issue
   sync" SQL
@@ -144,13 +154,9 @@ Alerts have two layers: a **global** SMTP config, and **per-persona**
 routing on top of it.
 
 Global SMTP config (host, port, credentials, from-email, TLS) is set once
-via the Alerts page (`PUT /alerts/config`), which also holds an
-`excluded_ips` list (newline-separated) of source IPs that never trigger an
-alert no matter what a scoring rule concludes about them — needed because
-rules like `repeat_connections_same_ip` key off connection *frequency* from
-an IP, not that connection's own content, so an operator's own stable-IP
-dev/test traffic will eventually self-trigger a `brute_force_bot`/T1110
-alert with no real credential activity behind it. Per-persona settings on
+via the Alerts page (`PUT /alerts/config`), which also holds
+`excluded_ips`: source addresses that never trigger an alert, eg. your own
+scanners or monitoring (one per line). Per-persona settings on
 `PersonaConfigInput` — `alert_routing_level` (`none`/`email`/`slack`/`both`)
 and `alert_min_risk_level` — gate whether and when *that persona's*
 classifications trigger an alert at all; they're edited on the Personas
@@ -161,7 +167,15 @@ At classification time, the alert trigger point skips sending if routing is
 `alert_min_risk_level` (falling back to the global default), and — if the
 session's risk meets that threshold — dispatches by email (needs
 `contact_email` plus the global SMTP host) and/or Slack (needs
-`slack_webhook`), recording the result as an alert event.
+`slack_webhook`), recording the result as an alert event. With `both`, each
+channel is sent and recorded on its own.
+
+Alerts lead with the recommended fix. Repeat alerts for the same source
+address and technique within `ECHIDRA_ALERT_REPEAT_MINUTES` (default 60)
+are held and sent as one follow-up with the count; a higher risk level, or
+a critical session, always alerts at once. Sessions stored late (after a
+database outage or a stop) get one summary alert per decoy instead of one
+alert each.
 
 - `classifier/storage/models.py` — `PersonaConfigInput.alert_routing_level`,
   `alert_min_risk_level`; `AlertConfigInput.excluded_ips`

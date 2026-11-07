@@ -5,9 +5,11 @@ import json
 import logging
 import os
 import smtplib
+import socket
 import ssl
 import threading
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from collections import OrderedDict
@@ -724,6 +726,12 @@ def _dispatch_catch_up_alert(repository, config, persona_config, items: list[tup
         )
 
 
+_SLACK_REJECTED = (
+    "Slack didn't accept the message. Check the webhook URL; if the webhook "
+    "was removed in Slack, create a new one."
+)
+
+
 def _slack_post(webhook_url: str, text: str) -> str | None:
     # Anchored to the real Slack webhook host, not just the https:// scheme --
     # this is the one place both the real alert dispatch path and the
@@ -752,10 +760,58 @@ def _slack_post(webhook_url: str, text: str) -> str | None:
     try:
         with urllib.request.urlopen(request, timeout=10) as response:
             if response.status >= 300:
-                return f"Slack returned HTTP {response.status}. Check the webhook URL."
+                return _SLACK_REJECTED
         return None
+    except urllib.error.HTTPError:
+        return _SLACK_REJECTED
     except Exception as exc:
-        return str(exc)
+        logger.warning("Slack send failed: %s", type(exc).__name__)
+        return "Can't reach Slack. Check this server's internet connection, then try again."
+
+
+def _smtp_error_message(exc: Exception, config: AlertConfigRecord) -> str:
+    """What went wrong sending an email, and what to do about it. Shown in
+    the dashboard and the alert history, so no raw library errors."""
+    server = f"{config.smtp_host}:{config.smtp_port}"
+    if isinstance(exc, socket.gaierror):
+        return (
+            f"Can't find the SMTP server {config.smtp_host}. Check the SMTP host and "
+            "this server's internet connection, then try again."
+        )
+    if isinstance(exc, (TimeoutError, socket.timeout)):
+        return (
+            f"The SMTP server {server} didn't answer in time. Check the host and port, "
+            "and this server's internet connection, then try again."
+        )
+    if isinstance(exc, ConnectionRefusedError):
+        return f"The SMTP server {server} refused the connection. Check the host and port."
+    if isinstance(exc, smtplib.SMTPAuthenticationError):
+        return (
+            "The SMTP server rejected the username or password. Check both; many "
+            "providers need an app password."
+        )
+    if isinstance(exc, (ssl.SSLError, smtplib.SMTPNotSupportedError)):
+        return (
+            "Couldn't start a secure connection. Check the port (usually 587, or 465) "
+            "and the Use TLS setting."
+        )
+    if isinstance(exc, (smtplib.SMTPSenderRefused, smtplib.SMTPRecipientsRefused)):
+        return "The SMTP server refused the address. Use a From email this account may send from."
+    if isinstance(exc, smtplib.SMTPServerDisconnected):
+        return (
+            "The SMTP server closed the connection before the email was sent. Check the "
+            "username, password, port and Use TLS setting, then try again in a few minutes."
+        )
+    # SMTPException is itself an OSError, but most of them mean the server
+    # answered and said no, not that it couldn't be reached.
+    if isinstance(exc, smtplib.SMTPConnectError) or (
+        isinstance(exc, OSError) and not isinstance(exc, smtplib.SMTPException)
+    ):
+        return (
+            f"Can't reach the SMTP server {server}. Check the host and port, and this "
+            "server's internet connection, then try again."
+        )
+    return "The SMTP server couldn't send the email. Check your SMTP settings; the log has the details."
 
 
 def _smtp_send(
@@ -824,4 +880,5 @@ def _smtp_send(
             server.sendmail(msg["From"], [recipient], msg.as_string())
         return None
     except Exception as exc:
-        return str(exc)
+        logger.warning("SMTP send failed: %s: %s", type(exc).__name__, exc)
+        return _smtp_error_message(exc, config)

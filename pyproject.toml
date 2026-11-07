@@ -15,11 +15,14 @@ keywords = [
     "security-monitoring",
 ]
 classifiers = [
+    "Development Status :: 5 - Production/Stable",
     "License :: OSI Approved :: GNU Affero General Public License v3",
     "Topic :: Security",
     "Topic :: System :: Networking :: Monitoring",
     "Intended Audience :: Information Technology",
     "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
 ]
 requires-python = ">=3.11"
 dependencies = [
@@ -44,9 +47,11 @@ test = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/Qyleron/EchidraOSS"
+Homepage = "https://qyleron.com"
+Documentation = "https://qyleron.com/setup-and-onboarding/"
 Repository = "https://github.com/Qyleron/EchidraOSS"
 Issues = "https://github.com/Qyleron/EchidraOSS/issues"
+Changelog = "https://github.com/Qyleron/EchidraOSS/blob/main/CHANGELOG.md"
 
 [project.scripts]
 echidra = "echidra.cli:main"

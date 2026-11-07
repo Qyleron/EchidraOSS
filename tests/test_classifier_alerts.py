@@ -1,6 +1,9 @@
 """Tests for classifier/alerts.py: email/Slack channel routing and the raw
 Slack webhook POST helper."""
 
+import smtplib
+import socket
+import ssl
 import uuid
 from types import SimpleNamespace
 
@@ -176,7 +179,8 @@ def test_slack_post_returns_error_on_non_2xx_status(monkeypatch):
 
     err = alerts_module._slack_post("https://hooks.slack.com/services/T/B/X", "hello")
 
-    assert err == "Slack returned HTTP 500. Check the webhook URL."
+    assert err == alerts_module._SLACK_REJECTED
+    assert "500" not in err
 
 
 def test_slack_post_returns_error_on_network_exception(monkeypatch):
@@ -187,7 +191,34 @@ def test_slack_post_returns_error_on_network_exception(monkeypatch):
 
     err = alerts_module._slack_post("https://hooks.slack.com/services/T/B/X", "hello")
 
-    assert err == "connection refused"
+    assert err == "Can't reach Slack. Check this server's internet connection, then try again."
+
+
+@pytest.mark.parametrize(
+    ("error", "expected"),
+    [
+        (socket.gaierror(-3, "Temporary failure in name resolution"), "Can't find the SMTP server smtp.example.com"),
+        (TimeoutError("timed out"), "didn't answer in time"),
+        (ConnectionRefusedError(111, "Connection refused"), "refused the connection"),
+        (smtplib.SMTPAuthenticationError(535, b"bad credentials"), "rejected the username or password"),
+        (ssl.SSLError("wrong version number"), "Couldn't start a secure connection"),
+        (smtplib.SMTPSenderRefused(550, b"no", "alerts@example.com"), "refused the address"),
+        (smtplib.SMTPServerDisconnected("closed"), "closed the connection before the email was sent"),
+        (OSError(101, "Network is unreachable"), "Can't reach the SMTP server smtp.example.com:587"),
+        (smtplib.SMTPDataError(554, b"rejected"), "Check your SMTP settings"),
+    ],
+)
+def test_smtp_send_says_what_went_wrong_and_what_to_do(monkeypatch, error, expected):
+    def failing_smtp(*args, **kwargs):
+        raise error
+
+    monkeypatch.setattr(alerts_module.smtplib, "SMTP", failing_smtp)
+
+    err = alerts_module._smtp_send(_alert_config(), "dest@example.com", "subject", "body")
+
+    assert expected in err
+    # No raw library text reaches the dashboard or the alert history.
+    assert "Errno" not in err and "Temporary failure" not in err and "bad credentials" not in err
 
 
 def test_smtp_send_fails_closed_when_repository_has_no_password(monkeypatch):

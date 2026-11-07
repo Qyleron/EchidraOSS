@@ -1,11 +1,10 @@
 # Contributing to Echidra
 
-Echidra is a security tool, so all code is written and reviewed by the
-maintainers. **We don't accept pull requests from outside contributors**;
-pull requests that add or change code will be closed without merging.
+To keep security review and licensing in one place, code changes are
+written by the maintainers. Pull requests can't be merged, but issues are
+welcome and credited in the release notes.
 
-You can still help a lot, and contributions through issues are credited in
-the release notes.
+You can still help a lot.
 
 ## How to contribute
 
