@@ -427,8 +427,11 @@
     }
 
     async function saveAlertConfig(payload, savedMessage) {
-      smtpStatus.textContent = "Saving…";
-      smtpStatus.style.color = "var(--hint)";
+      // The notice says how the save went; the button is just held so a
+      // double-click can't save twice.
+      var saveBtn = smtpForm.querySelector('button[type="submit"]');
+      saveBtn.disabled = true;
+      smtpStatus.textContent = "";
       try {
         var r = await fetch("/alerts/config", {
           method: "PUT",
@@ -446,7 +449,7 @@
         showNotice("Couldn't save: " + alertRequestError(err), { error: true });
         return false;
       } finally {
-        smtpStatus.textContent = "";
+        saveBtn.disabled = false;
       }
     }
 

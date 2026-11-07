@@ -389,6 +389,14 @@ def test_notices_stack_and_stay_long_enough_to_read():
         assert 'closeBtn.addEventListener("click", dismiss);' in html, page
 
 
+def test_saving_shows_one_message_not_a_second_inline_one():
+    """The notice reports the save; an inline "Saving…" next to the button
+    only repeated it."""
+    for page in ("alerts.html", "personas.html"):
+        html = (DASHBOARD_PUBLIC_PATH / page).read_text(encoding="utf-8")
+        assert 'textContent = "Saving…"' not in html, page
+
+
 def test_failed_requests_never_show_a_bare_status_code():
     """Users get the server's own message or a plain sentence that helps
     them act, never "HTTP 503" or "Request failed (500)"."""

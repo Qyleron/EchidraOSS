@@ -1084,8 +1084,7 @@
       }
 
       saveBtn.disabled = true;
-      statusEl.textContent = "Saving…";
-      statusEl.style.color = "var(--muted)";
+      statusEl.textContent = "";
 
       try {
         var url = "/persona-configs/" + encodeURIComponent(targetId);
