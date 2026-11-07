@@ -10,7 +10,7 @@ psycopg[binary]==3.3.6
 python-dotenv==1.2.4
 PyYAML==6.0.3
 typing_extensions==4.16.0
-fastapi==0.143.0
+fastapi==0.162.0
 starlette==1.7.0
 uvicorn==0.54.0
 geoip2fast==1.2.2
