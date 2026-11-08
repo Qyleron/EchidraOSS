@@ -1,6 +1,6 @@
 [project]
 name = "echidra-oss"
-version = "0.2.0"
+version = "1.0.0"
 description = "Open-source deception platform: decoy SSH, HTTP, FTP and Telnet services that turn attacker activity into MITRE ATT&CK-mapped findings with recommended fixes."
 readme = "README.md"
 license = { file = "LICENSE.md" }

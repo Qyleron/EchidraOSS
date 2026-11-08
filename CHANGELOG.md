@@ -6,6 +6,8 @@ All notable changes to Echidra are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-11-08
+
 ### Added
 - `echidra blocklist`: export attacker IPs seen in a time window, as plain
   text or CSV, filtered by minimum risk and session count, for use in a
