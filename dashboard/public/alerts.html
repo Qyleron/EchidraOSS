@@ -67,41 +67,46 @@
           <div class="page-panel-title">
             <h1 id="smtpTitle">Alert Configuration</h1>
           </div>
-          <div class="page-panel-actions">
-            <button type="button" class="text-button active" id="emailTabBtn">Email</button>
-            <button type="button" class="text-button" id="slackTabBtn">Slack</button>
-          </div>
         </div>
 
         <!-- How alerts work, and whether any will actually be sent -->
         <div class="alerts-howto">
           <ol>
-            <li><strong>Mail server:</strong> set it below, then send a test.</li>
-            <li><strong>Recipients:</strong> each decoy's email or Slack webhook is set on the <a href="/dashboard/personas">Personas</a> page.</li>
+            <li><strong>Where alerts go:</strong> an email address, and optionally Slack, below. Every decoy uses them; a decoy can have its own on the <a href="/dashboard/personas">Personas</a> page.</li>
+            <li><strong>Test:</strong> each channel has a test button next to it.</li>
             <li><strong>When:</strong> a session at or above the minimum risk level sends an alert; repeats from one address are grouped.</li>
           </ol>
           <div class="alerts-status" id="alertsStatus" role="status"></div>
         </div>
 
-        <!-- Email (global SMTP) view -->
-        <div id="emailView">
-          <div style="display:flex;justify-content:flex-end;align-items:center;gap:12px;padding:16px 22px 0;">
-            <span class="form-status" id="testEmailStatus"></span>
-            <button type="button" class="text-button" id="testEmailBtn">Send Test Email</button>
+        <!-- One form: the switch, then a section per channel, then shared
+             settings. Each channel is set up here only, with its test next
+             to it. -->
+        <form id="smtpForm" autocomplete="off" style="padding:22px;">
+          <div class="alerts-enable-row">
+            <label class="toggle-switch" aria-label="Enable alerts">
+              <input type="checkbox" class="toggle-input" id="alertEnabled" />
+              <span class="toggle-visual"><span class="toggle-knob"></span></span>
+            </label>
+            <span style="font-size:14px;font-weight:560;">Enable alerts</span>
           </div>
-          <form id="smtpForm" autocomplete="off" style="padding:22px;">
+
+          <!-- Email -->
+          <div class="alerts-channel">
+            <div class="alerts-channel-header">
+              <h2 class="alerts-channel-title">Email</h2>
+              <span class="form-status" id="testEmailStatus"></span>
+              <button type="button" class="text-button" id="testEmailBtn">Send Test Email</button>
+            </div>
             <div class="alert-config-form" style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
-
-              <!-- Enable toggle -->
-              <div style="grid-column:1/-1;display:flex;align-items:center;gap:14px;padding-bottom:16px;border-bottom:1px solid var(--line);margin-bottom:4px;">
-                <label class="toggle-switch" aria-label="Enable email alerts">
-                  <input type="checkbox" class="toggle-input" id="alertEnabled" />
-                  <span class="toggle-visual"><span class="toggle-knob"></span></span>
-                </label>
-                <span style="font-size:14px;font-weight:560;">Enable email alerts</span>
+              <div class="form-row">
+                <label class="form-label" for="defaultContactEmail">Send alerts to</label>
+                <input class="form-input" id="defaultContactEmail" type="email" placeholder="you@example.com" />
               </div>
-
-              <!-- Left column -->
+              <div class="form-row">
+                <label class="form-label" for="smtpFromEmail">From Email</label>
+                <input class="form-input" id="smtpFromEmail" type="email" placeholder="echidra@example.com" />
+              </div>
               <div class="form-row">
                 <label class="form-label">SMTP Host</label>
                 <input class="form-input" id="smtpHost" type="text" placeholder="smtp.example.com" />
@@ -124,10 +129,6 @@
                   <span id="pwConfigured" class="secret-state"></span>
                   <button type="button" class="text-button secret-remove" id="removePasswordBtn" hidden>Remove</button>
                 </span>              </div>
-              <div class="form-row">
-                <label class="form-label">From Email</label>
-                <input class="form-input" id="smtpFromEmail" type="email" placeholder="echidra@example.com" />
-              </div>
               <div class="form-row" style="align-self:end;">
                 <label class="form-label">Use TLS (STARTTLS)</label>
                 <div style="display:flex;align-items:center;gap:10px;padding-top:6px;">
@@ -137,54 +138,47 @@
                   </label>
                 </div>
               </div>
-
-              <!-- Global threshold -->
-              <div class="form-row" style="grid-column:1/-1;display:flex;align-items:center;gap:14px;padding-top:8px;">
-                <label class="form-label" for="globalMinRiskLevel" style="margin:0;white-space:nowrap;">Global minimum risk level to trigger alert</label>
-                <select class="form-select" id="globalMinRiskLevel" style="width:160px;flex-shrink:0;">
-                  <option value="critical">Critical</option>
-                  <option value="high" selected>High</option>
-                  <option value="medium">Medium</option>
-                  <option value="low">Low</option>
-                </select>
-                <span class="form-hint">Per-persona overrides are set on the Personas page.</span>
-              </div>
-
-              <!-- Excluded IPs -->
-              <div class="form-row" style="grid-column:1/-1;padding-top:8px;">
-                <label class="form-label" for="excludedIps">Excluded IPs (never trigger an alert)</label>
-                <textarea class="form-input" id="excludedIps" rows="3" style="resize:vertical;font-family:monospace;padding-top:8px;" placeholder="One IP per line, e.g. 127.0.0.1"></textarea>
-                <span class="form-hint">
-                  Your own addresses, such as <code>127.0.0.1</code> while testing, or your own scanners.
-                </span>
-              </div>
-
-              <div style="grid-column:1/-1;padding-top:4px;">
-                <button type="submit" class="text-button">Save Configuration</button>
-                <span class="form-status" id="smtpStatus" style="margin-left:12px;"></span>              </div>
-
-            </div>
-          </form>
-        </div>
-
-        <!-- Slack view -->
-        <div id="slackView" hidden>
-          <div style="padding:22px;">
-            <p style="margin:0 0 18px;color:var(--muted);font-size:13px;">
-              Slack routing is configured per-persona (Personas page &rarr; a persona's Alerting section &rarr;
-              Alert Routing / Slack Webhook), not globally here. Paste a webhook URL below to test it before
-              saving it to a persona.
-            </p>
-            <div class="form-row" style="max-width:520px;">
-              <label class="form-label">Slack Webhook URL</label>
-              <input class="form-input" id="slackTestWebhook" type="url" placeholder="https://hooks.slack.com/services/…" />
-            </div>
-            <div style="padding-top:12px;">
-              <button type="button" class="text-button" id="testSlackBtn">Send Test Message</button>
-              <span class="form-status" id="slackTestStatus" style="margin-left:12px;"></span>
             </div>
           </div>
-        </div>
+
+          <!-- Slack -->
+          <div class="alerts-channel">
+            <div class="alerts-channel-header">
+              <h2 class="alerts-channel-title">Slack <span class="alerts-channel-optional">(optional)</span></h2>
+              <button type="button" class="text-button" id="testSlackBtn">Send Test Message</button>
+            </div>
+            <div class="form-row" style="max-width:520px;">
+              <label class="form-label" for="defaultSlackWebhook">Webhook URL</label>
+              <input class="form-input" id="defaultSlackWebhook" type="url" placeholder="https://hooks.slack.com/services/…" />
+            </div>
+          </div>
+
+          <!-- Shared by both channels -->
+          <div class="alerts-channel">
+            <div class="form-row" style="display:flex;align-items:center;gap:14px;">
+              <label class="form-label" for="globalMinRiskLevel" style="margin:0;white-space:nowrap;">Minimum risk level to alert</label>
+              <select class="form-select" id="globalMinRiskLevel" style="width:160px;flex-shrink:0;">
+                <option value="critical">Critical</option>
+                <option value="high" selected>High</option>
+                <option value="medium">Medium</option>
+                <option value="low">Low</option>
+              </select>
+              <span class="form-hint">A decoy can set its own on the Personas page.</span>
+            </div>
+            <div class="form-row" style="padding-top:16px;">
+              <label class="form-label" for="excludedIps">Excluded IPs (never trigger an alert)</label>
+              <textarea class="form-input" id="excludedIps" rows="3" style="resize:vertical;font-family:monospace;padding-top:8px;" placeholder="One IP per line, e.g. 127.0.0.1"></textarea>
+              <span class="form-hint">
+                Your own addresses, such as <code>127.0.0.1</code> while testing, or your own scanners.
+              </span>
+            </div>
+          </div>
+
+          <div class="alerts-save-row">
+            <button type="submit" class="text-button">Save Settings</button>
+            <span class="form-status" id="smtpStatus" style="margin-left:12px;"></span>
+          </div>
+        </form>
       </section>
 
       <!-- Alert History -->
@@ -192,7 +186,12 @@
         <div class="page-panel-header">
           <div class="page-panel-title">
             <h2 id="historyTitle" tabindex="-1">Alert History</h2>
-            <p>Email dispatch records for all attempted alert notifications.</p>
+            <p id="historySubtitle">Every alert sent by email or Slack, and whether it was delivered.</p>
+          </div>
+          <div class="page-panel-actions alerts-channel-filter" role="group" aria-label="Show alerts sent by">
+            <button type="button" class="text-button" data-channel="all" aria-pressed="true">All</button>
+            <button type="button" class="text-button" data-channel="email" aria-pressed="false">Email</button>
+            <button type="button" class="text-button" data-channel="slack" aria-pressed="false">Slack</button>
           </div>
         </div>
 
@@ -327,35 +326,17 @@
         : err.message;
     }
 
-    // ── Tab control ────────────────────────────────────────────────────────────
-    var emailView = document.getElementById("emailView");
-    var slackView = document.getElementById("slackView");
-    var emailTabBtn = document.getElementById("emailTabBtn");
-    var slackTabBtn = document.getElementById("slackTabBtn");
-
-    function showTab(tab) {
-      var isEmail = tab === "email";
-      emailView.hidden = !isEmail;
-      slackView.hidden = isEmail;
-      emailTabBtn.classList.toggle("active", isEmail);
-      slackTabBtn.classList.toggle("active", !isEmail);
-    }
-
-    emailTabBtn.addEventListener("click", function() { showTab("email"); });
-    slackTabBtn.addEventListener("click", function() { showTab("slack"); });
-
+    // ── Slack test ─────────────────────────────────────────────────────────────
+    // Tests the webhook in the Slack section, saved or not.
     document.getElementById("testSlackBtn").addEventListener("click", async function() {
       var btn = this;
-      var statusEl = document.getElementById("slackTestStatus");
-      var webhook = document.getElementById("slackTestWebhook").value.trim();
+      var webhook = document.getElementById("defaultSlackWebhook").value.trim();
       if (!webhook) {
-        statusEl.textContent = "Enter a webhook URL first.";
-        statusEl.style.color = "var(--critical)";
+        showNotice("Enter a Slack webhook URL first.", { error: true });
         return;
       }
       btn.disabled = true;
       btn.textContent = "Sending…";
-      statusEl.textContent = "";
       var slackSending = showNotice("Sending a test message to Slack. This can take a few seconds.", { persist: true });
       try {
         var r = await fetch("/alerts/test-slack", {
@@ -392,6 +373,8 @@
         globalMinRiskLevelEl.value = cfg.global_min_risk_level || "high";
         if (globalMinRiskLevelEl._refreshCustomSelect) globalMinRiskLevelEl._refreshCustomSelect();
         document.getElementById("excludedIps").value = cfg.excluded_ips || "";
+        document.getElementById("defaultContactEmail").value = cfg.default_contact_email || "";
+        document.getElementById("defaultSlackWebhook").value = cfg.default_slack_webhook || "";
         renderPasswordState(cfg.smtp_password_configured);
         updateSmtpFieldsDisabled();
         renderAlertStatus();
@@ -403,7 +386,7 @@
       }
     }
 
-    var SMTP_FIELD_IDS = ["smtpHost", "smtpPort", "smtpUsername", "smtpPassword", "smtpFromEmail", "smtpUseTls", "smtpPasswordToggle"];
+    var SMTP_FIELD_IDS = ["defaultContactEmail", "defaultSlackWebhook", "smtpHost", "smtpPort", "smtpUsername", "smtpPassword", "smtpFromEmail", "smtpUseTls", "smtpPasswordToggle"];
 
     function updateSmtpFieldsDisabled() {
       var enabled = document.getElementById("alertEnabled").checked;
@@ -426,6 +409,8 @@
         smtp_use_tls: document.getElementById("smtpUseTls").checked,
         global_min_risk_level: document.getElementById("globalMinRiskLevel").value,
         excluded_ips: document.getElementById("excludedIps").value.trim() || null,
+        default_contact_email: document.getElementById("defaultContactEmail").value.trim() || null,
+        default_slack_webhook: document.getElementById("defaultSlackWebhook").value.trim() || null,
       };
     }
 
@@ -442,10 +427,16 @@
         : "";
     }
 
-    // Says whether alerts will actually arrive, using the same rules real
-    // alerts use (classifier/alerts.py): alerts on, and a decoy with routing
-    // set and a recipient for that channel. Without this, everything here can
-    // look right while no alert is ever sent.
+    // Says whether alerts will actually arrive, using the same rule real
+    // alerts use (_alert_route in classifier/alerts.py): alerts on; a decoy
+    // with its own recipient uses it, every other decoy uses Send alerts to.
+    // It reads the saved settings, so it updates after each save.
+    // "a, b, c and 4 more": a long list of names is hard to read.
+    function namesUpToThree(names) {
+      if (names.length <= 3) return names.join(", ");
+      return names.slice(0, 3).join(", ") + " and " + (names.length - 3) + " more";
+    }
+
     async function renderAlertStatus() {
       var statusEl = document.getElementById("alertsStatus");
       var enabled = document.getElementById("alertEnabled").checked;
@@ -465,18 +456,27 @@
       function addRoute(destination, decoyId) {
         (decoysByDestination[destination] = decoysByDestination[destination] || []).push(decoyId);
       }
+      // Only decoys with their own recipient are named: they were set on
+      // purpose. The rest are described, not listed, so the line stays short
+      // however many decoys there are, and covers ones added later.
+      var anyOwn = false;
       configs.forEach(function (c) {
-        if ((c.alert_routing_level === "email" || c.alert_routing_level === "both") && c.contact_email) addRoute(c.contact_email, c.id);
-        if ((c.alert_routing_level === "slack" || c.alert_routing_level === "both") && c.slack_webhook) addRoute("Slack", c.id);
+        if ((c.alert_routing_level === "email" || c.alert_routing_level === "both") && c.contact_email) { addRoute(c.contact_email, c.id); anyOwn = true; }
+        if ((c.alert_routing_level === "slack" || c.alert_routing_level === "both") && c.slack_webhook) { addRoute("Slack", c.id); anyOwn = true; }
       });
+      var defaultLabel = anyOwn ? "every decoy without its own recipient" : "every decoy";
+      var defaultEmail = document.getElementById("defaultContactEmail").value.trim();
+      var defaultSlack = document.getElementById("defaultSlackWebhook").value.trim();
+      if (defaultEmail) addRoute(defaultEmail, defaultLabel);
+      if (defaultSlack) addRoute("Slack", defaultLabel);
       var destinations = Object.keys(decoysByDestination);
       statusEl.textContent = "";
       if (!enabled) {
         statusEl.className = "alerts-status is-warn";
-        statusEl.textContent = "⚠ Alerts are off, so none are sent. Turn on Enable email alerts below.";
+        statusEl.textContent = "⚠ Alerts are off, so none are sent. Turn on Enable alerts below.";
       } else if (!destinations.length) {
         statusEl.className = "alerts-status is-warn";
-        statusEl.textContent = "⚠ No decoy has a recipient yet, so no alerts will be sent. Set an email or Slack webhook for a decoy on the Personas page.";
+        statusEl.textContent = "⚠ No alerts will be sent yet. Enter Send alerts to below.";
       } else {
         statusEl.className = "alerts-status is-ok";
         statusEl.append("✓ Alerts go to:");
@@ -485,7 +485,7 @@
           line.className = "alerts-route";
           var name = document.createElement("strong");
           name.textContent = destination + ": ";
-          line.append(name, decoysByDestination[destination].join(", "));
+          line.append(name, namesUpToThree(decoysByDestination[destination]));
           statusEl.append(line);
         });
       }
@@ -607,20 +607,20 @@
       // actually use them until re-enabled.
       var savedMessage = document.getElementById("alertEnabled").checked
         ? "Saved Configuration."
-        : "Saved Configuration. Email alerts are disabled, so SMTP settings won't be used until re-enabled.";
+        : "Saved Configuration. Alerts are off, so nothing is sent until you turn them on.";
       await saveAlertConfig(payload, savedMessage);
     });
 
     // The enable/disable switch is styled and behaves like an instant
     // on/off toggle everywhere else in the dashboard, so it saves
-    // immediately on change instead of waiting for "Save Configuration" --
+    // immediately on change instead of waiting for "Save Settings" --
     // otherwise unchecking it without also clicking Save leaves the old
     // value live in the database (Send Test Email would still fire, and a
     // reload would show it "reset" back on since nothing was ever persisted).
     document.getElementById("alertEnabled").addEventListener("change", async function() {
       var checkbox = this;
       var payload = buildAlertConfigPayload();
-      var ok = await saveAlertConfig(payload, payload.enabled ? "Email alerts enabled." : "Email alerts disabled.");
+      var ok = await saveAlertConfig(payload, payload.enabled ? "Alerts enabled." : "Alerts disabled.");
       if (!ok) checkbox.checked = !checkbox.checked;
     });
 
@@ -643,7 +643,8 @@
       try {
         var r = await fetch("/alerts/test", { method: "POST" });
         if (!r.ok) { var e = await r.json().catch(function(){return{};}); throw new Error(extractErrorDetail(e, requestFailedMessage(r.status))); }
-        showNotice("Test email sent. Check the From address's inbox.", { success: true, replace: emailSending });
+        var sent = await r.json().catch(function(){ return {}; });
+        showNotice("Test email sent to " + (sent.recipient || "your address") + ".", { success: true, replace: emailSending });
       } catch (err) {
         showNotice("Couldn't send the test email: " + alertRequestError(err), { error: true, replace: emailSending });
       } finally {
@@ -688,9 +689,9 @@
           var countBody = await countResp.json();
           if (typeof countBody.total === "number") total = countBody.total;
         }
-        renderSummary(events, total);
         allAlertEvents = events;
-        renderAlertEventsPage();
+        allAlertEventsTotal = total;
+        applyAlertChannelFilter();
       } catch (err) {
         tbody.innerHTML = '<tr><td colspan="8" class="empty-state">Could not load alert history. Is the database configured?</td></tr>';
         ["metricTotal","metricLast24h","metricSuccess","metricFailed"].forEach(function(id) {
@@ -700,17 +701,58 @@
       }
     }
 
+    // One history, filtered by channel, so "what happened at 3 am?" is
+    // answered in one place; "both" rows count for either channel.
+    var alertChannelFilter = "all";
+    var allAlertEventsTotal = 0;
+    var shownAlertEvents = [];
+
+    function matchesAlertChannel(ev) {
+      if (alertChannelFilter === "all") return true;
+      return ev.channel === alertChannelFilter || ev.channel === "both";
+    }
+
+    var HISTORY_SUBTITLES = {
+      all: "Every alert sent by email or Slack, and whether it was delivered.",
+      email: "Every alert sent by email, and whether it was delivered.",
+      slack: "Every alert sent to Slack, and whether it was delivered.",
+    };
+
+    function applyAlertChannelFilter() {
+      document.getElementById("historySubtitle").textContent = HISTORY_SUBTITLES[alertChannelFilter];
+      document.querySelector(".alert-events-table").classList.toggle("hide-recipient", alertChannelFilter === "slack");
+      shownAlertEvents = allAlertEvents.filter(matchesAlertChannel);
+      // The server's count covers every alert ever sent; a filtered view can
+      // only count what it has loaded.
+      renderSummary(shownAlertEvents, alertChannelFilter === "all" ? allAlertEventsTotal : shownAlertEvents.length);
+      currentAlertsPage = 1;
+      renderAlertEventsPage();
+    }
+
+    document.querySelectorAll(".alerts-channel-filter [data-channel]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        alertChannelFilter = btn.dataset.channel;
+        document.querySelectorAll(".alerts-channel-filter [data-channel]").forEach(function (other) {
+          other.setAttribute("aria-pressed", String(other === btn));
+        });
+        applyAlertChannelFilter();
+      });
+    });
+
     function renderAlertEventsPage() {
       var tbody = document.getElementById("alertEventsBody");
-      if (!allAlertEvents.length) {
-        tbody.innerHTML = '<tr><td colspan="8" class="empty-state">No alerts dispatched yet.</td></tr>';
+      if (!shownAlertEvents.length) {
+        var emptyText = alertChannelFilter === "all"
+          ? "No alerts sent yet."
+          : "No " + (alertChannelFilter === "slack" ? "Slack" : "email") + " alerts sent yet.";
+        tbody.innerHTML = '<tr><td colspan="8" class="empty-state">' + emptyText + '</td></tr>';
         renderAlertEventsPagination(1);
         return;
       }
-      var totalPages = Math.max(1, Math.ceil(allAlertEvents.length / ALERT_EVENTS_PAGE_SIZE));
+      var totalPages = Math.max(1, Math.ceil(shownAlertEvents.length / ALERT_EVENTS_PAGE_SIZE));
       currentAlertsPage = Math.min(currentAlertsPage, totalPages);
       var pageStart = (currentAlertsPage - 1) * ALERT_EVENTS_PAGE_SIZE;
-      var pageItems = allAlertEvents.slice(pageStart, pageStart + ALERT_EVENTS_PAGE_SIZE);
+      var pageItems = shownAlertEvents.slice(pageStart, pageStart + ALERT_EVENTS_PAGE_SIZE);
       tbody.innerHTML = pageItems.map(function(ev) {
           var dt = new Date(ev.sent_at);
           var timeStr = dt.toLocaleString();
@@ -728,7 +770,7 @@
             + '<td><span class="risk-badge ' + badgeTier(ev.risk_level) + '" style="min-width:60px;">' + escHtml(ev.risk_level) + '</span></td>'
             + '<td>' + escHtml(ev.actor_label || "—") + '</td>'
             + '<td>' + escHtml({slack: "Slack", both: "Slack + Email"}[ev.channel] || "Email") + '</td>'
-            + '<td class="mono-cell" style="font-size:12px;">' + escHtml(ev.contact_email || "—") + '</td>'
+            + '<td class="mono-cell" style="font-size:12px;">' + escHtml(ev.contact_email || (ev.channel === "slack" ? "Slack" : "—")) + '</td>'
             + '<td>' + statusHtml + '</td>'
             + '</tr>';
       }).join("");
@@ -855,6 +897,7 @@
     async function performLogout() {
       closeLogoutConfirm();
       logoutButton.disabled = true;
+      logoutButton.textContent = "Logging out…";
       var controller = new AbortController();
       var timeoutId = setTimeout(function () { controller.abort(); }, 10000);
       try {
@@ -865,6 +908,7 @@
         console.error(err);
         showNotice("Couldn't log out. Check that Echidra is running, then try again.", { error: true });
         logoutButton.disabled = false;
+        logoutButton.textContent = "Log Out";
         logoutButton.focus();
       } finally {
         clearTimeout(timeoutId);

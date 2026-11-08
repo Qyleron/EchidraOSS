@@ -1155,14 +1155,14 @@ def create_app() -> FastAPI:
             raise _server_error(exc)
 
         if config is None or not config.enabled:
-            raise HTTPException(status_code=400, detail="Turn on email alerts first.")
+            raise HTTPException(status_code=400, detail="Turn on alerts first.")
         if not config.smtp_host or not config.smtp_from_email:
             raise HTTPException(status_code=400, detail="Enter the SMTP host and From email.")
 
         err = _dispatch_test_email(config)
         if err:
             raise HTTPException(status_code=502, detail=err)
-        return {"status": "sent"}
+        return {"status": "sent", "recipient": config.default_contact_email or config.smtp_from_email}
 
     @api.post(
         "/alerts/test-slack",
@@ -1256,10 +1256,14 @@ def _classify_or_http_error(
 
 
 def _dispatch_test_email(config: AlertConfigRecord) -> str | None:
-    """Send a test email using the current alert config. Returns error or None."""
-    recipient = config.smtp_from_email or ""
+    """Send a test email using the current alert config. Returns error or None.
+
+    It goes where real alerts go by default ("Send alerts to"), so a
+    successful test proves alerts will arrive; without one, to the From
+    address."""
+    recipient = config.default_contact_email or config.smtp_from_email or ""
     if not recipient:
-        return "Set the From email address first. The test email is sent to that address."
+        return "Enter Send alerts to, or a From email, first."
     subject = "[Echidra] Test email"
     body = (
         "Test email from Echidra OSS.\n\n"

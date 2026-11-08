@@ -78,7 +78,7 @@ def test_personas_page_uses_shared_styles_and_form_sections():
     assert "<style>" not in html
     assert 'href="/dashboard.css"' in html
     assert 'href="/assets/qyleron_logo.png"' in html
-    for section in ["Identity", "Deception", "Alerting"]:
+    for section in ["Identity", "Deception", "Alerts for this decoy (optional)"]:
         assert section in html
     for view in ["Configuration", "Analytics"]:
         assert view in html
@@ -399,12 +399,14 @@ def test_alerts_page_says_whether_any_alert_will_be_sent():
     html = (DASHBOARD_PUBLIC_PATH / "alerts.html").read_text(encoding="utf-8")
 
     assert '<div class="alerts-howto">' in html
-    assert 'is set on the <a href="/dashboard/personas">Personas</a> page.' in html
+    assert 'Every decoy uses them; a decoy can have its own on the <a href="/dashboard/personas">Personas</a> page.' in html
     assert 'id="alertsStatus" role="status"' in html
     assert 'fetch("/persona-configs")' in html
     assert '(c.alert_routing_level === "email" || c.alert_routing_level === "both") && c.contact_email' in html
     assert '(c.alert_routing_level === "slack" || c.alert_routing_level === "both") && c.slack_webhook' in html
-    assert "No decoy has a recipient yet, so no alerts will be sent." in html
+    # Every decoy without its own recipient uses Send alerts to.
+    assert "if (defaultEmail) addRoute(defaultEmail, defaultLabel);" in html
+    assert "No alerts will be sent yet. Enter Send alerts to below." in html
     assert "Alerts are off, so none are sent." in html
     # One line per destination, built from text nodes (decoy ids and
     # addresses are never parsed as HTML).
@@ -413,6 +415,46 @@ def test_alerts_page_says_whether_any_alert_will_be_sent():
     assert 'name.textContent = destination + ": ";' in html
     css = (DASHBOARD_PUBLIC_PATH / "dashboard.css").read_text(encoding="utf-8")
     assert ".alerts-howto a {\n  color: #8ab4f8;" in css
+
+
+def test_each_alert_channel_is_set_up_in_one_place():
+    """One Alerts form: an Email section and a Slack section, each with its
+    test next to it; no tabs, and no second Slack field anywhere."""
+    alerts = (DASHBOARD_PUBLIC_PATH / "alerts.html").read_text(encoding="utf-8")
+    assert '<h2 class="alerts-channel-title">Email</h2>' in alerts
+    assert '<h2 class="alerts-channel-title">Slack <span class="alerts-channel-optional">(optional)</span></h2>' in alerts
+    assert '<label class="form-label" for="defaultContactEmail">Send alerts to</label>' in alerts
+    assert '<label class="form-label" for="defaultSlackWebhook">Webhook URL</label>' in alerts
+    assert 'var webhook = document.getElementById("defaultSlackWebhook").value.trim();' in alerts
+    assert 'default_contact_email: document.getElementById("defaultContactEmail").value.trim() || null,' in alerts
+    assert '"Test email sent to " + (sent.recipient || "your address") + "."' in alerts
+    for gone in ("emailTabBtn", "slackTabBtn", "slackView", "slackTestWebhook", "Slack routing is configured per-persona"):
+        assert gone not in alerts, gone
+
+    # History is one list with a channel filter.
+    assert 'role="group" aria-label="Show alerts sent by"' in alerts
+    assert 'data-channel="slack"' in alerts
+    assert 'return ev.channel === alertChannelFilter || ev.channel === "both";' in alerts
+    assert "Every alert sent by email or Slack, and whether it was delivered." in alerts
+    assert 'slack: "Every alert sent to Slack, and whether it was delivered.",' in alerts
+    assert '(ev.channel === "slack" ? "Slack" : "—")' in alerts
+    # The Slack view hides Recipient: every row there would say "Slack".
+    assert 'classList.toggle("hide-recipient", alertChannelFilter === "slack");' in alerts
+    assert '<button type="submit" class="text-button">Save Settings</button>' in alerts
+    # Only decoys with their own recipient are named (3 at most); the rest
+    # are described, so the line stays short with many decoys.
+    assert 'var defaultLabel = anyOwn ? "every decoy without its own recipient" : "every decoy";' in alerts
+    assert 'names.slice(0, 3).join(", ") + " and " + (names.length - 3) + " more"' in alerts
+    assert "usingDefault" not in alerts
+
+    # A decoy's override is just its two optional fields.
+    personas = (DASHBOARD_PUBLIC_PATH / "personas.html").read_text(encoding="utf-8")
+    assert "Alerts for this decoy (optional)" in personas
+    assert '"This decoy\'s email (optional)"' in personas
+    assert '"This decoy\'s Slack webhook (optional)"' in personas
+    assert 'alert_routing_level: routingFromFields(fv("contact_email").trim(), fv("slack_webhook").trim()),' in personas
+    assert 'name="alert_routing_level"' not in personas
+    assert "Use the Alerts page setting" in personas
 
 
 def test_alerts_form_labels_say_which_fields_are_optional():
@@ -682,7 +724,9 @@ def test_failed_logout_restores_focus_to_the_logout_button():
     ]
     for page in pages:
         html = (DASHBOARD_PUBLIC_PATH / page).read_text(encoding="utf-8")
-        assert "logoutButton.disabled = false;\n        logoutButton.focus();" in html, page
+        assert 'logoutButton.disabled = false;\n        logoutButton.textContent = "Log Out";\n        logoutButton.focus();' in html, page
+        # While the request runs the button says so, and a second click does nothing.
+        assert 'logoutButton.disabled = true;\n      logoutButton.textContent = "Logging out…";' in html, page
 
 
 def test_cross_buttons_have_no_fill_behind_the_x():

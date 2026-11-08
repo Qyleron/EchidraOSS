@@ -547,6 +547,9 @@ class AlertConfigInput(BaseModel):
     smtp_use_tls: bool = True
     global_min_risk_level: str = "high"
     excluded_ips: str | None = Field(default=None, max_length=4_000)
+    # Where every decoy's alerts go unless its persona sets its own recipient.
+    default_contact_email: str | None = Field(default=None, max_length=254)
+    default_slack_webhook: str | None = Field(default=None, max_length=512)
 
     @field_validator("global_min_risk_level")
     @classmethod
@@ -556,6 +559,20 @@ class AlertConfigInput(BaseModel):
                 "Global minimum risk level must be one of "
                 f"{_option_labels(RISK_LEVELS_ORDERED, RISK_LEVEL_LABELS)}"
             )
+        return value
+
+    @field_validator("default_contact_email")
+    @classmethod
+    def validate_default_contact_email(cls, value: str | None) -> str | None:
+        if value is not None and not _EMAIL_RE.match(value):
+            raise ValueError("Send alerts to must be a valid email address")
+        return value
+
+    @field_validator("default_slack_webhook")
+    @classmethod
+    def validate_default_slack_webhook(cls, value: str | None) -> str | None:
+        if value is not None and not _is_slack_webhook_url(value):
+            raise ValueError("Slack webhook must be an https://hooks.slack.com/ URL")
         return value
 
     model_config = ConfigDict(extra="forbid")
@@ -573,6 +590,8 @@ class AlertConfigRecord(BaseModel):
     smtp_use_tls: bool
     global_min_risk_level: str
     excluded_ips: str | None = None
+    default_contact_email: str | None = None
+    default_slack_webhook: str | None = None
     updated_at: datetime = Field(default_factory=_utc_now)
 
     model_config = ConfigDict(extra="forbid")

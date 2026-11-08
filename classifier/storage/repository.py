@@ -1294,10 +1294,12 @@ ORDER BY MAX(risk_rank) DESC, COUNT(*) DESC, peer_ip
 UPSERT_ALERT_CONFIG_SQL = """
 INSERT INTO alert_config (
     id, enabled, smtp_host, smtp_port, smtp_username, smtp_password,
-    smtp_from_email, smtp_use_tls, global_min_risk_level, excluded_ips, updated_at
+    smtp_from_email, smtp_use_tls, global_min_risk_level, excluded_ips,
+    default_contact_email, default_slack_webhook, updated_at
 ) VALUES (
     1, %(enabled)s, %(smtp_host)s, %(smtp_port)s, %(smtp_username)s, %(smtp_password)s,
-    %(smtp_from_email)s, %(smtp_use_tls)s, %(global_min_risk_level)s, %(excluded_ips)s, now()
+    %(smtp_from_email)s, %(smtp_use_tls)s, %(global_min_risk_level)s, %(excluded_ips)s,
+    %(default_contact_email)s, %(default_slack_webhook)s, now()
 )
 ON CONFLICT (id) DO UPDATE SET
     enabled = EXCLUDED.enabled,
@@ -1309,13 +1311,16 @@ ON CONFLICT (id) DO UPDATE SET
     smtp_use_tls = EXCLUDED.smtp_use_tls,
     global_min_risk_level = EXCLUDED.global_min_risk_level,
     excluded_ips = EXCLUDED.excluded_ips,
+    default_contact_email = EXCLUDED.default_contact_email,
+    default_slack_webhook = EXCLUDED.default_slack_webhook,
     updated_at = now()
 """
 
 SELECT_ALERT_CONFIG_SQL = """
 SELECT enabled, smtp_host, smtp_port, smtp_username,
        (smtp_password IS NOT NULL AND smtp_password != '') AS smtp_password_configured,
-       smtp_from_email, smtp_use_tls, global_min_risk_level, excluded_ips, updated_at
+       smtp_from_email, smtp_use_tls, global_min_risk_level, excluded_ips,
+       default_contact_email, default_slack_webhook, updated_at
 FROM alert_config WHERE id = 1
 """
 
@@ -2272,6 +2277,8 @@ class PostgresClassifierRepository:
             smtp_use_tls=row["smtp_use_tls"],
             global_min_risk_level=row["global_min_risk_level"],
             excluded_ips=row["excluded_ips"],
+            default_contact_email=row.get("default_contact_email"),
+            default_slack_webhook=row.get("default_slack_webhook"),
             updated_at=row["updated_at"],
         )
 
@@ -2292,6 +2299,8 @@ class PostgresClassifierRepository:
                 "smtp_use_tls": config.smtp_use_tls,
                 "global_min_risk_level": config.global_min_risk_level,
                 "excluded_ips": config.excluded_ips,
+                "default_contact_email": config.default_contact_email,
+                "default_slack_webhook": config.default_slack_webhook,
             },
         )
         return self.get_alert_config() or AlertConfigRecord(
@@ -2304,6 +2313,8 @@ class PostgresClassifierRepository:
             smtp_use_tls=config.smtp_use_tls,
             global_min_risk_level=config.global_min_risk_level,
             excluded_ips=config.excluded_ips,
+            default_contact_email=config.default_contact_email,
+            default_slack_webhook=config.default_slack_webhook,
         )
 
     def get_alert_smtp_password(self) -> str | None:

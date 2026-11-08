@@ -452,6 +452,7 @@
     async function performLogout() {
       closeLogoutConfirm();
       logoutButton.disabled = true;
+      logoutButton.textContent = "Logging out…";
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 10000);
       try {
@@ -464,6 +465,7 @@
         console.error(error);
         showNotice("Couldn't log out. Check that Echidra is running, then try again.", { error: true });
         logoutButton.disabled = false;
+        logoutButton.textContent = "Log Out";
         logoutButton.focus();
       } finally {
         clearTimeout(timeoutId);

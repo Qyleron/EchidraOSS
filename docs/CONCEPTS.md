@@ -150,25 +150,25 @@ without the queue, rebuilds every issue from all stored runs.
 
 ## Alerts
 
-Alerts have two layers: a **global** SMTP config, and **per-persona**
-routing on top of it.
-
-Global SMTP config (host, port, credentials, from-email, TLS) is set once
-via the Alerts page (`PUT /alerts/config`), which also holds
+Alerts are set up in one place, the Alerts page (`PUT /alerts/config`):
+the on/off switch, **Send alerts to** (`default_contact_email`, and
+optionally `default_slack_webhook`), the mail server (host, port,
+credentials, from-email, TLS), the global minimum risk level, and
 `excluded_ips`: source addresses that never trigger an alert, eg. your own
-scanners or monitoring (one per line). Per-persona settings on
-`PersonaConfigInput` — `alert_routing_level` (`none`/`email`/`slack`/`both`)
-and `alert_min_risk_level` — gate whether and when *that persona's*
-classifications trigger an alert at all; they're edited on the Personas
-page, inside a given persona's modal, not on the Alerts page.
+scanners or monitoring (one per line).
 
-At classification time, the alert trigger point skips sending if routing is
-`none`, computes the effective risk threshold from the persona's
-`alert_min_risk_level` (falling back to the global default), and — if the
-session's risk meets that threshold — dispatches by email (needs
-`contact_email` plus the global SMTP host) and/or Slack (needs
-`slack_webhook`), recording the result as an alert event. With `both`, each
-channel is sent and recorded on its own.
+Every decoy sends its alerts to Send alerts to, unless its persona sets its
+own email or Slack webhook on the Personas page ("Alerts for this decoy").
+The page stores which of the two is filled in as `alert_routing_level`
+(`email`/`slack`/`both`, or `none` for no override). A persona's `alert_min_risk_level`, when
+set, replaces the global minimum for that decoy. `_alert_route()` in
+`classifier/alerts.py` makes this choice for live, follow-up and catch-up
+alerts alike, and the Alerts page's status line shows its result.
+
+When a session's risk meets the threshold, the alert is sent by email
+(needs the mail server) and/or Slack, and recorded as an alert event. With
+both, each channel is sent and recorded on its own. Send Test Email saves
+the form, then sends to Send alerts to (or the From address if it's empty).
 
 Alerts lead with the recommended fix. Repeat alerts for the same source
 address and technique within `ECHIDRA_ALERT_REPEAT_MINUTES` (default 60)
@@ -177,7 +177,9 @@ a critical session, always alerts at once. Sessions stored late (after a
 database outage or a stop) get one summary alert per decoy instead of one
 alert each.
 
-- `classifier/storage/models.py` — `PersonaConfigInput.alert_routing_level`,
-  `alert_min_risk_level`; `AlertConfigInput.excluded_ips`
-- `classifier/alerts.py` — alert dispatch (SMTP/Slack), `_is_excluded_ip()`
+- `classifier/storage/models.py` — `AlertConfigInput.default_contact_email`,
+  `default_slack_webhook`, `excluded_ips`; `PersonaConfigInput.alert_routing_level`,
+  `alert_min_risk_level`
+- `classifier/alerts.py` — `_alert_route()`, alert dispatch (SMTP/Slack),
+  `_is_excluded_ip()`
 - `classifier/api/app.py` — alert config and test-send endpoints

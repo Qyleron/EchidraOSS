@@ -306,6 +306,18 @@ a {
   transform: translateY(1px);
 }
 
+/* While "Logging out…" is shown: greyed out, and no hover change. */
+.logout-button:disabled,
+.logout-button:disabled:hover,
+.logout-button:disabled:focus-visible {
+  opacity: 0.5;
+  cursor: default;
+  border-color: var(--line);
+  background: var(--surface-hover);
+  box-shadow: none;
+  transform: none;
+}
+
 .dashboard-main {
   display: grid;
   gap: 28px;
@@ -1503,12 +1515,15 @@ a {
   color: #7ee18f;
 }
 
-/* ── Active tab state ── */
-.text-button.active {
-  border-color: var(--border-strong);
-  background: var(--surface-strong);
-  color: var(--text);
-  box-shadow: inset 0 -2px 0 var(--text);
+/* ── Selected tab ── One look everywhere (Personas Configuration/Analytics,
+   Alerts history filter, sign-in Log In/Sign Up): filled white, so the
+   current view is clear at a glance. */
+.text-button.active,
+.text-button.active:hover,
+.text-button.active:focus-visible {
+  border-color: var(--text);
+  background: var(--text);
+  color: #000;
 }
 
 /* ── Form fields shared across Config and Time-range panels ── */
@@ -2380,6 +2395,12 @@ a {
   font-size: 13px;
 }
 
+/* Slack view: every row would say "Slack", so the Recipient column is hidden. */
+.alert-events-table.hide-recipient th:nth-child(7),
+.alert-events-table.hide-recipient td:nth-child(7) {
+  display: none;
+}
+
 .alert-status-badge {
   display: inline-block;
   padding: 4px 8px;
@@ -2900,6 +2921,54 @@ button.custom-date-cell:hover,
 
 .secret-state.is-set {
   color: var(--low);
+}
+
+/* Alerts page: the switch, then one section per channel with its test
+   button in the section's header. */
+.alerts-enable-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding-bottom: 16px;
+}
+
+.alerts-channel {
+  padding: 18px 0;
+  border-top: 1px solid var(--line);
+}
+
+/* Save Settings saves the whole form, so it sits below its own line. */
+.alerts-save-row {
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
+
+.alerts-channel-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.alerts-channel-title {
+  flex: 1;
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.alerts-channel-optional {
+  color: var(--hint);
+  font-size: 13px;
+  font-weight: 400;
+}
+
+/* History channel filter: the unselected buttons keep the normal raised
+   button look; the selected one is filled, the same as .text-button.active. */
+.alerts-channel-filter .text-button[aria-pressed="true"] {
+  border-color: var(--text);
+  background: var(--text);
+  color: #000;
 }
 
 /* Alerts page: how alerts work, and whether any will be sent. */

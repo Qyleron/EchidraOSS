@@ -344,6 +344,11 @@ ALTER TABLE alert_config ADD COLUMN IF NOT EXISTS smtp_password_salt TEXT;
 -- the scoring rules themselves.
 ALTER TABLE alert_config ADD COLUMN IF NOT EXISTS excluded_ips TEXT;
 
+-- Where every decoy's alerts go unless its persona sets its own recipient
+-- (see _alert_route in classifier/alerts.py).
+ALTER TABLE alert_config ADD COLUMN IF NOT EXISTS default_contact_email TEXT;
+ALTER TABLE alert_config ADD COLUMN IF NOT EXISTS default_slack_webhook TEXT;
+
 -- One row per alert dispatch attempt (email or Slack).
 CREATE TABLE IF NOT EXISTS alert_events (
     id UUID PRIMARY KEY,

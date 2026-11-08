@@ -155,9 +155,14 @@ All notable changes to Echidra are documented here. The format follows
   dashboard, so alert links use it.
 - Small fixes to the sign-in page, form layout, startup notices and
   package metadata.
-- The Alerts page explains in three lines how alerts work and shows whether
-  any will be sent: where they go, or that alerts are off or no decoy has a
-  recipient yet.
+- Alerts are set up in one place. The Alerts page has an Email section
+  (**Send alerts to** and the mail server) and a Slack section (a webhook),
+  each with its test button, used by every decoy; a decoy's own email or
+  webhook on the Personas page, now two optional fields, overrides them.
+  Send Test Email goes to that address, so a successful test shows alerts
+  will arrive. The page explains in three lines how alerts work and shows
+  where they go, or that none will be sent yet, and Alert History can be
+  filtered by channel.
 - Alerts page: labels say the username is only for servers that need a
   login; a saved password shows as a short "✓ Password saved", with a
   Remove button that asks before clearing it; saving a new one says so.

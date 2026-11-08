@@ -198,9 +198,9 @@ def _send_follow_up(key: tuple[str, str, str]) -> None:
         targets = _alert_targets(session, summary)
         if targets is None:
             return
-        repository, config, persona_config = targets
+        repository, config, route = targets
         _dispatch_alerts(
-            repository, config, persona_config, run, session, summary,
+            repository, config, route, run, session, summary,
             repeats=repeats, last_held_at=last_held_at, follow_up=True,
         )
     except Exception:
@@ -219,8 +219,43 @@ def reset_alert_grouping() -> None:
         _last_pruned_at = None
 
 
+@dataclass(frozen=True)
+class _AlertRoute:
+    """Where one decoy's alerts go, in the same shape as a persona's alert
+    fields, so the senders read either one."""
+
+    alert_routing_level: str
+    contact_email: str | None
+    slack_webhook: str | None
+
+
+def _route_to(contact_email: str | None, slack_webhook: str | None) -> _AlertRoute | None:
+    if contact_email and slack_webhook:
+        return _AlertRoute("both", contact_email, slack_webhook)
+    if contact_email:
+        return _AlertRoute("email", contact_email, None)
+    if slack_webhook:
+        return _AlertRoute("slack", None, slack_webhook)
+    return None
+
+
+def _alert_route(config: AlertConfigRecord, persona_config) -> _AlertRoute | None:
+    """A decoy's own recipient when its persona sets one, otherwise the
+    Alerts page's "Send alerts to"; None when there's neither. A persona's
+    routing only counts together with a recipient for that channel."""
+    if persona_config is not None:
+        level = persona_config.alert_routing_level
+        own = _route_to(
+            persona_config.contact_email if level in ("email", "both") else None,
+            persona_config.slack_webhook if level in ("slack", "both") else None,
+        )
+        if own is not None:
+            return own
+    return _route_to(config.default_contact_email, config.default_slack_webhook)
+
+
 def _alert_targets(session: SessionRecord, summary: ClassificationSummary):
-    """Return (repository, config, persona_config) when this session should alert, else None."""
+    """Return (repository, config, route) when this session should alert, else None."""
     repository = PostgresClassifierRepository()
     config = repository.get_alert_config()
     if config is None or not config.enabled:
@@ -239,10 +274,11 @@ def _alert_targets(session: SessionRecord, summary: ClassificationSummary):
         return None
 
     persona_config = repository.get_persona_config(session.persona_id)
-    if persona_config is None or persona_config.alert_routing_level == "none":
+    route = _alert_route(config, persona_config)
+    if route is None:
         logger.info(
-            "Alert skipped for session %s: no persona_configs row for %r "
-            "(or its alert_routing_level is 'none')",
+            "Alert skipped for session %s: no recipient for %r -- set Send alerts to "
+            "on the Alerts page, or a recipient for this decoy on the Personas page",
             session.session_id,
             session.persona_id,
         )
@@ -252,7 +288,8 @@ def _alert_targets(session: SessionRecord, summary: ClassificationSummary):
     # it can loosen the bar below the global default (eg. an operator wants
     # every hit on a decoy persona flagged) as well as tighten it. Only
     # fall back to the global default when the persona hasn't set one.
-    effective_threshold = persona_config.alert_min_risk_level or config.global_min_risk_level
+    persona_threshold = persona_config.alert_min_risk_level if persona_config is not None else None
+    effective_threshold = persona_threshold or config.global_min_risk_level
     if not _risk_meets_threshold(summary.risk_level, effective_threshold):
         logger.info(
             "Alert skipped for session %s: risk_level %r below effective threshold %r",
@@ -261,7 +298,7 @@ def _alert_targets(session: SessionRecord, summary: ClassificationSummary):
             effective_threshold,
         )
         return None
-    return repository, config, persona_config
+    return repository, config, route
 
 
 def _maybe_send_alert(
@@ -282,7 +319,7 @@ def _maybe_send_alert(
         targets = _alert_targets(session, summary)
         if targets is None:
             return
-        repository, config, persona_config = targets
+        repository, config, route = targets
 
         repeats = _alert_decision(run, session, summary)
         if repeats is None:
@@ -292,7 +329,7 @@ def _maybe_send_alert(
                 session.session_id,
             )
             return
-        _dispatch_alerts(repository, config, persona_config, run, session, summary, repeats=repeats)
+        _dispatch_alerts(repository, config, route, run, session, summary, repeats=repeats)
     except Exception:
         logger.exception("Alert dispatch failed — classifier run was saved normally")
 
@@ -300,7 +337,7 @@ def _maybe_send_alert(
 def _dispatch_alerts(
     repository,
     config: AlertConfigRecord,
-    persona_config,
+    route: _AlertRoute,
     run: ClassifierRunRecord | None,
     session: SessionRecord,
     summary: ClassificationSummary,
@@ -311,26 +348,24 @@ def _dispatch_alerts(
 ) -> None:
     grouping = {"repeats": repeats, "last_held_at": last_held_at, "follow_up": follow_up}
 
-    # "both" fires each configured channel independently -- a persona
-    # missing one destination (e.g. routing is "both" but no Slack
-    # webhook is set yet) still gets the channel it does have configured,
-    # rather than silently getting nothing.
-    if persona_config.alert_routing_level in ("email", "both") and persona_config.contact_email:
+    # "both" sends and records each channel on its own, so one failing
+    # doesn't stop the other.
+    if route.alert_routing_level in ("email", "both") and route.contact_email:
         err = _dispatch_alert_email(
-            config, persona_config.contact_email, run, session, summary, **grouping
+            config, route.contact_email, run, session, summary, **grouping
         )
         _record_alert_event(
             repository,
             _build_alert_event(
                 run, session, summary,
                 channel="email",
-                contact_email=persona_config.contact_email,
+                contact_email=route.contact_email,
                 error=err,
             ),
         )
 
-    if persona_config.alert_routing_level in ("slack", "both") and persona_config.slack_webhook:
-        err = _dispatch_alert_slack(persona_config.slack_webhook, run, session, summary, **grouping)
+    if route.alert_routing_level in ("slack", "both") and route.slack_webhook:
+        err = _dispatch_alert_slack(route.slack_webhook, run, session, summary, **grouping)
         _record_alert_event(
             repository,
             _build_alert_event(
@@ -627,9 +662,9 @@ def send_catch_up_alerts(stored: list[tuple]) -> None:
         targets_by_persona[session.persona_id] = targets
 
     for persona_id, items in by_persona.items():
-        repository, config, persona_config = targets_by_persona[persona_id]
+        repository, config, route = targets_by_persona[persona_id]
         try:
-            _dispatch_catch_up_alert(repository, config, persona_config, items)
+            _dispatch_catch_up_alert(repository, config, route, items)
         except Exception:
             logger.exception("Catch-up alert for %s failed", persona_id)
 
@@ -675,11 +710,11 @@ def _catch_up_content(items: list[tuple]) -> dict:
     }
 
 
-def _dispatch_catch_up_alert(repository, config, persona_config, items: list[tuple]) -> None:
+def _dispatch_catch_up_alert(repository, config, route: _AlertRoute, items: list[tuple]) -> None:
     content = _catch_up_content(items)
     run, session, summary = content["top"]
 
-    if persona_config.alert_routing_level in ("email", "both") and persona_config.contact_email:
+    if route.alert_routing_level in ("email", "both") and route.contact_email:
         body = (
             f"{content['heading']}\n\n"
             f"What to do: {content['fix']}\n\n"
@@ -694,18 +729,18 @@ def _dispatch_catch_up_alert(repository, config, persona_config, items: list[tup
             f'<table cellspacing="0" cellpadding="0">{_alert_html_field_rows(content["fields"])}</table>'
             "</div>"
         )
-        err = _smtp_send(config, persona_config.contact_email, content["subject"], body, html_body)
+        err = _smtp_send(config, route.contact_email, content["subject"], body, html_body)
         _record_alert_event(
             repository,
             _build_alert_event(
                 run, session, summary,
                 channel="email",
-                contact_email=persona_config.contact_email,
+                contact_email=route.contact_email,
                 error=err,
             ),
         )
 
-    if persona_config.alert_routing_level in ("slack", "both") and persona_config.slack_webhook:
+    if route.alert_routing_level in ("slack", "both") and route.slack_webhook:
         text = (
             f"*{content['subject']}*\n"
             f"*What to do:* {content['fix']}\n"
@@ -714,7 +749,7 @@ def _dispatch_catch_up_alert(repository, config, persona_config, items: list[tup
                 for label, value in content["fields"]
             )
         )
-        err = _slack_post(persona_config.slack_webhook, text)
+        err = _slack_post(route.slack_webhook, text)
         _record_alert_event(
             repository,
             _build_alert_event(

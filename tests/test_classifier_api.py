@@ -1349,6 +1349,39 @@ def test_saving_an_smtp_password_without_an_alert_secret_says_what_to_set(monkey
     assert "ECHIDRA_ALERT_SECRET" in exc_info.value.detail
 
 
+def test_test_email_goes_where_alerts_go(monkeypatch):
+    """The test email goes to "Send alerts to" when set (so a success proves
+    alerts will arrive), otherwise to the From address."""
+    from classifier.storage.models import AlertConfigRecord
+
+    sent = []
+    monkeypatch.setattr(app_module, "_smtp_send", lambda config, recipient, subject, body: sent.append(recipient))
+
+    def config(**overrides):
+        values = dict(
+            enabled=True, smtp_host="smtp.example.com", smtp_port=587, smtp_username=None,
+            smtp_password_configured=False, smtp_from_email="echidra@example.com",
+            smtp_use_tls=True, global_min_risk_level="high",
+        )
+        values.update(overrides)
+        return AlertConfigRecord(**values)
+
+    assert app_module._dispatch_test_email(config(default_contact_email="soc@example.com")) is None
+    assert app_module._dispatch_test_email(config()) is None
+    assert sent == ["soc@example.com", "echidra@example.com"]
+
+
+def test_send_alerts_to_rejects_a_bad_address_or_webhook():
+    from pydantic import ValidationError
+    from classifier.storage import AlertConfigInput
+
+    with pytest.raises(ValidationError, match="Send alerts to must be a valid email address"):
+        AlertConfigInput(default_contact_email="not-an-email")
+    with pytest.raises(ValidationError, match="hooks.slack.com"):
+        AlertConfigInput(default_slack_webhook="https://example.com/hook")
+    assert AlertConfigInput(default_contact_email="soc@example.com").default_contact_email == "soc@example.com"
+
+
 def test_dashboard_api_keeps_500_for_errors_other_than_the_database(monkeypatch):
     class FakeRepository(_SessionVersionMixin):
         def get_dashboard_report_summary(self):

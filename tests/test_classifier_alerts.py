@@ -464,6 +464,75 @@ def test_maybe_send_alert_skips_entirely_when_routing_is_none(monkeypatch):
     assert repository.inserted_events == []
 
 
+def _sent_emails(monkeypatch):
+    sent = []
+    monkeypatch.setattr(
+        alerts_module,
+        "_smtp_send",
+        lambda config, recipient, subject, body, html_body=None: sent.append(recipient),
+    )
+    return sent
+
+
+def test_a_decoy_without_its_own_recipient_alerts_send_alerts_to(monkeypatch):
+    """One "Send alerts to" on the Alerts page is enough: decoys with no
+    saved persona, or one left on "Use the Alerts page", send there."""
+    session, summary = _session_and_summary()
+    for persona_config in (None, _persona_config(alert_routing_level="none")):
+        repository = _patch_repository(
+            monkeypatch,
+            _alert_config(default_contact_email="soc@example.com"),
+            persona_config,
+        )
+        sent = _sent_emails(monkeypatch)
+
+        alerts_module._maybe_send_alert(None, session, summary)
+
+        assert sent == ["soc@example.com"]
+        assert [event.contact_email for event in repository.inserted_events] == ["soc@example.com"]
+        alerts_module.reset_alert_grouping()
+
+
+def test_a_decoy_with_its_own_recipient_overrides_send_alerts_to(monkeypatch):
+    session, summary = _session_and_summary()
+    _patch_repository(
+        monkeypatch,
+        _alert_config(default_contact_email="soc@example.com"),
+        _persona_config(alert_routing_level="email", contact_email="web-team@example.com", slack_webhook=None),
+    )
+    sent = _sent_emails(monkeypatch)
+
+    alerts_module._maybe_send_alert(None, session, summary)
+
+    assert sent == ["web-team@example.com"]
+
+
+def test_send_alerts_to_can_be_slack_only(monkeypatch):
+    session, summary = _session_and_summary()
+    repository = _patch_repository(
+        monkeypatch,
+        _alert_config(default_slack_webhook="https://hooks.slack.com/services/T000/B000/XXXX"),
+        None,
+    )
+    posted = []
+    monkeypatch.setattr(alerts_module, "_slack_post", lambda url, text: posted.append(url))
+
+    alerts_module._maybe_send_alert(None, session, summary)
+
+    assert posted == ["https://hooks.slack.com/services/T000/B000/XXXX"]
+    assert [event.channel for event in repository.inserted_events] == ["slack"]
+
+
+def test_no_recipient_anywhere_sends_nothing(monkeypatch):
+    session, summary = _session_and_summary()
+    repository = _patch_repository(monkeypatch, _alert_config(), None)
+    sent = _sent_emails(monkeypatch)
+
+    alerts_module._maybe_send_alert(None, session, summary)
+
+    assert sent == [] and repository.inserted_events == []
+
+
 def test_maybe_send_alert_skips_entirely_when_peer_ip_is_excluded(monkeypatch):
     session, summary = _session_and_summary()
     repository = _patch_repository(

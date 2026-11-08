@@ -870,19 +870,16 @@
         + '</div></div>'
 
         + '<div class="config-section">'
-        + '<h3 class="config-section-title">Alerting</h3>'
+        + '<h3 class="config-section-title">Alerts for this decoy (optional)</h3>'
+        + '<p class="form-hint" style="margin:-4px 0 12px;">Leave these empty and this decoy\'s alerts go where the Alerts page sends them. Fill one in to send this decoy\'s alerts there instead.</p>'
         + '<div class="config-fields-grid">'
-        + '<div class="form-row"><label class="form-label" for="alert_routing_level_' + escAttr(personaId) + '">Alert Routing</label>'
-        + '<select class="form-select" id="alert_routing_level_' + escAttr(personaId) + '" name="alert_routing_level">'
-        + buildOptions(["none","email","slack","both"], config.alert_routing_level || "none")
-        + '</select></div>'
-        + '<div class="form-row"><label class="form-label" for="alert_min_risk_level_' + escAttr(personaId) + '">Min Risk Level</label>'
+        + formInput(personaId, "contact_email", "This decoy's email (optional)", "email", ownRecipient(config, "email"))
+        + formInput(personaId, "slack_webhook", "This decoy's Slack webhook (optional)", "url", ownRecipient(config, "slack"))
+        + '<div class="form-row"><label class="form-label" for="alert_min_risk_level_' + escAttr(personaId) + '">Minimum risk level</label>'
         + '<select class="form-select" id="alert_min_risk_level_' + escAttr(personaId) + '" name="alert_min_risk_level">'
-        + '<option value="">Use global default</option>'
+        + '<option value="">Use the Alerts page setting</option>'
         + buildOptions(["critical","high","medium","low"], config.alert_min_risk_level || "")
         + '</select></div>'
-        + formInput(personaId, "contact_email", "Recipient Email", "email", config.contact_email || "")
-        + formInput(personaId, "slack_webhook", "Slack Webhook", "url", config.slack_webhook || "")
         + '</div></div>'
 
         + '</div>'
@@ -898,7 +895,6 @@
       modalContainer.innerHTML = html;
       modalBackdrop.hidden = false;
       if (typeof initCustomSelects === "function") initCustomSelects(modalContainer);
-      syncAlertDestinationFields(modalContainer);
     }
 
     // Wire close button and backdrop click
@@ -955,19 +951,16 @@
         + '</div></div>'
 
         + '<div class="config-section">'
-        + '<h3 class="config-section-title">Alerting</h3>'
+        + '<h3 class="config-section-title">Alerts for this decoy (optional)</h3>'
+        + '<p class="form-hint" style="margin:-4px 0 12px;">Leave these empty and this decoy\'s alerts go where the Alerts page sends them. Fill one in to send this decoy\'s alerts there instead.</p>'
         + '<div class="config-fields-grid">'
-        + '<div class="form-row"><label class="form-label" for="alert_routing_level_' + _CREATE_SENTINEL + '">Alert Routing</label>'
-        + '<select class="form-select" id="alert_routing_level_' + _CREATE_SENTINEL + '" name="alert_routing_level">'
-        + buildOptions(["none","email","slack","both"], "none")
-        + '</select></div>'
-        + '<div class="form-row"><label class="form-label" for="alert_min_risk_level_' + _CREATE_SENTINEL + '">Min Risk Level</label>'
+        + formInput(_CREATE_SENTINEL, "contact_email", "This decoy's email (optional)", "email", "")
+        + formInput(_CREATE_SENTINEL, "slack_webhook", "This decoy's Slack webhook (optional)", "url", "")
+        + '<div class="form-row"><label class="form-label" for="alert_min_risk_level_' + _CREATE_SENTINEL + '">Minimum risk level</label>'
         + '<select class="form-select" id="alert_min_risk_level_' + _CREATE_SENTINEL + '" name="alert_min_risk_level">'
-        + '<option value="">Use global default</option>'
+        + '<option value="">Use the Alerts page setting</option>'
         + buildOptions(["critical","high","medium","low"], "")
         + '</select></div>'
-        + formInput(_CREATE_SENTINEL, "contact_email", "Recipient Email", "email", "")
-        + formInput(_CREATE_SENTINEL, "slack_webhook", "Slack Webhook", "url", "")
         + '</div></div>'
 
         + '</div>'
@@ -981,7 +974,6 @@
       modalContainer.innerHTML = html;
       modalBackdrop.hidden = false;
       if (typeof initCustomSelects === "function") initCustomSelects(modalContainer);
-      syncAlertDestinationFields(modalContainer);
     }
 
     document.getElementById("createPersonaBtn").addEventListener("click", function() {
@@ -1003,6 +995,23 @@
         + '<textarea class="decoy-file-content" name="decoy_content" rows="2" placeholder="file content…">' + escHtml(content) + '</textarea>'
         + '<button type="button" class="remove-row-btn" data-target="' + uid + '" aria-label="Remove">×</button>'
         + '</div>';
+    }
+
+    // A decoy's own recipient is just whichever of its two fields is filled
+    // in; with neither, it uses the Alerts page (_alert_route in
+    // classifier/alerts.py). Only show an address its routing actually uses,
+    // so an old, unused value can't look wired up.
+    function ownRecipient(config, channel) {
+      var level = config.alert_routing_level || "none";
+      if (channel === "email") return (level === "email" || level === "both") ? (config.contact_email || "") : "";
+      return (level === "slack" || level === "both") ? (config.slack_webhook || "") : "";
+    }
+
+    function routingFromFields(email, slack) {
+      if (email && slack) return "both";
+      if (email) return "email";
+      if (slack) return "slack";
+      return "none";
     }
 
     function buildOptions(values, selected) {
@@ -1056,7 +1065,7 @@
         running_processes: fv("running_processes").split("\n").map(function(s) { return s.trim(); }).filter(Boolean),
         http_server_type: fv("http_server_type"),
         decoy_files: decoyFiles,
-        alert_routing_level: fv("alert_routing_level"),
+        alert_routing_level: routingFromFields(fv("contact_email").trim(), fv("slack_webhook").trim()),
         alert_min_risk_level: fv("alert_min_risk_level") || null,
         contact_email: fv("contact_email").trim() || null,
         slack_webhook: fv("slack_webhook").trim() || null,
@@ -1237,25 +1246,6 @@
 
       var del = evt.target.closest(".delete-btn");
       if (del) { deletePersonaConfig(del.dataset.id, del); return; }
-    });
-
-    // Contact Email/Slack Webhook only take effect when Alert Routing
-    // actually includes that channel -- disable (not just visually mute)
-    // the field the routing choice ignores, so a value typed there can't be
-    // mistaken for something that's actually wired up.
-    function syncAlertDestinationFields(root) {
-      var routingSelect = root.querySelector('[name="alert_routing_level"]');
-      if (!routingSelect) return;
-      var emailInput = root.querySelector('[name="contact_email"]');
-      var slackInput = root.querySelector('[name="slack_webhook"]');
-      var routing = routingSelect.value;
-      if (emailInput) emailInput.disabled = !(routing === "email" || routing === "both");
-      if (slackInput) slackInput.disabled = !(routing === "slack" || routing === "both");
-    }
-
-    document.addEventListener("change", function(evt) {
-      var routingSelect = evt.target.closest('[name="alert_routing_level"]');
-      if (routingSelect) syncAlertDestinationFields(routingSelect.closest("form"));
     });
 
     // ── Modal form event delegation ────────────────────────────────────────────
@@ -1778,6 +1768,7 @@
     async function performLogout() {
       closeLogoutConfirm();
       logoutButton.disabled = true;
+      logoutButton.textContent = "Logging out…";
       var controller = new AbortController();
       var timeoutId = setTimeout(function () { controller.abort(); }, 10000);
       try {
@@ -1791,6 +1782,7 @@
         console.error(error);
         showNotice("Couldn't log out. Check that Echidra is running, then try again.", { error: true });
         logoutButton.disabled = false;
+        logoutButton.textContent = "Log Out";
         logoutButton.focus();
       } finally {
         clearTimeout(timeoutId);
