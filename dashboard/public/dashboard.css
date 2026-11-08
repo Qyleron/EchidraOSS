@@ -2902,6 +2902,65 @@ button.custom-date-cell:hover,
   color: var(--low);
 }
 
+/* Alerts page: how alerts work, and whether any will be sent. */
+.alerts-howto {
+  margin: 16px 22px 0;
+  padding: 14px 18px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--label);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.alerts-howto ol {
+  margin: 0;
+  padding-left: 20px;
+}
+
+/* Same text-link style as qyleron.com, so it reads as clickable. */
+.alerts-howto a {
+  color: #8ab4f8;
+  text-decoration: none;
+  border-bottom: 1px solid rgba(138, 180, 248, 0.35);
+  transition: border-color 0.2s ease;
+}
+
+.alerts-howto a:hover,
+.alerts-howto a:focus-visible {
+  border-bottom-color: #8ab4f8;
+}
+
+.alerts-route {
+  margin-top: 2px;
+  padding-left: 18px;
+  color: var(--label);
+  font-weight: 400;
+}
+
+.alerts-route strong {
+  color: var(--low);
+  font-weight: 500;
+}
+
+.alerts-status {
+  margin: 10px 0 0;
+  font-weight: 500;
+}
+
+.alerts-status:empty {
+  display: none;
+}
+
+.alerts-status.is-ok {
+  color: var(--low);
+}
+
+.alerts-status.is-warn {
+  color: var(--medium);
+}
+
 .secret-state-row {
   display: inline-flex;
   align-items: center;

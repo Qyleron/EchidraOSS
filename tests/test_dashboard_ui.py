@@ -392,6 +392,29 @@ def test_notices_stack_and_stay_long_enough_to_read():
         assert 'closeBtn.addEventListener("click", dismiss);' in html, page
 
 
+def test_alerts_page_says_whether_any_alert_will_be_sent():
+    """Recipients are set per decoy on the Personas page, so the Alerts page
+    can look complete while nothing is ever sent; it says so, using the same
+    rules real alerts use."""
+    html = (DASHBOARD_PUBLIC_PATH / "alerts.html").read_text(encoding="utf-8")
+
+    assert '<div class="alerts-howto">' in html
+    assert 'is set on the <a href="/dashboard/personas">Personas</a> page.' in html
+    assert 'id="alertsStatus" role="status"' in html
+    assert 'fetch("/persona-configs")' in html
+    assert '(c.alert_routing_level === "email" || c.alert_routing_level === "both") && c.contact_email' in html
+    assert '(c.alert_routing_level === "slack" || c.alert_routing_level === "both") && c.slack_webhook' in html
+    assert "No decoy has a recipient yet, so no alerts will be sent." in html
+    assert "Alerts are off, so none are sent." in html
+    # One line per destination, built from text nodes (decoy ids and
+    # addresses are never parsed as HTML).
+    assert 'statusEl.append("✓ Alerts go to:");' in html
+    assert 'line.className = "alerts-route";' in html
+    assert 'name.textContent = destination + ": ";' in html
+    css = (DASHBOARD_PUBLIC_PATH / "dashboard.css").read_text(encoding="utf-8")
+    assert ".alerts-howto a {\n  color: #8ab4f8;" in css
+
+
 def test_alerts_form_labels_say_which_fields_are_optional():
     """Neither login field is required: some mail servers need no login.
     The form doesn't second-guess combinations; the test email reports

@@ -73,6 +73,16 @@
           </div>
         </div>
 
+        <!-- How alerts work, and whether any will actually be sent -->
+        <div class="alerts-howto">
+          <ol>
+            <li><strong>Mail server:</strong> set it below, then send a test.</li>
+            <li><strong>Recipients:</strong> each decoy's email or Slack webhook is set on the <a href="/dashboard/personas">Personas</a> page.</li>
+            <li><strong>When:</strong> a session at or above the minimum risk level sends an alert; repeats from one address are grouped.</li>
+          </ol>
+          <div class="alerts-status" id="alertsStatus" role="status"></div>
+        </div>
+
         <!-- Email (global SMTP) view -->
         <div id="emailView">
           <div style="display:flex;justify-content:flex-end;align-items:center;gap:12px;padding:16px 22px 0;">
@@ -384,6 +394,7 @@
         document.getElementById("excludedIps").value = cfg.excluded_ips || "";
         renderPasswordState(cfg.smtp_password_configured);
         updateSmtpFieldsDisabled();
+        renderAlertStatus();
       } catch (err) {
         smtpStatus.textContent = "Couldn't load alert settings: " + err.message;
         smtpStatus.style.color = "var(--critical)";
@@ -431,6 +442,55 @@
         : "";
     }
 
+    // Says whether alerts will actually arrive, using the same rules real
+    // alerts use (classifier/alerts.py): alerts on, and a decoy with routing
+    // set and a recipient for that channel. Without this, everything here can
+    // look right while no alert is ever sent.
+    async function renderAlertStatus() {
+      var statusEl = document.getElementById("alertsStatus");
+      var enabled = document.getElementById("alertEnabled").checked;
+      var configs;
+      try {
+        var r = await fetch("/persona-configs");
+        if (!r.ok) throw new Error(await responseErrorMessage(r));
+        configs = await r.json();
+      } catch (err) {
+        statusEl.className = "alerts-status";
+        statusEl.textContent = "";
+        return;
+      }
+      // Grouped by destination, one line each: easier to read than one long
+      // list, and each destination appears once.
+      var decoysByDestination = {};
+      function addRoute(destination, decoyId) {
+        (decoysByDestination[destination] = decoysByDestination[destination] || []).push(decoyId);
+      }
+      configs.forEach(function (c) {
+        if ((c.alert_routing_level === "email" || c.alert_routing_level === "both") && c.contact_email) addRoute(c.contact_email, c.id);
+        if ((c.alert_routing_level === "slack" || c.alert_routing_level === "both") && c.slack_webhook) addRoute("Slack", c.id);
+      });
+      var destinations = Object.keys(decoysByDestination);
+      statusEl.textContent = "";
+      if (!enabled) {
+        statusEl.className = "alerts-status is-warn";
+        statusEl.textContent = "⚠ Alerts are off, so none are sent. Turn on Enable email alerts below.";
+      } else if (!destinations.length) {
+        statusEl.className = "alerts-status is-warn";
+        statusEl.textContent = "⚠ No decoy has a recipient yet, so no alerts will be sent. Set an email or Slack webhook for a decoy on the Personas page.";
+      } else {
+        statusEl.className = "alerts-status is-ok";
+        statusEl.append("✓ Alerts go to:");
+        destinations.forEach(function (destination) {
+          var line = document.createElement("div");
+          line.className = "alerts-route";
+          var name = document.createElement("strong");
+          name.textContent = destination + ": ";
+          line.append(name, decoysByDestination[destination].join(", "));
+          statusEl.append(line);
+        });
+      }
+    }
+
     // Saves the form. savedMessage is the notice on success; null saves
     // quietly (Send Test Email reports the whole thing in one notice).
     async function saveAlertConfig(payload, savedMessage) {
@@ -447,6 +507,7 @@
         var cfg = await r.json();
         document.getElementById("smtpPassword").value = "";
         renderPasswordState(cfg.smtp_password_configured);
+        renderAlertStatus();
         // The "✓ Password saved" mark looks the same before and after a
         // change, so the notice says when the password itself was replaced.
         // (An empty string, not null, is the Remove button's explicit
