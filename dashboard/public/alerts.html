@@ -175,7 +175,7 @@
           </div>
 
           <div class="alerts-save-row">
-            <button type="submit" class="text-button">Save Settings</button>
+            <button type="submit" class="text-button">Save Configuration</button>
             <span class="form-status" id="smtpStatus" style="margin-left:12px;"></span>
           </div>
         </form>
@@ -613,7 +613,7 @@
 
     // The enable/disable switch is styled and behaves like an instant
     // on/off toggle everywhere else in the dashboard, so it saves
-    // immediately on change instead of waiting for "Save Settings" --
+    // immediately on change instead of waiting for "Save Configuration" --
     // otherwise unchecking it without also clicking Save leaves the old
     // value live in the database (Send Test Email would still fire, and a
     // reload would show it "reset" back on since nothing was ever persisted).

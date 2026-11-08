@@ -2937,7 +2937,7 @@ button.custom-date-cell:hover,
   border-top: 1px solid var(--line);
 }
 
-/* Save Settings saves the whole form, so it sits below its own line. */
+/* Save Configuration saves the whole form, so it sits below its own line. */
 .alerts-save-row {
   padding-top: 18px;
   border-top: 1px solid var(--line);

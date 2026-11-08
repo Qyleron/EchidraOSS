@@ -808,6 +808,12 @@ def _smtp_error_message(exc: Exception, config: AlertConfigRecord) -> str:
     """What went wrong sending an email, and what to do about it. Shown in
     the dashboard and the alert history, so no raw library errors."""
     server = f"{config.smtp_host}:{config.smtp_port}"
+    # Many cloud hosts block outgoing mail ports on new servers; a timeout or
+    # an unreachable server is what that looks like from here.
+    blocked_hint = (
+        " Some hosting providers block outgoing mail: if so, use Slack, or a mail "
+        "service on port 2525."
+    )
     if isinstance(exc, socket.gaierror):
         return (
             f"Can't find the SMTP server {config.smtp_host}. Check the SMTP host and "
@@ -816,7 +822,7 @@ def _smtp_error_message(exc: Exception, config: AlertConfigRecord) -> str:
     if isinstance(exc, (TimeoutError, socket.timeout)):
         return (
             f"The SMTP server {server} didn't answer in time. Check the host and port, "
-            "and this server's internet connection, then try again."
+            "and this server's internet connection, then try again." + blocked_hint
         )
     if isinstance(exc, ConnectionRefusedError):
         return f"The SMTP server {server} refused the connection. Check the host and port."
@@ -844,7 +850,7 @@ def _smtp_error_message(exc: Exception, config: AlertConfigRecord) -> str:
     ):
         return (
             f"Can't reach the SMTP server {server}. Check the host and port, and this "
-            "server's internet connection, then try again."
+            "server's internet connection, then try again." + blocked_hint
         )
     return "The SMTP server couldn't send the email. Check your SMTP settings; the log has the details."
 

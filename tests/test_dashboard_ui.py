@@ -440,7 +440,9 @@ def test_each_alert_channel_is_set_up_in_one_place():
     assert '(ev.channel === "slack" ? "Slack" : "—")' in alerts
     # The Slack view hides Recipient: every row there would say "Slack".
     assert 'classList.toggle("hide-recipient", alertChannelFilter === "slack");' in alerts
-    assert '<button type="submit" class="text-button">Save Settings</button>' in alerts
+    # The button matches the page heading (Alert Configuration) and its
+    # notice ("Saved Configuration.").
+    assert '<button type="submit" class="text-button">Save Configuration</button>' in alerts
     # Only decoys with their own recipient are named (3 at most); the rest
     # are described, so the line stays short with many decoys.
     assert 'var defaultLabel = anyOwn ? "every decoy without its own recipient" : "every decoy";' in alerts

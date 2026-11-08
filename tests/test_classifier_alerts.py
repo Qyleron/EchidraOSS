@@ -221,6 +221,26 @@ def test_smtp_send_says_what_went_wrong_and_what_to_do(monkeypatch, error, expec
     assert "Errno" not in err and "Temporary failure" not in err and "bad credentials" not in err
 
 
+@pytest.mark.parametrize(
+    "error",
+    [TimeoutError("timed out"), OSError(101, "Network is unreachable")],
+)
+def test_smtp_send_unreachable_mentions_blocked_mail_ports(monkeypatch, error):
+    """Cloud hosts often block outgoing mail ports; the message says what to
+    do instead of only "check the host and port"."""
+    def failing_smtp(*args, **kwargs):
+        raise error
+
+    monkeypatch.setattr(alerts_module.smtplib, "SMTP", failing_smtp)
+
+    err = alerts_module._smtp_send(_alert_config(), "dest@example.com", "subject", "body")
+
+    assert err.endswith(
+        "Some hosting providers block outgoing mail: if so, use Slack, or a mail "
+        "service on port 2525."
+    )
+
+
 def test_smtp_send_fails_closed_when_repository_has_no_password(monkeypatch):
     class FakeRepository:
         def get_alert_smtp_password(self):
