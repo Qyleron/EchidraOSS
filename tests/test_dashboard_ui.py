@@ -686,6 +686,26 @@ def test_slow_loads_get_a_delayed_loader_not_an_immediate_one():
     assert ".panel-loader[hidden] {" in css
 
 
+def test_hidden_detail_blocks_stay_hidden():
+    # The Session Inspector's "Intelligence Findings" block starts hidden and
+    # is shown only when the session is part of a finding; .detail-block's own
+    # display:grid must not override that.
+    sessions_html = (DASHBOARD_PUBLIC_PATH / "sessions.html").read_text(encoding="utf-8")
+    assert 'class="detail-block" aria-label="Intelligence findings" id="sessionFindings" hidden' in sessions_html
+
+    css = (DASHBOARD_PUBLIC_PATH / "dashboard.css").read_text(encoding="utf-8")
+    hidden_rule = css.split(".detail-block[hidden] {", 1)[1].split("}", 1)[0]
+    assert "display: none;" in hidden_rule
+
+
+def test_issue_evidence_samples_are_not_called_commands():
+    # The "Matched:" samples in an issue's evidence are classifier evidence
+    # sentences, not commands, so the heading must not call them commands.
+    intelligence_html = (DASHBOARD_PUBLIC_PATH / "intelligence.html").read_text(encoding="utf-8")
+    assert "<h3>What was seen</h3>" in intelligence_html
+    assert "Matched Commands" not in intelligence_html
+
+
 def test_modal_backdrop_dims_without_blur_so_modal_scrolling_stays_smooth():
     css = (DASHBOARD_PUBLIC_PATH / "dashboard.css").read_text(encoding="utf-8")
     backdrop = css.split(".modal-backdrop {", 1)[1].split("}", 1)[0]

@@ -980,6 +980,13 @@ a {
   min-width: 0;
 }
 
+/* .detail-block's display:grid above otherwise beats the UA [hidden] rule,
+   which left an empty "Intelligence Findings" heading on sessions that
+   aren't part of any finding. */
+.detail-block[hidden] {
+  display: none;
+}
+
 .detail-block h3 {
   margin: 0;
   color: var(--text);

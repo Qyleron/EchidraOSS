@@ -10,6 +10,12 @@ All notable changes to Echidra are documented here. The format follows
 - When the mail server can't be reached, the message says some hosting
   providers block outgoing mail, and to use Slack or a mail service on
   port 2525.
+- In a finding's details on the Intelligence page, the example evidence is
+  headed "What was seen" instead of "Matched Commands".
+
+### Fixed
+- The Session Inspector no longer shows an empty "Intelligence Findings"
+  heading for sessions that aren't part of a finding.
 
 ## [1.0.0] - 2026-11-08
 

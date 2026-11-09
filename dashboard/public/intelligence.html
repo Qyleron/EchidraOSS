@@ -305,8 +305,8 @@
         .split("; ")
         .filter(Boolean);
       return evidenceSection(evidence.slice(0, markerIndex)) + `
-        <section class="detail-block" aria-label="Matched commands">
-          <h3>Matched Commands</h3>
+        <section class="detail-block" aria-label="What was seen">
+          <h3>What was seen</h3>
           <ul class="evidence-samples">
             ${samples.map((sample) => `<li>${escHtml(sample)}</li>`).join("")}
           </ul>
