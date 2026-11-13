@@ -1,5 +1,5 @@
 # Pinned by digest (Dependabot keeps it current); the tag is kept for readability.
-FROM python:3.11-slim@sha256:0dd364ba7e10242f07755449e3a3d0e35f9efd987952737b90def6709ab0c5ce
+FROM python:3.15-slim@sha256:65a65fc7b30b06cb6df4930fd4650697cb23f4c2698ab81fc87e4b031bc36928
 
 # tzdata provides the /usr/share/zoneinfo database that /etc/localtime
 # (bind-mounted from the host in docker-compose.yml) resolves against --
