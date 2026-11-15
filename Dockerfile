@@ -9,6 +9,10 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
+# The image installs Echidra as a package, so without this the `echidra`
+# command (eg. `docker compose exec api echidra blocklist`) would keep its
+# files in ~/.echidra; /app keeps logs/ on the echidra_logs volume.
+ENV ECHIDRA_HOME=/app
 
 COPY . .
 RUN pip install --no-cache-dir .

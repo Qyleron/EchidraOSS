@@ -179,9 +179,17 @@ _DATABASE_UNAVAILABLE_PAGE = """<!doctype html>
 </body>
 </html>
 """
-_FALLBACK_SESSION_SECRET_PATH = (
-    Path(__file__).resolve().parents[2] / "logs" / ".dashboard_session_secret"
-)
+def _echidra_logs_dir() -> Path:
+    """logs/ in ECHIDRA_HOME when `echidra` set one (a PyPI install keeps
+    its files in ~/.echidra, see echidra/cli.py), else in the source tree.
+    Never inside an installed package, which an upgrade replaces."""
+    home = os.getenv("ECHIDRA_HOME", "").strip()
+    if home:
+        return Path(home).expanduser() / "logs"
+    return Path(__file__).resolve().parents[2] / "logs"
+
+
+_FALLBACK_SESSION_SECRET_PATH = _echidra_logs_dir() / ".dashboard_session_secret"
 _fallback_session_secret: str | None = None
 _cookie_secure_warning_logged = False
 LOGIN_RATE_LIMIT_MAX_ATTEMPTS = 5

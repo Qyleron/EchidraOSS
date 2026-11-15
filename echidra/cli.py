@@ -26,12 +26,73 @@ import urllib.request
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-ENV_PATH = REPO_ROOT / ".env"
-ENV_EXAMPLE_PATH = REPO_ROOT / ".env.example"
+
+
+def _echidra_home() -> Path:
+    """The folder that holds .env, logs/ and data/ (SSH host keys).
+
+    A source checkout (a git clone, or `pip install -e .` as on a systemd
+    server) keeps them in the checkout, as every guide describes. A package
+    installed from PyPI (pipx or pip) has no checkout, and its own folder is
+    inside the install, which an upgrade or reinstall replaces, so it uses
+    ~/.echidra. ECHIDRA_HOME, set in the shell, chooses another folder.
+    """
+    override = os.getenv("ECHIDRA_HOME", "").strip()
+    if override:
+        return Path(override).expanduser().resolve()
+    if (REPO_ROOT / "pyproject.toml").is_file():
+        return REPO_ROOT
+    return Path.home() / ".echidra"
+
+
+ECHIDRA_HOME = _echidra_home()
+ENV_PATH = ECHIDRA_HOME / ".env"
+# Shipped inside the package so a PyPI install has it too; it's a copy of the
+# repo's .env.example, and a test keeps the two identical.
+ENV_EXAMPLE_PATH = Path(__file__).with_name("env.example")
 # logs/ is already a writable runtime dir in every deployment path (systemd's
 # ReadWritePaths, Compose's echidra_logs volume, and locally) -- reusing it
 # avoids needing a new directory just for this.
-PID_PATH = REPO_ROOT / "logs" / "echidra.pid"
+PID_PATH = ECHIDRA_HOME / "logs" / "echidra.pid"
+
+# Relative paths for these settings are taken from ECHIDRA_HOME (see
+# _use_echidra_home), with the same defaults as honeypot/network/config.py.
+_HOME_RELATIVE_PATH_SETTINGS = (
+    ("ECHIDRA_SESSION_LOG", "logs/sessions.jsonl"),
+    ("ECHIDRA_SSH_HOST_KEY_PATH", "data/ssh_host_key"),
+)
+
+
+def _uses_separate_home() -> bool:
+    return ECHIDRA_HOME != REPO_ROOT
+
+
+def _use_echidra_home() -> None:
+    """Make a separate ECHIDRA_HOME (a PyPI install, or ECHIDRA_HOME set)
+    work like a checkout does.
+
+    The honeypot and API look for .env next to their own code, and read log
+    and key paths relative to the current folder, so neither would find
+    ~/.echidra. Loading its .env here puts the settings in the environment
+    every subcommand reads and the processes `echidra start` launches
+    inherit (values already set in the shell still win, as with .env
+    elsewhere), and relative log/key paths are made absolute under it, so
+    `echidra` works the same from any folder. A checkout is left as it is.
+    """
+    if not _uses_separate_home():
+        return
+    ECHIDRA_HOME.mkdir(parents=True, exist_ok=True)
+    os.environ["ECHIDRA_HOME"] = str(ECHIDRA_HOME)
+    if ENV_PATH.is_file():
+        from dotenv import load_dotenv
+
+        load_dotenv(ENV_PATH)
+    for key, default in _HOME_RELATIVE_PATH_SETTINGS:
+        path = Path(os.getenv(key, "").strip() or default).expanduser()
+        if not path.is_absolute():
+            os.environ[key] = str(ECHIDRA_HOME / path)
+
+
 # Checked once at import time so a per-pid /proc/<pid>/cmdline read failure
 # can be trusted to mean "not our process" rather than "no /proc support here
 # at all" (eg. non-Linux) -- see _pid_is_echidra_process().
@@ -45,6 +106,7 @@ def main(argv: list[str] | None = None) -> int:
     """
     parser = _build_parser()
     args = parser.parse_args(argv)
+    _use_echidra_home()
 
     if args.command == "init":
         return _cmd_init(args)
@@ -222,8 +284,8 @@ def _cmd_init(args: argparse.Namespace) -> int:
         print()
         print("ECHIDRA_DATABASE_URL is not set -- skipping database setup.")
         print("The honeypot will still run and log to JSONL; the dashboard/API and")
-        print("live alerting need a database. Set ECHIDRA_DATABASE_URL in .env, then")
-        print("re-run 'echidra init' to create the schema.")
+        print(f"live alerting need a database. Set ECHIDRA_DATABASE_URL in {ENV_PATH},")
+        print("then re-run 'echidra init' to create the schema.")
         return 0
 
     print()
@@ -240,9 +302,10 @@ def _ensure_env_file() -> None:
     if ENV_PATH.exists():
         print(f"{ENV_PATH} already exists, leaving it as-is.")
         return
+    ENV_PATH.parent.mkdir(parents=True, exist_ok=True)
     if ENV_EXAMPLE_PATH.exists():
         ENV_PATH.write_text(ENV_EXAMPLE_PATH.read_text(encoding="utf-8"), encoding="utf-8")
-        print(f"Created {ENV_PATH} from {ENV_EXAMPLE_PATH.name}.")
+        print(f"Created {ENV_PATH} from the settings template.")
     else:
         ENV_PATH.touch()
         print(f"Created empty {ENV_PATH} ({ENV_EXAMPLE_PATH.name} not found).")
@@ -305,8 +368,11 @@ def _cmd_start(args: argparse.Namespace) -> int:
         return 1
 
     procs: list[subprocess.Popen] = []
+    # A separate ECHIDRA_HOME is also the processes' working folder, so any
+    # other relative path lands there too, not wherever 'echidra start' ran.
+    workdir = ECHIDRA_HOME if _uses_separate_home() else None
     try:
-        honeypot_proc = subprocess.Popen([sys.executable, "-m", "honeypot.main"])
+        honeypot_proc = subprocess.Popen([sys.executable, "-m", "honeypot.main"], cwd=workdir)
         procs.append(honeypot_proc)
         api_proc = subprocess.Popen(
             [
@@ -333,7 +399,8 @@ def _cmd_start(args: argparse.Namespace) -> int:
                 # it less likely to trigger.
                 "--lifespan",
                 "off",
-            ]
+            ],
+            cwd=workdir,
         )
         procs.append(api_proc)
     except OSError:

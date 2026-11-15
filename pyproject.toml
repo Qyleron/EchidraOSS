@@ -79,3 +79,6 @@ include = ["classifier*", "honeypot*", "echidra*", "dashboard*", "assets*"]
 # source-tree-relative path for any install where that lookup doesn't apply.
 "dashboard" = ["public/*.html", "public/*.css", "public/*.js"]
 "assets" = ["*.png"]
+# The settings template `echidra init` copies to .env (a copy of the repo's
+# .env.example, kept identical by a test) -- a PyPI install has no repo.
+"echidra" = ["env.example"]

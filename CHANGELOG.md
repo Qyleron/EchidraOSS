@@ -6,6 +6,14 @@ All notable changes to Echidra are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- Echidra can be installed from PyPI (`pipx install echidra-oss`). An
+  installed copy keeps its settings, logs and SSH host keys in `~/.echidra`,
+  so upgrades leave them in place and `echidra` works from any folder; set
+  `ECHIDRA_HOME` to use another folder. `echidra init` fills `.env` from the
+  full settings template. A git clone keeps everything in the clone, as
+  before.
+
 ### Changed
 - When the mail server can't be reached, the message says some hosting
   providers block outgoing mail, and to use Slack or a mail service on

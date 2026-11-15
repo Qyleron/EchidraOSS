@@ -1093,3 +1093,133 @@ def test_import_explains_a_database_that_took_too_long(monkeypatch, tmp_path, ca
     assert "the database took too long to answer" in err
     assert "sessions already stored are skipped" in err
     assert "PostgreSQL is running" not in err
+
+
+# ---------------------------------------------------------------------------
+# where Echidra keeps .env, logs/ and data/ (ECHIDRA_HOME)
+# ---------------------------------------------------------------------------
+
+
+def test_packaged_settings_template_is_the_repo_env_example():
+    # A PyPI install has no repo, so `echidra init` copies the template
+    # shipped in the package; it must stay identical to .env.example.
+    import tomllib
+
+    packaged = cli.ENV_EXAMPLE_PATH
+    assert packaged.parent == cli.REPO_ROOT / "echidra"
+    assert packaged.read_bytes() == (cli.REPO_ROOT / ".env.example").read_bytes()
+    pyproject = tomllib.loads((cli.REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    assert pyproject["tool"]["setuptools"]["package-data"]["echidra"] == ["env.example"]
+
+
+def test_echidra_home_is_the_checkout_for_a_clone(monkeypatch):
+    monkeypatch.delenv("ECHIDRA_HOME", raising=False)
+    assert cli._echidra_home() == cli.REPO_ROOT
+
+
+def test_echidra_home_is_dot_echidra_for_an_installed_package(monkeypatch, tmp_path):
+    # Installed from PyPI, cli.py sits in site-packages: no pyproject.toml
+    # next to it, and that folder is replaced on upgrade.
+    monkeypatch.delenv("ECHIDRA_HOME", raising=False)
+    monkeypatch.setattr(cli, "REPO_ROOT", tmp_path / "site-packages")
+    monkeypatch.setenv("HOME", str(tmp_path / "user"))
+    assert cli._echidra_home() == tmp_path / "user" / ".echidra"
+
+
+def test_echidra_home_setting_wins(monkeypatch, tmp_path):
+    monkeypatch.setenv("ECHIDRA_HOME", str(tmp_path / "custom"))
+    assert cli._echidra_home() == (tmp_path / "custom").resolve()
+
+
+def test_separate_home_loads_its_env_and_anchors_relative_paths(monkeypatch, tmp_path):
+    home = tmp_path / "home"
+    home.mkdir()
+    (home / ".env").write_text(
+        "ECHIDRA_PERSONA=centos_database\n"
+        "ECHIDRA_SESSION_LOG=logs/sessions.jsonl\n"
+        "ECHIDRA_ALLOW_SIGNUPS=false\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(cli, "ECHIDRA_HOME", home)
+    monkeypatch.setattr(cli, "ENV_PATH", home / ".env")
+    for key in ("ECHIDRA_HOME", "ECHIDRA_PERSONA", "ECHIDRA_SESSION_LOG", "ECHIDRA_SSH_HOST_KEY_PATH"):
+        monkeypatch.delenv(key, raising=False)
+    # A value already set in the shell still beats .env.
+    monkeypatch.setenv("ECHIDRA_ALLOW_SIGNUPS", "true")
+
+    cli._use_echidra_home()
+
+    assert os.environ["ECHIDRA_HOME"] == str(home)
+    assert os.environ["ECHIDRA_PERSONA"] == "centos_database"
+    assert os.environ["ECHIDRA_ALLOW_SIGNUPS"] == "true"
+    assert os.environ["ECHIDRA_SESSION_LOG"] == str(home / "logs" / "sessions.jsonl")
+    assert os.environ["ECHIDRA_SSH_HOST_KEY_PATH"] == str(home / "data" / "ssh_host_key")
+
+
+def test_a_checkout_home_changes_nothing(monkeypatch):
+    monkeypatch.setattr(cli, "ECHIDRA_HOME", cli.REPO_ROOT)
+    monkeypatch.delenv("ECHIDRA_HOME", raising=False)
+    monkeypatch.delenv("ECHIDRA_SESSION_LOG", raising=False)
+
+    cli._use_echidra_home()
+
+    assert "ECHIDRA_HOME" not in os.environ
+    assert "ECHIDRA_SESSION_LOG" not in os.environ
+
+
+def test_init_in_a_new_home_creates_it_with_the_full_template(monkeypatch, tmp_path, capsys):
+    from dotenv import dotenv_values
+
+    env_path = tmp_path / "new-home" / ".env"
+    monkeypatch.setattr(cli, "ENV_PATH", env_path)
+    # init loads the new .env into the environment; register every template
+    # key so the test puts the environment back afterwards.
+    for key in dotenv_values(cli.ENV_EXAMPLE_PATH):
+        monkeypatch.delenv(key, raising=False)
+    _without_alert_secrets(monkeypatch)
+
+    exit_code = cli.main(["init"])
+
+    out = capsys.readouterr().out
+    assert exit_code == 0
+    assert "ECHIDRA_PERSONA=generic_linux" in env_path.read_text(encoding="utf-8")
+    assert f"Created {env_path} from the settings template." in out
+    assert f"Set ECHIDRA_DATABASE_URL in {env_path}," in out
+
+
+def test_start_runs_both_processes_in_a_separate_home(monkeypatch, tmp_path):
+    home = tmp_path / "home"
+    monkeypatch.setattr(cli, "ECHIDRA_HOME", home)
+    monkeypatch.setattr(cli, "PID_PATH", tmp_path / "echidra.pid")
+    processes = [_FakeProcess(pid=100), _FakeProcess(pid=200)]
+    popen_kwargs = []
+
+    def fake_popen(cmd, **kwargs):
+        popen_kwargs.append(kwargs)
+        return processes[len(popen_kwargs) - 1]
+
+    monkeypatch.setattr(cli.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(cli.time, "sleep", lambda seconds: processes[0].__setattr__("returncode", 0))
+    monkeypatch.setattr(cli.signal, "signal", lambda *args, **kwargs: None)
+
+    cli._cmd_start(cli._build_parser().parse_args(["start", "--api-port", "8123"]))
+
+    assert [kwargs.get("cwd") for kwargs in popen_kwargs] == [home, home]
+
+
+def test_dashboard_login_secret_follows_echidra_home(monkeypatch, tmp_path):
+    import importlib
+
+    # classifier.api exports the FastAPI instance as `app`, so import the
+    # module by name (as tests/test_classifier_api.py does).
+    app_module = importlib.import_module("classifier.api.app")
+
+    monkeypatch.setenv("ECHIDRA_HOME", str(tmp_path))
+    assert app_module._echidra_logs_dir() == tmp_path / "logs"
+    monkeypatch.delenv("ECHIDRA_HOME")
+    assert app_module._echidra_logs_dir() == cli.REPO_ROOT / "logs"
+
+
+def test_docker_image_keeps_echidra_files_in_app():
+    dockerfile = (cli.REPO_ROOT / "Dockerfile").read_text(encoding="utf-8")
+    assert "ENV ECHIDRA_HOME=/app" in dockerfile
