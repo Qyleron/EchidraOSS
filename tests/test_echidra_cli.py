@@ -980,12 +980,80 @@ def test_import_reports_what_it_stored(monkeypatch, tmp_path, capsys):
             stored=312, already_stored=1204, invalid_lines=1
         ),
     )
+    monkeypatch.setattr(catch_up_module, "update_intelligence", lambda: 4)
 
     assert cli.main(["import", str(log)]) == 0
 
     out = capsys.readouterr().out
     assert "Stored 312 sessions; 1,204 were already stored." in out
     assert "Skipped 1 line that isn't a session record." in out
+    assert "Intelligence is up to date: 4 findings created or updated." in out
+
+
+def test_import_updates_intelligence_even_when_nothing_new_was_stored(
+    monkeypatch, tmp_path, capsys
+):
+    import classifier.catch_up as catch_up_module
+
+    log = tmp_path / "sessions.jsonl"
+    log.write_text("{}\n", encoding="utf-8")
+    updates = []
+    monkeypatch.setattr(
+        catch_up_module,
+        "import_session_log",
+        lambda path, on_progress=None: catch_up_module.ImportResult(already_stored=13),
+    )
+    monkeypatch.setattr(catch_up_module, "update_intelligence", lambda: updates.append(1) or 0)
+
+    assert cli.main(["import", str(log)]) == 0
+
+    # Running it again is how a failed update is retried.
+    assert updates == [1]
+    assert "Intelligence is up to date; no findings changed." in capsys.readouterr().out
+
+
+def test_import_says_when_the_honeypot_is_updating_intelligence(monkeypatch, tmp_path, capsys):
+    import classifier.catch_up as catch_up_module
+
+    log = tmp_path / "sessions.jsonl"
+    log.write_text("{}\n", encoding="utf-8")
+    monkeypatch.setattr(
+        catch_up_module,
+        "import_session_log",
+        lambda path, on_progress=None: catch_up_module.ImportResult(stored=2),
+    )
+    monkeypatch.setattr(catch_up_module, "update_intelligence", lambda: None)
+
+    assert cli.main(["import", str(log)]) == 0
+
+    out = capsys.readouterr().out
+    assert "The honeypot is updating Intelligence right now" in out
+    assert "run echidra import again" in out
+
+
+def test_import_explains_an_intelligence_update_that_failed(monkeypatch, tmp_path, capsys):
+    import classifier.catch_up as catch_up_module
+
+    log = tmp_path / "sessions.jsonl"
+    log.write_text("{}\n", encoding="utf-8")
+    monkeypatch.setattr(
+        catch_up_module,
+        "import_session_log",
+        lambda path, on_progress=None: catch_up_module.ImportResult(stored=2),
+    )
+
+    def fails():
+        raise RuntimeError("playbook missing")
+
+    monkeypatch.setattr(catch_up_module, "update_intelligence", fails)
+
+    assert cli.main(["import", str(log)]) == 1
+
+    captured = capsys.readouterr()
+    assert "Stored 2 sessions" in captured.out
+    assert "the sessions are stored, but Intelligence couldn't be updated" in captured.err
+    assert "Run echidra import again" in captured.err
+    assert "playbook missing" not in captured.err
 
 
 def test_import_explains_an_unreachable_database(monkeypatch, tmp_path, capsys):

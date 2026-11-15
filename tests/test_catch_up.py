@@ -225,6 +225,19 @@ def test_import_stores_new_sessions_and_counts_the_rest(tmp_path, stored_and_ale
     assert stored_and_alerted["alerted"] == []
 
 
+def test_update_intelligence_counts_findings_and_waits_out_a_running_update(monkeypatch):
+    monkeypatch.setattr(
+        issue_sync_module, "sync_issues_from_classifier_runs", lambda: [object(), object()]
+    )
+    assert catch_up_module.update_intelligence() == 2
+
+    def running_elsewhere():
+        raise issue_sync_module.IssueSyncInProgressError("another issue sync is running")
+
+    monkeypatch.setattr(issue_sync_module, "sync_issues_from_classifier_runs", running_elsewhere)
+    assert catch_up_module.update_intelligence() is None
+
+
 def test_import_refuses_to_start_while_the_database_is_unreachable(tmp_path, stored_and_alerted):
     log = tmp_path / "sessions.jsonl"
     log.write_text(_session().model_dump_json() + "\n", encoding="utf-8")

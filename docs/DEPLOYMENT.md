@@ -348,7 +348,9 @@ docker compose exec honeypot echidra import logs/sessions.jsonl
 ```
 
 It prints progress every 5,000 sessions, then a summary, eg.
-`Stored 312 sessions; 1,204 were already stored.` (`echidra classify`, by
+`Stored 312 sessions; 1,204 were already stored.` Then it updates
+Intelligence, so the imported sessions show up as findings before it
+exits. (`echidra classify`, by
 contrast, only prints the classification of each session and stores
 nothing.)
 

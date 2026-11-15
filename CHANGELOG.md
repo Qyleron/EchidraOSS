@@ -16,6 +16,8 @@ All notable changes to Echidra are documented here. The format follows
 ### Fixed
 - The Session Inspector no longer shows an empty "Intelligence Findings"
   heading for sessions that aren't part of a finding.
+- `echidra import` now updates Intelligence before it exits, so imported
+  sessions show up as findings straight away.
 
 ## [1.0.0] - 2026-11-08
 

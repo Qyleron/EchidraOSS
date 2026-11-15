@@ -252,15 +252,31 @@ def import_session_log(
                     on_progress(result)
     if batch:
         _import_batch(batch, repository, rules, result)
-
-    if result.stored:
-        try:
-            from classifier.storage.issue_sync import maybe_sync_issues_from_classifier_runs
-
-            maybe_sync_issues_from_classifier_runs()
-        except Exception:
-            logger.exception("Issue sync after importing sessions failed")
     return result
+
+
+def update_intelligence() -> int | None:
+    """Build Intelligence findings from the stored sessions and wait for it
+    to finish (`echidra import` runs this after storing). Returns how many
+    findings were created or updated, or None when the honeypot or the API
+    is updating them right now: that pass includes the imported sessions,
+    since every stored session is queued for the next update.
+
+    Runs on the caller's thread on purpose: the background update the live
+    pipeline uses would be killed when the command exits.
+    """
+    from classifier.storage.issue_sync import (
+        IssueSyncInProgressError,
+        sync_issues_from_classifier_runs,
+    )
+
+    try:
+        return len(sync_issues_from_classifier_runs())
+    except IssueSyncInProgressError:
+        return None
+    except Exception as exc:
+        logger.error("Intelligence update failed: %s", exc)
+        raise
 
 
 def _import_batch(batch, repository, rules, result: ImportResult) -> None:

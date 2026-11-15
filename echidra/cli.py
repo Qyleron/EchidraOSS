@@ -717,7 +717,7 @@ _IMPORT_PROGRESS_EVERY = 5_000
 
 
 def _cmd_import(args: argparse.Namespace) -> int:
-    from classifier.catch_up import import_session_log
+    from classifier.catch_up import import_session_log, update_intelligence
     from classifier.storage import (
         DatabaseDriverMissingError,
         DatabaseNotConfiguredError,
@@ -770,6 +770,25 @@ def _cmd_import(args: argparse.Namespace) -> int:
         print("Skipped 1 line that isn't a session record.")
     elif result.invalid_lines:
         print(f"Skipped {result.invalid_lines:,} lines that aren't session records.")
+
+    # Every run, even when nothing new was stored, so running it again also
+    # retries an update that failed.
+    print("Updating Intelligence...", flush=True)
+    try:
+        findings = update_intelligence()
+    except Exception:
+        print("echidra import: the sessions are stored, but Intelligence couldn't be updated. "
+              "Run echidra import again; sessions already stored are skipped.", file=sys.stderr)
+        return 1
+    if findings is None:
+        print("The honeypot is updating Intelligence right now and will include these "
+              "sessions. If they're missing in a few minutes, run echidra import again.")
+    elif findings:
+        print(f"Intelligence is up to date: {findings:,} "
+              f"finding{'' if findings == 1 else 's'} created or updated.")
+    else:
+        print("Intelligence is up to date; no findings changed.")
+
     if result.failed:
         print(f"Couldn't store {sessions(result.failed)}; the messages above say why.")
         return 1
