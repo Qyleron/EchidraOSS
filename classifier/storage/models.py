@@ -273,6 +273,11 @@ class IssueRecord(BaseModel):
     # schema.sql) -- lets the dashboard link straight to one specific
     # session instead of only a bare session_count.
     session_ids: list[UUID] = Field(default_factory=list)
+    # The addresses behind this issue's sessions, busiest first, so the
+    # Issue Detail panel can say which address to block. Read-only: filled
+    # when issues are listed, capped at ISSUE_SOURCE_IP_LIMIT + 1 so the
+    # page can tell "exactly these" from "these and more".
+    source_ips: list[str] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=_utc_now)
 
     @field_validator("severity")

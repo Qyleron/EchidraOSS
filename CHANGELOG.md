@@ -12,6 +12,18 @@ All notable changes to Echidra are documented here. The format follows
   port 2525.
 - In a finding's details on the Intelligence page, the example evidence is
   headed "What was seen" instead of "Matched Commands".
+- A finding's details on the Intelligence page open with its name,
+  severity, status, session count and ATT&CK techniques at the top.
+  The session count says which time range it covers, and the status can be
+  changed right there, the same as in the table.
+- A finding's details list the source addresses behind it, so you can see
+  what to block without opening its sessions. Evidence is marked
+  "(all time)", and the evidence, fix and impact text is easier to read.
+- In a finding's details, "What was seen" is a short plain list (up to
+  three items), and large evidence counts have thousands separators.
+  First and last seen times are in your local time, in the same format as
+  the Sessions page.
+- Clearer impact text for repeated reconnects from one address.
 
 ### Fixed
 - The Session Inspector no longer shows an empty "Intelligence Findings"

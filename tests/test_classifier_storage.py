@@ -649,6 +649,10 @@ def test_repository_list_issues_batches_mitre_techniques(monkeypatch):
     session_rows = [
         {"issue_id": issue_id_1, "session_id": session_id_1},
     ]
+    source_ip_rows = [
+        {"issue_id": issue_id_1, "peer_ip": "203.0.113.7"},
+        {"issue_id": issue_id_1, "peer_ip": "198.51.100.4"},
+    ]
     fetch_all_calls = []
 
     def fake_fetch_all(database_url, sql, params):
@@ -657,6 +661,8 @@ def test_repository_list_issues_batches_mitre_techniques(monkeypatch):
             return rows
         if "FROM issue_mitre_techniques" in sql:
             return mitre_rows
+        if "peer_ip" in sql:
+            return source_ip_rows
         if "FROM issue_sessions" in sql:
             return session_rows
         raise AssertionError(f"Unexpected _fetch_all query: {sql}")
@@ -665,16 +671,19 @@ def test_repository_list_issues_batches_mitre_techniques(monkeypatch):
 
     issues = PostgresClassifierRepository("postgresql://example/echidra").list_issues(status="open")
 
-    # One query for issues, one batched query for all their MITRE techniques,
-    # one batched query for all their linked sessions (no N+1).
-    assert len(fetch_all_calls) == 3
-    assert fetch_all_calls[1][1] == {"issue_ids": [issue_id_1, issue_id_2]}
-    assert fetch_all_calls[2][1] == {"issue_ids": [issue_id_1, issue_id_2]}
+    # One query for issues, then one batched query each for all their MITRE
+    # techniques, linked sessions and source addresses (no N+1).
+    assert len(fetch_all_calls) == 4
+    for call in fetch_all_calls[1:]:
+        assert call[1] == {"issue_ids": [issue_id_1, issue_id_2]}
     assert [issue.id for issue in issues] == [issue_id_1, issue_id_2]
     assert issues[0].mitre[0].id == "T1110"
     assert issues[1].mitre[0].id == "T1082"
     assert issues[0].session_ids == [session_id_1]
     assert issues[1].session_ids == []
+    # Busiest address first, as the query returns them.
+    assert issues[0].source_ips == ["203.0.113.7", "198.51.100.4"]
+    assert issues[1].source_ips == []
 
 
 def test_list_session_events_returns_ordered_timeline(monkeypatch):

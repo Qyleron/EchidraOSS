@@ -706,6 +706,87 @@ def test_issue_evidence_samples_are_not_called_commands():
     assert "Matched Commands" not in intelligence_html
 
 
+def test_issue_detail_opens_with_a_summary_header():
+    # The Issue Detail panel starts with the finding's name, severity,
+    # status, session count and techniques, before the evidence.
+    intelligence_html = (DASHBOARD_PUBLIC_PATH / "intelligence.html").read_text(encoding="utf-8")
+    body = intelligence_html.split("issueInspectorBody.innerHTML = `", 1)[1].split("`;\n", 1)[0]
+    summary = body.split('<section class="issue-summary"', 1)[1]
+    assert body.index('class="issue-summary"') < body.index("renderEvidence(issue.evidence, issue.source_ips)")
+    for piece in ("issue-summary-title", "risk-badge", "status-toggle", "issue-summary-count", "mitre-technique-list"):
+        assert piece in summary
+    # Techniques share the severity/status row, and the count names its range.
+    meta = summary.split('class="issue-summary-meta"', 1)[1].split("</div>", 1)[0]
+    assert "mitre-technique-list" in meta
+    assert "selectedRangePhrase()" in meta
+    # Facts first, the action last: severity, technique, then the status toggle.
+    assert meta.index("risk-badge") < meta.index("mitre-technique-list") < meta.index("status-toggle")
+    # Technique chips and source addresses sit on the darkest background so
+    # they stand out from the panel.
+    css = (DASHBOARD_PUBLIC_PATH / "dashboard.css").read_text(encoding="utf-8")
+    chip = css.split(".issue-summary-meta .mitre-technique-list li {", 1)[1].split("}", 1)[0]
+    assert "background: var(--bg);" in chip
+    address = css.split(".issue-source-list code {", 1)[1].split("}", 1)[0]
+    assert "background: var(--bg);" in address
+
+
+def test_issue_evidence_times_match_the_sessions_page_format():
+    # The evidence sentence's UTC times are shown in local time in the same
+    # dd/mm/yy hh:mm AM/PM format as the Sessions page.
+    intelligence_html = (DASHBOARD_PUBLIC_PATH / "intelligence.html").read_text(encoding="utf-8")
+    sessions_html = (DASHBOARD_PUBLIC_PATH / "sessions.html").read_text(encoding="utf-8")
+    assert "formatEvidenceTimes(formatEvidenceCounts(summary))" in intelligence_html
+    format_body = lambda html, name: html.split(f"function {name}(date) {{", 1)[1].split("\n    }\n", 1)[0]
+    assert format_body(intelligence_html, "formatLocalTime") == format_body(sessions_html, "formatSessionTime")
+    from classifier.storage import issue_sync
+    source = Path(issue_sync.__file__).read_text(encoding="utf-8")
+    assert '"%Y-%m-%d %H:%M UTC"' in source
+
+
+def test_issue_detail_status_is_a_working_toggle():
+    # The panel's status is a real button wired to the table's handler, and a
+    # change updates every toggle for that finding (row and panel together).
+    intelligence_html = (DASHBOARD_PUBLIC_PATH / "intelligence.html").read_text(encoding="utf-8")
+    body = intelligence_html.split("issueInspectorBody.innerHTML = `", 1)[1].split("`;\n", 1)[0]
+    assert '<button\n              type="button"\n              class="status-toggle' in body
+    assert 'data-issue-id="${escAttr(issue.id)}"' in body
+    assert "status-chip" not in intelligence_html
+    listener = intelligence_html.split('issueInspectorBody.addEventListener("click"', 1)[1].split("});", 1)[0]
+    assert "handleStatusToggle(statusButton)" in listener
+    handler = intelligence_html.split("async function handleStatusToggle(button) {", 1)[1].split("\n    }\n", 1)[0]
+    assert 'querySelectorAll(".status-toggle[data-issue-id]")' in handler
+    css = (DASHBOARD_PUBLIC_PATH / "dashboard.css").read_text(encoding="utf-8")
+    assert ".status-chip" not in css
+
+
+def test_issue_detail_evidence_names_its_scope_and_source_addresses():
+    # Evidence counts are all-time (the header follows the filter), and the
+    # panel lists the addresses to block; the text people act on is full
+    # colour, not muted.
+    intelligence_html = (DASHBOARD_PUBLIC_PATH / "intelligence.html").read_text(encoding="utf-8")
+    assert '<h3>Evidence <span class="detail-block-scope">(all time)</span></h3>' in intelligence_html
+    assert "renderEvidence(issue.evidence, issue.source_ips)" in intelligence_html
+    assert "const SOURCE_IP_LIMIT = 5;" in intelligence_html
+    from classifier.storage.repository import ISSUE_SOURCE_IP_LIMIT
+    assert ISSUE_SOURCE_IP_LIMIT == 5
+    css = (DASHBOARD_PUBLIC_PATH / "dashboard.css").read_text(encoding="utf-8")
+    panel_text = css.split("#issueInspectorBody .detail-block p {", 1)[1].split("}", 1)[0]
+    assert "color: var(--text);" in panel_text
+
+
+def test_issue_evidence_samples_are_a_short_plain_list_with_readable_counts():
+    # "What was seen" items are sentences: a plain bulleted list of at most
+    # 3, not monospace code boxes; evidence counts get thousands separators.
+    intelligence_html = (DASHBOARD_PUBLIC_PATH / "intelligence.html").read_text(encoding="utf-8")
+    assert "const EVIDENCE_SAMPLE_LIMIT = 3;" in intelligence_html
+    assert ".slice(0, EVIDENCE_SAMPLE_LIMIT)" in intelligence_html
+    assert "formatEvidenceCounts(summary)" in intelligence_html
+    css = (DASHBOARD_PUBLIC_PATH / "dashboard.css").read_text(encoding="utf-8")
+    samples_rule = css.split(".evidence-samples li {", 1)[1].split("}", 1)[0]
+    assert "monospace" not in samples_rule
+    assert "border:" not in samples_rule
+
+
 def test_modal_backdrop_dims_without_blur_so_modal_scrolling_stays_smooth():
     css = (DASHBOARD_PUBLIC_PATH / "dashboard.css").read_text(encoding="utf-8")
     backdrop = css.split(".modal-backdrop {", 1)[1].split("}", 1)[0]

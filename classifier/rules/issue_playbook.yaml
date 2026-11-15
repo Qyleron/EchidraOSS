@@ -33,7 +33,7 @@ fixes:
     T1110:
       title: The same source IP is reconnecting far more often than normal, consistent with automated credential or access testing.
       recommended_fix: Rate-limit or temporarily block source IPs that exceed a connection threshold within a short window (fail2ban-style), and watch for the same IP touching multiple personas.
-      impact: Catches automated hammering even though this honeypot has no password prompt to literally brute-force.
+      impact: Stops one address from hammering your services and slows password guessing before it finds a working login.
     T1110.001:
       title: Brute-force bots are confirming that a guessed SSH password works, then leaving.
       recommended_fix: Disable password login over SSH and use keys. Change any password that appears in these sessions if it is used on a real system, since a confirmed password is usually used later from a different address.

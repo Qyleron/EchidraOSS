@@ -290,20 +290,27 @@
     // the summary and the matched commands render as their own sections
     // instead of one run-on paragraph, without needing a schema change to
     // store them as separate fields.
-    function renderEvidence(evidence) {
+    // The Evidence numbers cover every session ever linked to the finding,
+    // so the heading says "all time" (the header count follows the filter).
+    // The source addresses tell the reader what to block.
+    function renderEvidence(evidence, sourceIps = []) {
       const marker = " Matched: ";
       const markerIndex = evidence.indexOf(marker);
       const evidenceSection = (summary) => `
         <section class="detail-block" aria-label="Evidence">
-          <h3>Evidence</h3>
-          <p class="evidence-summary">${escHtml(summary)}</p>
+          <h3>Evidence <span class="detail-block-scope">(all time)</span></h3>
+          <p class="evidence-summary">${escHtml(formatEvidenceTimes(formatEvidenceCounts(summary)))}</p>
+          ${renderSourceIps(sourceIps)}
         </section>`;
       if (markerIndex === -1) return evidenceSection(evidence);
+      // Samples are plain sentences, so they render as a short bulleted
+      // list in the body font (at most 3), not as code boxes.
       const samples = evidence
         .slice(markerIndex + marker.length)
         .replace(/\.$/, "")
         .split("; ")
-        .filter(Boolean);
+        .filter(Boolean)
+        .slice(0, EVIDENCE_SAMPLE_LIMIT);
       return evidenceSection(evidence.slice(0, markerIndex)) + `
         <section class="detail-block" aria-label="What was seen">
           <h3>What was seen</h3>
@@ -311,6 +318,70 @@
             ${samples.map((sample) => `<li>${escHtml(sample)}</li>`).join("")}
           </ul>
         </section>`;
+    }
+
+    const EVIDENCE_SAMPLE_LIMIT = 3;
+    // Matches ISSUE_SOURCE_IP_LIMIT in classifier/storage/repository.py: the
+    // API sends one extra address when there are more than this.
+    const SOURCE_IP_LIMIT = 5;
+
+    function renderSourceIps(sourceIps) {
+      if (!sourceIps || !sourceIps.length) return "";
+      const shown = sourceIps.slice(0, SOURCE_IP_LIMIT);
+      const label = shown.length === 1 ? "Source address" : "Source addresses";
+      const more = sourceIps.length > SOURCE_IP_LIMIT
+        ? `<li class="issue-source-more">and more (View Sessions lists them all)</li>`
+        : "";
+      return `
+          <div class="issue-sources">
+            <span class="issue-sources-label">${label}</span>
+            <ul class="issue-source-list">
+              ${shown.map((ip) => `<li><code>${escHtml(ip)}</code></li>`).join("")}
+              ${more}
+            </ul>
+          </div>`;
+    }
+
+    // Adds thousands separators to the counts in the evidence sentence
+    // ("4904 sessions" -> "4,904 sessions") without touching dates or times.
+    function formatEvidenceCounts(text) {
+      return text.replace(/\b(\d{4,})(?= (?:sessions?|personas?|source IPs?)\b)/g,
+        (digits) => Number(digits).toLocaleString());
+    }
+
+    // Same format as the Sessions page (formatSessionTime in sessions.html),
+    // in the viewer's local time, so a finding's first/last seen matches
+    // the times View Sessions shows.
+    function formatLocalTime(date) {
+      const day = String(date.getDate()).padStart(2, "0");
+      const month = String(date.getMonth() + 1).padStart(2, "0");
+      const year = String(date.getFullYear()).slice(-2);
+      const hour24 = date.getHours();
+      const period = hour24 < 12 ? "AM" : "PM";
+      const hour12 = String(hour24 % 12 === 0 ? 12 : hour24 % 12).padStart(2, "0");
+      const minutes = String(date.getMinutes()).padStart(2, "0");
+      return `${day}/${month}/${year} ${hour12}:${minutes} ${period}`;
+    }
+
+    // Rewrites the evidence sentence's UTC times ("2026-07-14 10:33 UTC",
+    // written by _build_evidence in classifier/storage/issue_sync.py) into
+    // local time in the Sessions page format.
+    function formatEvidenceTimes(text) {
+      return text.replace(/\b(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}) UTC\b/g,
+        (match, year, month, day, hour, minute) => {
+          const date = new Date(Date.UTC(+year, +month - 1, +day, +hour, +minute));
+          return Number.isNaN(date.getTime()) ? match : formatLocalTime(date);
+        });
+    }
+
+    // Says which time range the header's session count covers, matching
+    // the Time range filter ("in the last 7 days", or "all time").
+    function selectedRangePhrase() {
+      return {
+        "24h": "in the last 24 hours",
+        "7d": "in the last 7 days",
+        "30d": "in the last 30 days",
+      }[rangeFilter.value] || "all time";
     }
 
     function statusLabel(status) {
@@ -476,8 +547,30 @@
         issueRow.classList.toggle("selected", issueRow.dataset.issueRow === String(issueId));
       });
 
+      // Summary header: what this finding is, how bad, whether it's still
+      // open and how many sessions hit it, before the evidence below.
+      const sessionCount = Number(issue.session_count) || 0;
+      const techniques = issue.mitre || [];
       issueInspectorBody.innerHTML = `
-        ${renderEvidence(issue.evidence)}
+        <section class="issue-summary" aria-label="Summary">
+          <h3 class="issue-summary-title">${escHtml(issue.title)}</h3>
+          <div class="issue-summary-meta">
+            <span class="risk-badge ${escAttr(issue.severity)}">${escHtml(SEVERITY_LABELS[issue.severity] ?? issue.severity ?? "Unknown")}</span>
+            ${techniques.length ? `
+            <ul class="mitre-technique-list" aria-label="MITRE ATT&amp;CK techniques">
+              ${techniques.map((technique) => `<li>${escHtml(technique.id)} - ${escHtml(technique.name)}</li>`).join("")}
+            </ul>` : ""}
+            <button
+              type="button"
+              class="status-toggle ${escAttr(issue.status)}"
+              data-issue-id="${escAttr(issue.id)}"
+              aria-pressed="${issue.status === "closed"}"
+              title="${issue.status === "open" ? "Mark as closed" : "Reopen"}"
+            >${escHtml(statusLabel(issue.status))}</button>
+            <span class="issue-summary-count">${escHtml(sessionCount.toLocaleString())} ${sessionCount === 1 ? "session" : "sessions"} ${escHtml(selectedRangePhrase())}</span>
+          </div>
+        </section>
+        ${renderEvidence(issue.evidence, issue.source_ips)}
         <section class="detail-block" aria-label="Recommended fix">
           <h3>Recommended Fix</h3>
           <p>${escHtml(issue.recommended_fix)}</p>
@@ -590,16 +683,21 @@
         }
         const updated = await response.json();
         showNotice(updated.status === "closed" ? "Marked as closed." : "Marked as open.", { success: true });
-        button.classList.remove("open", "closed");
-        button.classList.add(updated.status);
-        button.textContent = statusLabel(updated.status);
-        button.setAttribute("aria-pressed", String(updated.status === "closed"));
-        button.title = updated.status === "open" ? "Mark as closed" : "Reopen";
-        const row = button.closest("[data-issue-row]");
+        // The same finding can have a toggle in its table row and in the
+        // Issue Detail panel; keep both in step.
+        document.querySelectorAll(".status-toggle[data-issue-id]").forEach((toggle) => {
+          if (toggle.dataset.issueId !== String(updated.id)) return;
+          toggle.classList.remove("open", "closed");
+          toggle.classList.add(updated.status);
+          toggle.textContent = statusLabel(updated.status);
+          toggle.setAttribute("aria-pressed", String(updated.status === "closed"));
+          toggle.title = updated.status === "open" ? "Mark as closed" : "Reopen";
+        });
+        const row = document.querySelector(`[data-issue-row="${CSS.escape(String(updated.id))}"]`);
         if (row) row.classList.toggle("is-closed", updated.status === "closed");
-        const cached = currentIssues.find((item) => item.id === updated.id);
-        if (cached) {
-          cached.status = updated.status;
+        for (const list of [allIssues, currentIssues]) {
+          const cached = list.find((item) => String(item.id) === String(updated.id));
+          if (cached) cached.status = updated.status;
         }
       } catch (error) {
         console.error(error);
@@ -635,6 +733,12 @@
         event.preventDefault();
         openIssueInspector(row.dataset.issueRow);
       }
+    });
+
+    // The Issue Detail panel's status button uses the same handler as the table's.
+    issueInspectorBody.addEventListener("click", (event) => {
+      const statusButton = event.target.closest(".status-toggle");
+      if (statusButton) handleStatusToggle(statusButton);
     });
 
     issueInspectorBackdrop.addEventListener("click", closeIssueInspector);

@@ -547,6 +547,33 @@ FROM (
 WHERE rn <= 200
 """
 
+# The addresses behind each issue's sessions, busiest first, for the Issue
+# Detail panel. Read from the sessions themselves (not issue_source_ips) so
+# every kind of issue, including the repeat-connection one, has them.
+# Windowed per issue_id like SELECT_ISSUE_SESSIONS_SQL; one row past the
+# panel's limit tells it there are more.
+ISSUE_SOURCE_IP_LIMIT = 5
+
+SELECT_ISSUE_SOURCE_IPS_SQL = f"""
+SELECT issue_id, peer_ip
+FROM (
+    SELECT
+        issue_sessions.issue_id,
+        sessions.peer_ip,
+        ROW_NUMBER() OVER (
+            PARTITION BY issue_sessions.issue_id
+            ORDER BY COUNT(*) DESC, sessions.peer_ip
+        ) AS rn
+    FROM issue_sessions
+    JOIN sessions ON sessions.id = issue_sessions.session_id
+    WHERE issue_sessions.issue_id = ANY(%(issue_ids)s)
+      AND sessions.peer_ip IS NOT NULL
+    GROUP BY issue_sessions.issue_id, sessions.peer_ip
+) ranked
+WHERE rn <= {ISSUE_SOURCE_IP_LIMIT + 1}
+ORDER BY issue_id, rn
+"""
+
 SELECT_ISSUES_FOR_SESSION_SQL = """
 SELECT
     issues.id,
@@ -1856,12 +1883,23 @@ class PostgresClassifierRepository:
         for session_row in session_rows:
             sessions_by_issue_id.setdefault(session_row["issue_id"], []).append(session_row)
 
+        source_ip_rows = _fetch_all(
+            self.database_url,
+            SELECT_ISSUE_SOURCE_IPS_SQL,
+            {"issue_ids": issue_ids},
+        )
+        source_ips_by_issue_id: dict[UUID, list[str]] = {}
+        for source_ip_row in source_ip_rows:
+            source_ips_by_issue_id.setdefault(source_ip_row["issue_id"], []).append(
+                source_ip_row["peer_ip"]
+            )
+
         return [
             issue_from_row(
                 row,
                 mitre_by_issue_id.get(row["id"], []),
                 sessions_by_issue_id.get(row["id"], []),
-            )
+            ).model_copy(update={"source_ips": source_ips_by_issue_id.get(row["id"], [])})
             for row in rows
         ]
 
