@@ -32,8 +32,15 @@ All notable changes to Echidra are documented here. The format follows
   First and last seen times are in your local time, in the same format as
   the Sessions page.
 - Clearer impact text for repeated reconnects from one address.
+- On the Alerts page, the minimum risk level and excluded IPs have their
+  own "Which alerts are sent" section above Email and Slack, since they
+  apply to both.
+- On the Personas page, "Alerts for this decoy" starts folded closed. It
+  opens by itself when the decoy has its own alert setting.
 
 ### Fixed
+- On the Personas page, each decoy's settings reopen where you left them
+  (or at the top), rather than where another decoy was scrolled to.
 - The Session Inspector no longer shows an empty "Intelligence Findings"
   heading for sessions that aren't part of a finding.
 - `echidra import` now updates Intelligence before it exits, so imported

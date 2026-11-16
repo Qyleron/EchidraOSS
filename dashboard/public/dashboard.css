@@ -1767,6 +1767,36 @@ a {
   text-transform: uppercase;
 }
 
+/* Personas: "Alerts for this decoy" is folded closed unless the decoy has
+   its own alert setting; the title is the toggle. */
+.config-fold-summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.config-fold-summary::-webkit-details-marker {
+  display: none;
+}
+
+.config-fold-summary .config-section-title::before {
+  content: "\25B8\00A0";
+}
+
+.config-fold[open] .config-fold-summary .config-section-title::before {
+  content: "\25BE\00A0";
+}
+
+.config-fold-summary:hover .config-section-title,
+.config-fold-summary:focus-visible .config-section-title {
+  color: var(--text);
+}
+
+.config-fold-body {
+  display: grid;
+  gap: 20px;
+  padding-top: 20px;
+}
+
 .config-fields-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;

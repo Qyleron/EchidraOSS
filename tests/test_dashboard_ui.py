@@ -459,6 +459,45 @@ def test_each_alert_channel_is_set_up_in_one_place():
     assert "Use the Alerts page setting" in personas
 
 
+def test_which_alerts_are_sent_card_sits_above_both_channels():
+    """Minimum risk level and excluded IPs apply to email and Slack, so they
+    get their own card above Email instead of sitting under Slack."""
+    alerts = (DASHBOARD_PUBLIC_PATH / "alerts.html").read_text(encoding="utf-8")
+    card = alerts.index('<h2 class="alerts-channel-title">Which alerts are sent</h2>')
+    assert card < alerts.index('id="globalMinRiskLevel"') < alerts.index('id="excludedIps"')
+    assert alerts.index('id="excludedIps"') < alerts.index('<h2 class="alerts-channel-title">Email</h2>')
+    assert "Applies to email and Slack. A decoy can set its own on the Personas page." in alerts
+
+
+def test_per_decoy_alerts_start_folded_unless_the_decoy_has_its_own():
+    personas = (DASHBOARD_PUBLIC_PATH / "personas.html").read_text(encoding="utf-8")
+    # Edit form: opens by itself when the decoy has its own setting.
+    assert "'<details class=\"config-fold\"' + (hasOwnAlertSettings(config) ? ' open' : '') + '>'" in personas
+    assert 'return Boolean(ownRecipient(config, "email") || ownRecipient(config, "slack") || config.alert_min_risk_level);' in personas
+    # Create form: always starts closed.
+    assert "+ '<details class=\"config-fold\">'" in personas
+    assert personas.count('<summary class="config-fold-summary"><h3 class="config-section-title">Alerts for this decoy (optional)</h3></summary>') == 2
+    css = (DASHBOARD_PUBLIC_PATH / "dashboard.css").read_text(encoding="utf-8")
+    assert ".config-fold-summary::-webkit-details-marker" in css
+
+
+def test_decoy_popup_keeps_its_own_scroll_position():
+    """The popup body is reused between decoys. Each decoy reopens where it
+    was left (or at the top), never where another decoy was scrolled to;
+    Create always starts at the top."""
+    personas = (DASHBOARD_PUBLIC_PATH / "personas.html").read_text(encoding="utf-8")
+    # Saved on close, read before the popup is hidden, never for Create.
+    close_body = personas.split("function closeModal() {", 1)[1].split("\n    }\n", 1)[0]
+    save = "modalScrollByPersona[expandedPersonaId] = modalContainer.scrollTop;"
+    assert save in close_body
+    assert "expandedPersonaId !== _CREATE_SENTINEL" in close_body
+    assert close_body.index(save) < close_body.index("modalBackdrop.hidden = true;")
+    # Restored only once the popup is visible: edit form, then create form.
+    edit_open, create_open = personas.split("modalBackdrop.hidden = false;")[1:3]
+    assert "modalContainer.scrollTop = modalScrollByPersona[personaId] || 0;" in edit_open.split("}", 1)[0]
+    assert "modalContainer.scrollTop = 0;" in create_open.split("}", 1)[0]
+
+
 def test_alerts_form_labels_say_which_fields_are_optional():
     """Neither login field is required: some mail servers need no login.
     The form doesn't second-guess combinations; the test email reports

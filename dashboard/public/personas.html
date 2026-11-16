@@ -813,7 +813,16 @@
     var modalTitle = document.getElementById("modalTitle");
     var modalCloseBtn = document.getElementById("modalCloseBtn");
 
+    // Where each decoy's popup was scrolled to when it closed, so reopening
+    // it carries on from there. Kept until the page reloads; Create always
+    // starts at the top.
+    var modalScrollByPersona = {};
+
     function closeModal() {
+      // Read before hiding: a hidden element reports no scroll position.
+      if (!modalBackdrop.hidden && expandedPersonaId && expandedPersonaId !== _CREATE_SENTINEL) {
+        modalScrollByPersona[expandedPersonaId] = modalContainer.scrollTop;
+      }
       modalBackdrop.hidden = true;
       modalContainer.innerHTML = "";
       expandedPersonaId = null;
@@ -870,7 +879,9 @@
         + '</div></div>'
 
         + '<div class="config-section">'
-        + '<h3 class="config-section-title">Alerts for this decoy (optional)</h3>'
+        + '<details class="config-fold"' + (hasOwnAlertSettings(config) ? ' open' : '') + '>'
+        + '<summary class="config-fold-summary"><h3 class="config-section-title">Alerts for this decoy (optional)</h3></summary>'
+        + '<div class="config-fold-body">'
         + '<p class="form-hint" style="margin:-4px 0 12px;">Leave these empty and this decoy\'s alerts go where the Alerts page sends them. Fill one in to send this decoy\'s alerts there instead.</p>'
         + '<div class="config-fields-grid">'
         + formInput(personaId, "contact_email", "This decoy's email (optional)", "email", ownRecipient(config, "email"))
@@ -880,7 +891,7 @@
         + '<option value="">Use the Alerts page setting</option>'
         + buildOptions(["critical","high","medium","low"], config.alert_min_risk_level || "")
         + '</select></div>'
-        + '</div></div>'
+        + '</div></div></details></div>'
 
         + '</div>'
         + '<div class="config-form-actions">'
@@ -894,6 +905,10 @@
 
       modalContainer.innerHTML = html;
       modalBackdrop.hidden = false;
+      // The popup's body is reused, so put this decoy back where it was left
+      // (or at the top), never where another decoy was scrolled to. This
+      // must come after the popup is shown: a hidden element ignores it.
+      modalContainer.scrollTop = modalScrollByPersona[personaId] || 0;
       if (typeof initCustomSelects === "function") initCustomSelects(modalContainer);
     }
 
@@ -951,7 +966,9 @@
         + '</div></div>'
 
         + '<div class="config-section">'
-        + '<h3 class="config-section-title">Alerts for this decoy (optional)</h3>'
+        + '<details class="config-fold">'
+        + '<summary class="config-fold-summary"><h3 class="config-section-title">Alerts for this decoy (optional)</h3></summary>'
+        + '<div class="config-fold-body">'
         + '<p class="form-hint" style="margin:-4px 0 12px;">Leave these empty and this decoy\'s alerts go where the Alerts page sends them. Fill one in to send this decoy\'s alerts there instead.</p>'
         + '<div class="config-fields-grid">'
         + formInput(_CREATE_SENTINEL, "contact_email", "This decoy's email (optional)", "email", "")
@@ -961,7 +978,7 @@
         + '<option value="">Use the Alerts page setting</option>'
         + buildOptions(["critical","high","medium","low"], "")
         + '</select></div>'
-        + '</div></div>'
+        + '</div></div></details></div>'
 
         + '</div>'
         + '<div class="config-form-actions">'
@@ -973,6 +990,10 @@
 
       modalContainer.innerHTML = html;
       modalBackdrop.hidden = false;
+      // The popup's body is reused, so a new decoy always starts at the top
+      // rather than where a decoy was scrolled to. This must come after the
+      // popup is shown: a hidden element ignores a scroll reset.
+      modalContainer.scrollTop = 0;
       if (typeof initCustomSelects === "function") initCustomSelects(modalContainer);
     }
 
@@ -1005,6 +1026,12 @@
       var level = config.alert_routing_level || "none";
       if (channel === "email") return (level === "email" || level === "both") ? (config.contact_email || "") : "";
       return (level === "slack" || level === "both") ? (config.slack_webhook || "") : "";
+    }
+
+    // The per-decoy alert fields start folded closed; a decoy that already
+    // has its own recipient or risk level opens them so the setting is seen.
+    function hasOwnAlertSettings(config) {
+      return Boolean(ownRecipient(config, "email") || ownRecipient(config, "slack") || config.alert_min_risk_level);
     }
 
     function routingFromFields(email, slack) {

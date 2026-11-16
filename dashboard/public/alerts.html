@@ -79,8 +79,8 @@
           <div class="alerts-status" id="alertsStatus" role="status"></div>
         </div>
 
-        <!-- One form: the switch, then a section per channel, then shared
-             settings. Each channel is set up here only, with its test next
+        <!-- One form: the switch, then which alerts are sent (shared by both
+             channels), then a section per channel. Each channel is set up here only, with its test next
              to it. -->
         <form id="smtpForm" autocomplete="off" style="padding:22px;">
           <div class="alerts-enable-row">
@@ -89,6 +89,31 @@
               <span class="toggle-visual"><span class="toggle-knob"></span></span>
             </label>
             <span style="font-size:14px;font-weight:560;">Enable alerts</span>
+          </div>
+
+          <!-- Which alerts are sent: applies to email and Slack alike, so it
+               sits above both channels rather than under Slack. -->
+          <div class="alerts-channel">
+            <div class="alerts-channel-header">
+              <h2 class="alerts-channel-title">Which alerts are sent</h2>
+            </div>
+            <div class="form-row" style="display:flex;align-items:center;gap:14px;">
+              <label class="form-label" for="globalMinRiskLevel" style="margin:0;white-space:nowrap;">Minimum risk level to alert</label>
+              <select class="form-select" id="globalMinRiskLevel" style="width:160px;flex-shrink:0;">
+                <option value="critical">Critical</option>
+                <option value="high" selected>High</option>
+                <option value="medium">Medium</option>
+                <option value="low">Low</option>
+              </select>
+              <span class="form-hint">Applies to email and Slack. A decoy can set its own on the Personas page.</span>
+            </div>
+            <div class="form-row" style="padding-top:16px;">
+              <label class="form-label" for="excludedIps">Excluded IPs (never trigger an alert)</label>
+              <textarea class="form-input" id="excludedIps" rows="3" style="resize:vertical;font-family:monospace;padding-top:8px;" placeholder="One IP per line, e.g. 127.0.0.1"></textarea>
+              <span class="form-hint">
+                Your own addresses, such as <code>127.0.0.1</code> while testing, or your own scanners.
+              </span>
+            </div>
           </div>
 
           <!-- Email -->
@@ -150,27 +175,6 @@
             <div class="form-row" style="max-width:520px;">
               <label class="form-label" for="defaultSlackWebhook">Webhook URL</label>
               <input class="form-input" id="defaultSlackWebhook" type="url" placeholder="https://hooks.slack.com/services/…" />
-            </div>
-          </div>
-
-          <!-- Shared by both channels -->
-          <div class="alerts-channel">
-            <div class="form-row" style="display:flex;align-items:center;gap:14px;">
-              <label class="form-label" for="globalMinRiskLevel" style="margin:0;white-space:nowrap;">Minimum risk level to alert</label>
-              <select class="form-select" id="globalMinRiskLevel" style="width:160px;flex-shrink:0;">
-                <option value="critical">Critical</option>
-                <option value="high" selected>High</option>
-                <option value="medium">Medium</option>
-                <option value="low">Low</option>
-              </select>
-              <span class="form-hint">A decoy can set its own on the Personas page.</span>
-            </div>
-            <div class="form-row" style="padding-top:16px;">
-              <label class="form-label" for="excludedIps">Excluded IPs (never trigger an alert)</label>
-              <textarea class="form-input" id="excludedIps" rows="3" style="resize:vertical;font-family:monospace;padding-top:8px;" placeholder="One IP per line, e.g. 127.0.0.1"></textarea>
-              <span class="form-hint">
-                Your own addresses, such as <code>127.0.0.1</code> while testing, or your own scanners.
-              </span>
             </div>
           </div>
 
