@@ -6,6 +6,8 @@ All notable changes to Echidra are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-11-17
+
 ### Added
 - Echidra can be installed from PyPI (`pipx install echidra-oss`). An
   installed copy keeps its settings, logs and SSH host keys in `~/.echidra`,
