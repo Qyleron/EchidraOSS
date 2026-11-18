@@ -65,6 +65,19 @@ See the [Console guide](https://qyleron.com/console-guide/) for a full field-by-
 
 ### Method A: Native (Recommended for trying it out)
 
+From PyPI:
+
+```bash
+pipx install echidra-oss
+echidra init         # creates .env, generates the ingest key and alert secret, and sets up the database if ECHIDRA_DATABASE_URL is set
+echidra start        # runs the honeypot listeners and the API/dashboard together until Ctrl+C
+```
+
+A PyPI install keeps its `.env`, logs and SSH host keys in `~/.echidra`. Set
+`ECHIDRA_HOME` in your shell to use another folder.
+
+From source, to read or change the code:
+
 ```bash
 git clone https://github.com/Qyleron/EchidraOSS.git
 cd EchidraOSS
