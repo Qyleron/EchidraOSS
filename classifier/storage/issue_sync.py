@@ -385,7 +385,7 @@ def _technique_name(tag: str, playbook: IssuePlaybook, mitre_catalog: dict[str, 
 
 
 def _count(number: int, noun: str) -> str:
-    return f"{number} {noun}{'' if number == 1 else 's'}"
+    return f"{number:,} {noun}{'' if number == 1 else 's'}"
 
 
 def _build_evidence(aggregate: dict[str, Any], technique_name: str) -> str:
@@ -471,7 +471,7 @@ def _build_repeat_connection_evidence(
         f"{_count(aggregate['session_count'], 'connection attempt')} across "
         f"{_count(aggregate['persona_count'], 'persona')} from "
         f"{_count(aggregate['source_ip_count'], 'source IP')}, each making at least "
-        f"{min_sessions} connections within {_format_window(window_seconds)}."
+        f"{min_sessions:,} connections within {_format_window(window_seconds)}."
     )
 
 

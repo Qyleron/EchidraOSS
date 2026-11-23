@@ -502,6 +502,17 @@ def test_sync_issues_from_classifier_runs_includes_repeat_connection_issue(monke
     assert "each making at least 5 connections within 1 day" in issue.evidence
 
 
+def test_repeat_connection_evidence_uses_thousands_separators():
+    evidence = issue_sync._build_repeat_connection_evidence(
+        {"session_count": 1254, "persona_count": 4, "source_ip_count": 1032},
+        window_seconds=86_400,
+        min_sessions=1000,
+    )
+
+    assert evidence.startswith("1,254 connection attempts across 4 personas from 1,032 source IPs")
+    assert "each making at least 1,000 connections" in evidence
+
+
 def test_build_repeat_connection_issue_severity_thresholds():
     playbook = IssuePlaybook()
     low = issue_sync._build_repeat_connection_issue(

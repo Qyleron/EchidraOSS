@@ -9,6 +9,9 @@ All notable changes to Echidra are documented here. The format follows
 ### Added
 - `echidra --version` prints the installed version.
 
+### Changed
+- Large counts on Issue Detail now use thousands separators (1,254).
+
 ## [1.1.0] - 2026-11-17
 
 ### Added
