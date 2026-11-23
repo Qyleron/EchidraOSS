@@ -1109,6 +1109,13 @@ def test_risk_trend_thins_column_labels_and_reads_clearly():
     assert 'id="riskTrendChart" class="bar-chart"' in html
 
 
+def test_issues_table_session_count_uses_thousands_separators():
+    html = (DASHBOARD_PUBLIC_PATH / "intelligence.html").read_text(encoding="utf-8")
+
+    assert '<td>${escHtml((Number(issue.session_count) || 0).toLocaleString("en-US"))}</td>' in html
+    assert "<td>${escHtml(issue.session_count)}</td>" not in html
+
+
 def test_risk_trend_draws_bars_on_a_round_number_scale():
     """Risk Trend is drawn like Datadog's or Elastic's alert histogram:
     round numbers down the left, faint grid lines, a solid baseline that

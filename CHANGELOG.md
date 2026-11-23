@@ -10,7 +10,8 @@ All notable changes to Echidra are documented here. The format follows
 - `echidra --version` prints the installed version.
 
 ### Changed
-- Large counts on Issue Detail now use thousands separators (1,254).
+- Large counts on Issue Detail and in the Intelligence table's Sessions
+  column now use thousands separators (1,254).
 
 ## [1.1.0] - 2026-11-17
 

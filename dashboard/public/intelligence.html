@@ -424,7 +424,7 @@
               ${(issue.mitre || []).map((technique) => `<li>${escHtml(technique.id)} - ${escHtml(technique.name)}</li>`).join("")}
             </ul>
           </td>
-          <td>${escHtml(issue.session_count)}</td>
+          <td>${escHtml((Number(issue.session_count) || 0).toLocaleString("en-US"))}</td>
           <td class="cell-truncate" title="${escAttr(issue.recommended_fix)}">${escHtml(issue.recommended_fix)}</td>
           <td>
             <button
