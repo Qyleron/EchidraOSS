@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import csv
 import errno
+import importlib.metadata
 import ipaddress
 import os
 import re
@@ -132,11 +133,19 @@ def main(argv: list[str] | None = None) -> int:
     return 1
 
 
+def _installed_version() -> str:
+    try:
+        return importlib.metadata.version("echidra-oss")
+    except importlib.metadata.PackageNotFoundError:
+        return "unknown (Echidra isn't installed as a package; from the repo folder, run: pip install -e .)"
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="echidra",
         description="Set up, run, classify, and health-check an Echidra deployment.",
     )
+    parser.add_argument("--version", action="version", version=f"%(prog)s {_installed_version()}")
     subparsers = parser.add_subparsers(dest="command")
 
     init_parser = subparsers.add_parser(

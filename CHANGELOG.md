@@ -6,6 +6,9 @@ All notable changes to Echidra are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- `echidra --version` prints the installed version.
+
 ## [1.1.0] - 2026-11-17
 
 ### Added

@@ -49,6 +49,23 @@ def test_echidra_cli_rejects_the_renamed_serve_command(capsys):
     assert "invalid choice: 'serve'" in captured.err
 
 
+def test_echidra_cli_version_prints_installed_version(capsys):
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["--version"])
+
+    assert exc.value.code == 0
+    assert capsys.readouterr().out.strip() == f"echidra {cli._installed_version()}"
+
+
+def test_echidra_cli_version_says_what_to_do_when_not_installed(monkeypatch):
+    def not_installed(_name):
+        raise cli.importlib.metadata.PackageNotFoundError
+
+    monkeypatch.setattr(cli.importlib.metadata, "version", not_installed)
+
+    assert "pip install -e ." in cli._installed_version()
+
+
 # ---------------------------------------------------------------------------
 # init
 # ---------------------------------------------------------------------------
