@@ -652,7 +652,7 @@
         <li class="rank-item">
           <div class="rank-row">
             <span>${escHtml(label)}</span>
-            <span>${value}</span>
+            <span>${(Number(value) || 0).toLocaleString("en-US")}</span>
           </div>
           <div class="rank-track">
             <span class="rank-fill" style="width: ${value > 0 ? `max(8px, ${(value / max) * 100}%)` : "0"};"></span>
@@ -670,7 +670,7 @@
 
     function renderIntentMetrics(intentCounts) {
       Object.entries(INTENT_METRIC_IDS).forEach(([intent, elementId]) => {
-        document.getElementById(elementId).textContent = intentCounts[intent] || 0;
+        document.getElementById(elementId).textContent = (Number(intentCounts[intent]) || 0).toLocaleString("en-US");
       });
     }
 
@@ -683,7 +683,7 @@
       // Floor to one decimal so any unclassified session keeps it below 100%.
       const percent = total ? Math.floor((classified / total) * 1000) / 10 : 0;
       document.getElementById("classificationCoverage").textContent = total
-        ? `Classified: ${classified} of ${total} sessions (${percent}%) \u00b7 ${unclassified} unclassified`
+        ? `Classified: ${classified.toLocaleString("en-US")} of ${total.toLocaleString("en-US")} sessions (${percent}%) \u00b7 ${unclassified.toLocaleString("en-US")} unclassified`
         : "";
     }
 

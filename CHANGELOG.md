@@ -12,6 +12,8 @@ All notable changes to Echidra are documented here. The format follows
 ### Changed
 - Large counts on Issue Detail and in the Intelligence table's Sessions
   column now use thousands separators (1,254).
+- Counts on the Personas Analytics tab and the Analytics page (cards, ranked
+  lists and the classified-sessions line) now use thousands separators too.
 
 ### Fixed
 - The Alerts page no longer jumps to the top or back to page 1 when the

@@ -1149,6 +1149,26 @@ def test_issues_table_session_count_uses_thousands_separators():
     assert "<td>${escHtml(issue.session_count)}</td>" not in html
 
 
+def test_persona_and_site_analytics_counts_use_thousands_separators():
+    personas = (DASHBOARD_PUBLIC_PATH / "personas.html").read_text(encoding="utf-8")
+    analytics = (DASHBOARD_PUBLIC_PATH / "analytics.html").read_text(encoding="utf-8")
+
+    # Personas Analytics tab: the three cards and both ranked lists.
+    assert 'getElementById("metricSessions").textContent = (Number(data.sessions_captured) || 0).toLocaleString("en-US");' in personas
+    assert 'getElementById("metricHighRisk").textContent = highRisk.toLocaleString("en-US");' in personas
+    assert 'getElementById("metricTechniques").textContent = (data.top_techniques || []).length.toLocaleString("en-US");' in personas
+    assert "'</span><span>' + (Number(e[1]) || 0).toLocaleString(\"en-US\") + '</span></div>'" in personas
+    assert "+ '<span>' + (Number(t.count) || 0).toLocaleString(\"en-US\") + '</span>'" in personas
+    assert "'</span><span>' + e[1] + '</span></div>'" not in personas
+    assert "+ '<span>' + t.count + '</span>'" not in personas
+
+    # Analytics page: intent cards, ranked lists and the coverage line.
+    assert 'getElementById(elementId).textContent = (Number(intentCounts[intent]) || 0).toLocaleString("en-US");' in analytics
+    assert '<span>${(Number(value) || 0).toLocaleString("en-US")}</span>' in analytics
+    assert '<span>${value}</span>' not in analytics
+    assert 'Classified: ${classified.toLocaleString("en-US")} of ${total.toLocaleString("en-US")} sessions' in analytics
+
+
 def test_risk_trend_draws_bars_on_a_round_number_scale():
     """Risk Trend is drawn like Datadog's or Elastic's alert histogram:
     round numbers down the left, faint grid lines, a solid baseline that

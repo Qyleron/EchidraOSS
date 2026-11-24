@@ -1500,11 +1500,11 @@
 
     // ── Analytics rendering ────────────────────────────────────────────────────
     function renderAnalytics(data, range) {
-      document.getElementById("metricSessions").textContent = data.sessions_captured != null ? data.sessions_captured : 0;
+      document.getElementById("metricSessions").textContent = (Number(data.sessions_captured) || 0).toLocaleString("en-US");
       var riskCounts = data.risk_counts || {};
       var highRisk = (riskCounts.critical || 0) + (riskCounts.high || 0);
-      document.getElementById("metricHighRisk").textContent = highRisk;
-      document.getElementById("metricTechniques").textContent = (data.top_techniques || []).length;
+      document.getElementById("metricHighRisk").textContent = highRisk.toLocaleString("en-US");
+      document.getElementById("metricTechniques").textContent = (data.top_techniques || []).length.toLocaleString("en-US");
       var trend = bucketSessionsTrend(data.sessions_trend || [], range);
       document.getElementById("trendChartSubtitle").textContent = {
         day: "Sessions per day.",
@@ -1689,7 +1689,7 @@
       var max = entries[0][1] || 1;
       el.innerHTML = entries.map(function(e) {
         return '<li class="rank-item">'
-          + '<div class="rank-row"><span>' + escHtml(e[0]) + '</span><span>' + e[1] + '</span></div>'
+          + '<div class="rank-row"><span>' + escHtml(e[0]) + '</span><span>' + (Number(e[1]) || 0).toLocaleString("en-US") + '</span></div>'
           + '<div class="rank-track"><span class="rank-fill" style="width:' + rankFillWidth(e[1], max) + ';"></span></div>'
           + '</li>';
       }).join("");
@@ -1706,7 +1706,7 @@
         return '<li class="rank-item">'
           + '<div class="rank-row">'
           + '<span>' + escHtml(t.id) + (t.name ? ' · ' + escHtml(t.name) : '') + '</span>'
-          + '<span>' + t.count + '</span>'
+          + '<span>' + (Number(t.count) || 0).toLocaleString("en-US") + '</span>'
           + '</div>'
           + '<div class="rank-track">'
           + '<span class="rank-fill" style="width:' + rankFillWidth(t.count, max) + ';"></span>'
