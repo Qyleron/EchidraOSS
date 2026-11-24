@@ -14,6 +14,8 @@ All notable changes to Echidra are documented here. The format follows
   column now use thousands separators (1,254).
 - Counts on the Personas Analytics tab and the Analytics page (cards, ranked
   lists and the classified-sessions line) now use thousands separators too.
+- Release packages are built with exact, hash-checked versions of the build
+  tools.
 
 ### Fixed
 - The Alerts page no longer jumps to the top or back to page 1 when the
