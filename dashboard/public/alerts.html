@@ -673,9 +673,15 @@
     var ALERT_EVENTS_PAGE_SIZE = 10;
     var alertEventsPaginationContainer = document.getElementById("alertEventsPagination");
 
-    async function loadAlertEvents() {
+    // The 30-second refresh is a background one: it keeps the current rows
+    // on screen until the new ones arrive and stays on the page being read,
+    // so the page never shrinks under the reader and jumps up.
+    async function loadAlertEvents(options) {
+      var background = Boolean(options && options.background);
       var tbody = document.getElementById("alertEventsBody");
-      tbody.innerHTML = '<tr><td colspan="7" class="table-loader-cell"><div class="spinner" role="status" aria-label="Loading alert history"></div></td></tr>';
+      if (!background) {
+        tbody.innerHTML = '<tr><td colspan="7" class="table-loader-cell"><div class="spinner" role="status" aria-label="Loading alert history"></div></td></tr>';
+      }
       try {
         var responses = await Promise.all([
           fetch("/alerts/events?limit=200"),
@@ -695,8 +701,10 @@
         }
         allAlertEvents = events;
         allAlertEventsTotal = total;
-        applyAlertChannelFilter();
+        applyAlertChannelFilter({ keepPage: background });
       } catch (err) {
+        // A failed background tick keeps the last list; the next tick retries.
+        if (background) return;
         tbody.innerHTML = '<tr><td colspan="8" class="empty-state">Could not load alert history. Is the database configured?</td></tr>';
         ["metricTotal","metricLast24h","metricSuccess","metricFailed"].forEach(function(id) {
           var el = document.getElementById(id);
@@ -722,14 +730,14 @@
       slack: "Every alert sent to Slack, and whether it was delivered.",
     };
 
-    function applyAlertChannelFilter() {
+    function applyAlertChannelFilter(options) {
       document.getElementById("historySubtitle").textContent = HISTORY_SUBTITLES[alertChannelFilter];
       document.querySelector(".alert-events-table").classList.toggle("hide-recipient", alertChannelFilter === "slack");
       shownAlertEvents = allAlertEvents.filter(matchesAlertChannel);
       // The server's count covers every alert ever sent; a filtered view can
       // only count what it has loaded.
       renderSummary(shownAlertEvents, alertChannelFilter === "all" ? allAlertEventsTotal : shownAlertEvents.length);
-      currentAlertsPage = 1;
+      if (!(options && options.keepPage)) currentAlertsPage = 1;
       renderAlertEventsPage();
     }
 
@@ -787,7 +795,7 @@
         alertEventsPaginationContainer.innerHTML = "";
         // The controls this click/focus was inside of no longer exist --
         // land on the page title instead of silently dropping to <body>.
-        if (hadFocusInside) document.getElementById("historyTitle").focus();
+        if (hadFocusInside) document.getElementById("historyTitle").focus({ preventScroll: true });
         return;
       }
       alertEventsPaginationContainer.innerHTML = ''
@@ -807,7 +815,9 @@
         }
       });
       if (hadFocusInside) {
-        document.getElementById("alertsPaginationStatus").focus();
+        // preventScroll: a background refresh rebuilds these controls, and
+        // moving focus must not scroll the page away from where it was.
+        document.getElementById("alertsPaginationStatus").focus({ preventScroll: true });
       }
     }
 
@@ -978,7 +988,7 @@
     // Only the read-only event history auto-refreshes -- re-fetching
     // loadAlertConfig() on a timer would silently overwrite an in-progress,
     // unsaved edit to the SMTP form underneath the person editing it.
-    setInterval(loadAlertEvents, 30000);
+    setInterval(function () { loadAlertEvents({ background: true }); }, 30000);
   </script>
 </body>
 </html>

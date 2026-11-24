@@ -13,6 +13,14 @@ All notable changes to Echidra are documented here. The format follows
 - Large counts on Issue Detail and in the Intelligence table's Sessions
   column now use thousands separators (1,254).
 
+### Fixed
+- The Alerts page no longer jumps to the top or back to page 1 when the
+  alert history refreshes.
+- Session Inspector shows a loader while commands load, and a note if none
+  were captured or loading fails, instead of text inside the command
+  timeline. It stops waiting after 10 seconds and says to reopen the
+  session.
+
 ## [1.1.0] - 2026-11-17
 
 ### Added

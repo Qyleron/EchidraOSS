@@ -1109,6 +1109,39 @@ def test_risk_trend_thins_column_labels_and_reads_clearly():
     assert 'id="riskTrendChart" class="bar-chart"' in html
 
 
+def test_alerts_history_refresh_keeps_scroll_and_page():
+    html = (DASHBOARD_PUBLIC_PATH / "alerts.html").read_text(encoding="utf-8")
+
+    assert "setInterval(function () { loadAlertEvents({ background: true }); }, 30000);" in html
+    assert "setInterval(loadAlertEvents, 30000);" not in html
+    # Only the first load swaps the table for the spinner.
+    assert "if (!background) {\n        tbody.innerHTML = '<tr><td colspan=\"7\" class=\"table-loader-cell\">" in html
+    assert "applyAlertChannelFilter({ keepPage: background });" in html
+    assert "if (!(options && options.keepPage)) currentAlertsPage = 1;" in html
+    assert "if (background) return;" in html
+    assert 'getElementById("alertsPaginationStatus").focus({ preventScroll: true });' in html
+    assert 'getElementById("historyTitle").focus({ preventScroll: true });' in html
+
+
+def test_session_inspector_timeline_uses_a_loader_and_notes_not_command_rows():
+    html = (DASHBOARD_PUBLIC_PATH / "sessions.html").read_text(encoding="utf-8")
+    css = (DASHBOARD_PUBLIC_PATH / "dashboard.css").read_text(encoding="utf-8")
+
+    assert '<div class="timeline-loader"><div class="spinner" role="status" aria-label="Loading commands"></div></div>' in html
+    assert "<li>Loading…</li>" not in html
+    # Status messages are notes, never items in the command list.
+    for message in (
+        "No commands were captured in this session.",
+        "The command timeline took too long to load. Close and reopen this session to retry.",
+        "Could not load the command timeline. Close and reopen this session to retry.",
+    ):
+        assert f'<p class="inspector-note">{message}</p>' in html
+        assert f"<li>{message}</li>" not in html
+    assert "const COMMAND_TIMELINE_TIMEOUT_MS = 10000;" in html
+    assert "withTimeout(fetchJSON(`/sessions/${sessionId}/events`), COMMAND_TIMELINE_TIMEOUT_MS)" in html
+    assert ".timeline-loader {\n  padding: 12px 0;\n}" in css
+
+
 def test_issues_table_session_count_uses_thousands_separators():
     html = (DASHBOARD_PUBLIC_PATH / "intelligence.html").read_text(encoding="utf-8")
 

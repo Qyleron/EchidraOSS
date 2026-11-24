@@ -646,9 +646,26 @@
       // array here, or the caller can't tell "this session genuinely had no
       // commands" from "the request failed," and would render the same
       // reassuring "No commands were captured" message either way.
-      const events = await fetchJSON(`/sessions/${sessionId}/events`);
+      const events = await withTimeout(fetchJSON(`/sessions/${sessionId}/events`), COMMAND_TIMELINE_TIMEOUT_MS);
       eventsCache.set(sessionId, events);
       return events;
+    }
+
+    // The Command Timeline stops waiting after this long and says what to
+    // do, so the loader can't spin forever on a slow or hung request. A
+    // timed-out result isn't cached, so reopening the session retries.
+    const COMMAND_TIMELINE_TIMEOUT_MS = 10000;
+
+    function withTimeout(promise, ms) {
+      let timer;
+      const timeout = new Promise((_, reject) => {
+        timer = setTimeout(() => {
+          const error = new Error("timed out");
+          error.name = "TimeoutError";
+          reject(error);
+        }, ms);
+      });
+      return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
     }
 
     // ── Session Inspector slide-over (replaces the old inline <tr> row
@@ -783,10 +800,8 @@
         ` : ""}
         <section class="detail-block" aria-label="Command timeline">
           <h3>Command Timeline</h3>
-          <div class="command-block">
-            <ul class="command-list" id="${session.id}-commands">
-              <li>Loading…</li>
-            </ul>
+          <div id="${session.id}-commands">
+            <div class="timeline-loader"><div class="spinner" role="status" aria-label="Loading commands"></div></div>
           </div>
         </section>
       `;
@@ -801,18 +816,22 @@
         try {
           const events = await loadSessionEvents(session.sessionId);
           if (inspectorSessionId !== sessionId) return; // closed/switched before the fetch resolved
-          const commandList = document.getElementById(`${session.id}-commands`);
-          if (!commandList) return;
+          const timeline = document.getElementById(`${session.id}-commands`);
+          if (!timeline) return;
           const commands = events.filter((event) => event.event_type === "command");
-          commandList.innerHTML = commands.length
-            ? commands.map((event) => `<li>${escHtml(event.event_value)}</li>`).join("")
-            : `<li>No commands were captured in this session.</li>`;
+          // Only real commands go in the command box; status messages are
+          // plain notes so nobody mistakes them for something an attacker typed.
+          timeline.innerHTML = commands.length
+            ? `<div class="command-block"><ul class="command-list">${commands.map((event) => `<li>${escHtml(event.event_value)}</li>`).join("")}</ul></div>`
+            : `<p class="inspector-note">No commands were captured in this session.</p>`;
         } catch (error) {
           console.error(error);
           if (inspectorSessionId !== sessionId) return;
-          const commandList = document.getElementById(`${session.id}-commands`);
-          if (!commandList) return;
-          commandList.innerHTML = `<li>Could not load the command timeline. Close and reopen this session to retry.</li>`;
+          const timeline = document.getElementById(`${session.id}-commands`);
+          if (!timeline) return;
+          timeline.innerHTML = error.name === "TimeoutError"
+            ? `<p class="inspector-note">The command timeline took too long to load. Close and reopen this session to retry.</p>`
+            : `<p class="inspector-note">Could not load the command timeline. Close and reopen this session to retry.</p>`;
         }
       })();
 

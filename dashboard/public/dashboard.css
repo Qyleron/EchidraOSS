@@ -2499,6 +2499,11 @@ a {
   gap: 6px;
 }
 
+/* Spinner under "Command Timeline" while the session's commands load. */
+.timeline-loader {
+  padding: 12px 0;
+}
+
 .inspector-note {
   margin: 0;
   color: var(--muted);
