@@ -22,6 +22,8 @@ All notable changes to Echidra are documented here. The format follows
   alert, not just the newest 200, and use thousands separators.
 - The alert history stops waiting after 10 seconds and says to reload the
   page.
+- Persona fields that hold technical text no longer get spell-check
+  underlines.
 - The Alerts page no longer jumps to the top or back to page 1 when the
   alert history refreshes.
 - Session Inspector shows a loader while commands load, and a note if none

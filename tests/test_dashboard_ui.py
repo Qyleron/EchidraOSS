@@ -1123,6 +1123,23 @@ def test_alerts_history_refresh_keeps_scroll_and_page():
     assert 'getElementById("historyTitle").focus({ preventScroll: true });' in html
 
 
+def test_persona_technical_fields_have_no_spellcheck():
+    html = (DASHBOARD_PUBLIC_PATH / "personas.html").read_text(encoding="utf-8")
+
+    # Every formInput except Display Name ("name") gets spellcheck="false".
+    assert 'var SPELLCHECKED_INPUTS = ["name"];' in html
+    assert "SPELLCHECKED_INPUTS.indexOf(name) === -1 ? ' spellcheck=\"false\"' : \"\";" in html
+    assert '(required ? " required" : "") + spellcheck + \' />\'' in html
+    # Textareas and decoy boxes: both the Edit and the Create window.
+    assert html.count('name="fake_users" rows="3" spellcheck="false"') == 2
+    assert html.count('name="running_processes" rows="3" spellcheck="false"') == 2
+    assert 'name="decoy_path" placeholder="/var/www/html/config.php" value="\' + escAttr(path) + \'" spellcheck="false" />' in html
+    assert 'name="decoy_content" rows="2" placeholder="file content…" spellcheck="false">' in html
+    assert 'placeholder="e.g. ubuntu_web_server" spellcheck="false" />' in html
+    # Internal Notes is written in words, so it keeps spell-check.
+    assert 'name="internal_notes" rows="2" spellcheck' not in html
+
+
 def test_alert_history_stops_waiting_after_10_seconds():
     html = (DASHBOARD_PUBLIC_PATH / "alerts.html").read_text(encoding="utf-8")
 

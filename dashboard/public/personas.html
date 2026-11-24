@@ -860,11 +860,11 @@
         + '<div class="config-section">'
         + '<h3 class="config-section-title">Deception</h3>'
         + '<div class="form-row"><label class="form-label">Fake Users (one per line)</label>'
-        + '<textarea class="form-textarea" name="fake_users" rows="3">'
+        + '<textarea class="form-textarea" name="fake_users" rows="3" spellcheck="false">'
         + escHtml((config.fake_users || preset.fake_users || []).join("\n"))
         + '</textarea></div>'
         + '<div class="form-row"><label class="form-label">Running Processes (one per line)</label>'
-        + '<textarea class="form-textarea" name="running_processes" rows="3">'
+        + '<textarea class="form-textarea" name="running_processes" rows="3" spellcheck="false">'
         + escHtml((config.running_processes || preset.running_processes || []).join("\n"))
         + '</textarea></div>'
         + '<div class="form-row"><label class="form-label" for="http_server_type_' + escAttr(personaId) + '">HTTP Server Type</label>'
@@ -936,7 +936,7 @@
         + '<div class="config-fields-grid">'
         + '<div class="form-row">'
         + '<label class="form-label">Persona ID (slug) <span style="color:var(--critical)">*</span></label>'
-        + '<input class="form-input" name="new_persona_id" type="text" required pattern="[a-z0-9_]+" placeholder="e.g. ubuntu_web_server" />'
+        + '<input class="form-input" name="new_persona_id" type="text" required pattern="[a-z0-9_]+" placeholder="e.g. ubuntu_web_server" spellcheck="false" />'
         + '<span class="form-hint">Lowercase letters, digits and underscores only. Can\'t be changed after creation.</span>'
         + '</div>'
         + formInput(_CREATE_SENTINEL, "name", "Display Name", "text", "", true)
@@ -952,9 +952,9 @@
         + '<div class="config-section">'
         + '<h3 class="config-section-title">Deception</h3>'
         + '<div class="form-row"><label class="form-label">Fake Users (one per line)</label>'
-        + '<textarea class="form-textarea" name="fake_users" rows="3"></textarea></div>'
+        + '<textarea class="form-textarea" name="fake_users" rows="3" spellcheck="false"></textarea></div>'
         + '<div class="form-row"><label class="form-label">Running Processes (one per line)</label>'
-        + '<textarea class="form-textarea" name="running_processes" rows="3">nginx</textarea>'
+        + '<textarea class="form-textarea" name="running_processes" rows="3" spellcheck="false">nginx</textarea>'
         + '</div>'
         + '<div class="form-row"><label class="form-label" for="http_server_type_' + _CREATE_SENTINEL + '">HTTP Server Type</label>'
         + '<select class="form-select" id="http_server_type_' + _CREATE_SENTINEL + '" name="http_server_type">'
@@ -1002,18 +1002,24 @@
       openCreateModal();
     });
 
+    // Hostnames, banners, addresses and webhooks aren't words, so the
+    // browser's spell-check would only underline them in red. Display Name
+    // is the one input people write in words, so it keeps spell-check.
+    var SPELLCHECKED_INPUTS = ["name"];
+
     function formInput(personaId, name, label, type, value, required) {
+      var spellcheck = SPELLCHECKED_INPUTS.indexOf(name) === -1 ? ' spellcheck="false"' : "";
       return '<div class="form-row">'
         + '<label class="form-label">' + escHtml(label) + (required ? ' <span style="color:var(--critical)">*</span>' : '') + '</label>'
-        + '<input class="form-input" name="' + escAttr(name) + '" type="' + type + '" value="' + escAttr(value) + '"' + (required ? " required" : "") + ' />'
+        + '<input class="form-input" name="' + escAttr(name) + '" type="' + type + '" value="' + escAttr(value) + '"' + (required ? " required" : "") + spellcheck + ' />'
         + '</div>';
     }
 
     function buildDecoyRow(personaId, index, path, content) {
       var uid = "d" + (decoyCounter++);
       return '<div class="decoy-file-row" id="' + uid + '">'
-        + '<input class="decoy-file-path" type="text" name="decoy_path" placeholder="/var/www/html/config.php" value="' + escAttr(path) + '" />'
-        + '<textarea class="decoy-file-content" name="decoy_content" rows="2" placeholder="file content…">' + escHtml(content) + '</textarea>'
+        + '<input class="decoy-file-path" type="text" name="decoy_path" placeholder="/var/www/html/config.php" value="' + escAttr(path) + '" spellcheck="false" />'
+        + '<textarea class="decoy-file-content" name="decoy_content" rows="2" placeholder="file content…" spellcheck="false">' + escHtml(content) + '</textarea>'
         + '<button type="button" class="remove-row-btn" data-target="' + uid + '" aria-label="Remove">×</button>'
         + '</div>';
     }
