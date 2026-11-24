@@ -16,6 +16,8 @@ All notable changes to Echidra are documented here. The format follows
   lists and the classified-sessions line) now use thousands separators too.
 - Release packages are built with exact, hash-checked versions of the build
   tools.
+- The dashboard header has a clearer bottom edge, so pages scrolling under it
+  stay easy to tell apart.
 
 ### Fixed
 - The Alert History cards (Last 24h, Delivered, Failed) now count every

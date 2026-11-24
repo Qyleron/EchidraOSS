@@ -208,7 +208,10 @@ a {
   z-index: 1000;
   display: grid;
   grid-template-rows: 58px 50px;
-  border-bottom: 1px solid var(--line);
+  /* Lighter than --line, plus a soft shadow, so content scrolling under
+     the fixed header stays clearly separate from it. */
+  border-bottom: 1px solid #333;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.45);
   background: var(--surface);
 }
 

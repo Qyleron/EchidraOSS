@@ -1358,3 +1358,11 @@ def test_risk_trend_week_columns_name_only_days_inside_the_range():
     assert "const startYear = start.getFullYear() !== end.getFullYear();" in html
     assert "tipLabel: `${formatShortDate(start, startYear)} – ${formatShortDate(end, true)}`" in html
     assert "Week of" not in html
+
+
+def test_header_edge_is_visible_over_scrolling_content():
+    """The fixed header's bottom line was #1f1f1f, almost invisible, so tables
+    scrolling under it blurred into the bar. It is now #333 with a soft shadow."""
+    css = (DASHBOARD_PUBLIC_PATH / "dashboard.css").read_text(encoding="utf-8")
+
+    assert "  border-bottom: 1px solid #333;\n  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.45);" in css
