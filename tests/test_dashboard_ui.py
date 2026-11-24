@@ -636,7 +636,7 @@ def test_high_volume_tables_show_a_loader_inside_their_own_container():
     index.html don't fetch into a table at all, so they never show one."""
     table_pages = {
         "sessions.html": 'tableBody.innerHTML = \'<tr><td colspan="8" class="table-loader-cell"><div class="spinner" role="status" aria-label="Loading sessions"></div></td></tr>\';',
-        "alerts.html": 'tbody.innerHTML = \'<tr><td colspan="7" class="table-loader-cell"><div class="spinner" role="status" aria-label="Loading alert history"></div></td></tr>\';',
+        "alerts.html": 'tbody.innerHTML = \'<tr><td colspan="8" class="table-loader-cell"><div class="spinner" role="status" aria-label="Loading alert history"></div></td></tr>\';',
     }
     for page, loader_line in table_pages.items():
         html = (DASHBOARD_PUBLIC_PATH / page).read_text(encoding="utf-8")
@@ -653,7 +653,7 @@ def test_every_data_container_shows_a_spinner_on_first_paint():
         "sessions.html": '<tbody id="sessionsTableBody"><tr><td colspan="8" class="table-loader-cell">',
         "intelligence.html": '<tbody id="issueTableBody"><tr><td colspan="6" class="table-loader-cell">',
         "personas.html": '<tbody id="personaTableBody"><tr><td colspan="5" class="table-loader-cell">',
-        "alerts.html": '<tbody id="alertEventsBody"><tr><td colspan="7" class="table-loader-cell">',
+        "alerts.html": '<tbody id="alertEventsBody"><tr><td colspan="8" class="table-loader-cell">',
         "analytics.html": '<div id="analyticsLoading" class="panel-loader">',
     }
     for page, marker in initial_loaders.items():
@@ -1115,12 +1115,25 @@ def test_alerts_history_refresh_keeps_scroll_and_page():
     assert "setInterval(function () { loadAlertEvents({ background: true }); }, 30000);" in html
     assert "setInterval(loadAlertEvents, 30000);" not in html
     # Only the first load swaps the table for the spinner.
-    assert "if (!background) {\n        tbody.innerHTML = '<tr><td colspan=\"7\" class=\"table-loader-cell\">" in html
+    assert "if (!background) {\n        tbody.innerHTML = '<tr><td colspan=\"8\" class=\"table-loader-cell\">" in html
     assert "applyAlertChannelFilter({ keepPage: background });" in html
     assert "if (!(options && options.keepPage)) currentAlertsPage = 1;" in html
     assert "if (background) return;" in html
     assert 'getElementById("alertsPaginationStatus").focus({ preventScroll: true });' in html
     assert 'getElementById("historyTitle").focus({ preventScroll: true });' in html
+
+
+def test_alert_history_stops_waiting_after_10_seconds():
+    html = (DASHBOARD_PUBLIC_PATH / "alerts.html").read_text(encoding="utf-8")
+
+    assert "var ALERT_HISTORY_TIMEOUT_MS = 10000;" in html
+    assert "var loaded = await withTimeout(fetchAlertHistory(), ALERT_HISTORY_TIMEOUT_MS);" in html
+    assert (
+        '<tr><td colspan="8" class="empty-state">The alert history took too long to load. '
+        "Reload the page to try again.</td></tr>"
+    ) in html
+    # Every history row spans all 8 columns.
+    assert 'colspan="7"' not in html
 
 
 def test_alert_history_cards_use_server_counts_with_separators():

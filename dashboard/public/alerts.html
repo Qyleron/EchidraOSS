@@ -232,7 +232,7 @@
                 <th>Status</th>
               </tr>
             </thead>
-            <tbody id="alertEventsBody"><tr><td colspan="7" class="table-loader-cell"><div class="spinner" role="status" aria-label="Loading alert history"></div></td></tr></tbody>
+            <tbody id="alertEventsBody"><tr><td colspan="8" class="table-loader-cell"><div class="spinner" role="status" aria-label="Loading alert history"></div></td></tr></tbody>
           </table>
         </div>
         <div id="alertEventsPagination" class="table-pagination"></div>
@@ -673,6 +673,42 @@
     var ALERT_EVENTS_PAGE_SIZE = 10;
     var alertEventsPaginationContainer = document.getElementById("alertEventsPagination");
 
+    // The list and the cards' counts, fetched together. The list is the
+    // newest 200; the cards count every alert ever sent, on the server. If
+    // the counts can't load, the cards say N/A rather than counting the list
+    // and showing wrong numbers.
+    async function fetchAlertHistory() {
+      var responses = await Promise.all([
+        fetch("/alerts/events?limit=200"),
+        fetch("/alerts/events/count"),
+      ]);
+      var eventsResp = responses[0];
+      var countResp = responses[1];
+      if (!eventsResp.ok) throw new Error(await responseErrorMessage(eventsResp));
+      var events = await eventsResp.json();
+      var summary = null;
+      if (countResp.ok) {
+        var countBody = await countResp.json().catch(function () { return null; });
+        if (countBody && countBody.all) summary = countBody;
+      }
+      return { events: events, summary: summary };
+    }
+
+    // A server that never answers would leave the spinner up forever, so
+    // the history stops waiting after 10 seconds and says what to do.
+    var ALERT_HISTORY_TIMEOUT_MS = 10000;
+    function withTimeout(promise, ms) {
+      var timer;
+      var timeout = new Promise(function (_, reject) {
+        timer = setTimeout(function () {
+          var error = new Error("timed out");
+          error.name = "TimeoutError";
+          reject(error);
+        }, ms);
+      });
+      return Promise.race([promise, timeout]).finally(function () { clearTimeout(timer); });
+    }
+
     // The 30-second refresh is a background one: it keeps the current rows
     // on screen until the new ones arrive and stays on the page being read,
     // so the page never shrinks under the reader and jumps up.
@@ -680,32 +716,20 @@
       var background = Boolean(options && options.background);
       var tbody = document.getElementById("alertEventsBody");
       if (!background) {
-        tbody.innerHTML = '<tr><td colspan="7" class="table-loader-cell"><div class="spinner" role="status" aria-label="Loading alert history"></div></td></tr>';
+        tbody.innerHTML = '<tr><td colspan="8" class="table-loader-cell"><div class="spinner" role="status" aria-label="Loading alert history"></div></td></tr>';
       }
       try {
-        var responses = await Promise.all([
-          fetch("/alerts/events?limit=200"),
-          fetch("/alerts/events/count"),
-        ]);
-        var eventsResp = responses[0];
-        var countResp = responses[1];
-        if (!eventsResp.ok) throw new Error(await responseErrorMessage(eventsResp));
-        var events = await eventsResp.json();
-        // The cards count every alert ever sent, on the server; this list is
-        // only the newest 200. If the counts can't load, the cards say N/A
-        // rather than counting the list and showing wrong numbers.
-        var summary = null;
-        if (countResp.ok) {
-          var countBody = await countResp.json().catch(function () { return null; });
-          if (countBody && countBody.all) summary = countBody;
-        }
-        allAlertEvents = events;
-        alertSummary = summary;
+        var loaded = await withTimeout(fetchAlertHistory(), ALERT_HISTORY_TIMEOUT_MS);
+        allAlertEvents = loaded.events;
+        alertSummary = loaded.summary;
         applyAlertChannelFilter({ keepPage: background });
       } catch (err) {
-        // A failed background tick keeps the last list; the next tick retries.
+        // A failed or slow background tick keeps the last list; the next
+        // tick retries.
         if (background) return;
-        tbody.innerHTML = '<tr><td colspan="8" class="empty-state">Could not load alert history. Is the database configured?</td></tr>';
+        tbody.innerHTML = err.name === "TimeoutError"
+          ? '<tr><td colspan="8" class="empty-state">The alert history took too long to load. Reload the page to try again.</td></tr>'
+          : '<tr><td colspan="8" class="empty-state">Could not load alert history. Is the database configured?</td></tr>';
         ["metricTotal","metricLast24h","metricSuccess","metricFailed"].forEach(function(id) {
           var el = document.getElementById(id);
           if (el) el.textContent = "N/A";

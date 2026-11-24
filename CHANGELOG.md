@@ -20,6 +20,8 @@ All notable changes to Echidra are documented here. The format follows
 ### Fixed
 - The Alert History cards (Last 24h, Delivered, Failed) now count every
   alert, not just the newest 200, and use thousands separators.
+- The alert history stops waiting after 10 seconds and says to reload the
+  page.
 - The Alerts page no longer jumps to the top or back to page 1 when the
   alert history refreshes.
 - Session Inspector shows a loader while commands load, and a note if none
