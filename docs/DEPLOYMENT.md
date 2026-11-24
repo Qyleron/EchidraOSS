@@ -398,6 +398,31 @@ readable, `pg_restore -l echidra-YYYY-MM-DD.dump` lists what's in it. Keep
 the session log too (`logs/sessions.jsonl` and its rotated copies): with
 `echidra import`, it can rebuild the sessions on its own.
 
+## Data handling
+
+**What Echidra stores.** For each connection to a decoy: the source IP
+address and port, the time, the protocol, the usernames and passwords tried,
+and what the client sent or typed. The country is looked up offline from a
+bundled dataset, so no IP address is sent anywhere for the lookup.
+
+**Where it's stored.** In your PostgreSQL database and in
+`logs/sessions.jsonl` on your server. The log file can only be read by the
+user Echidra runs as. Nothing is sent to Qyleron, and Echidra has no
+telemetry.
+
+**What leaves your server.** Only the alerts you turn on: email through your
+own SMTP server, and Slack messages through your own webhook. When you open
+the dashboard, your browser loads map tiles from OpenStreetMap and two
+libraries from cdnjs and jsDelivr. Those requests don't include captured data.
+
+**How long it's kept.** Captured data stays on your server until you remove
+it, so you decide how long to keep it. To limit the session log, rotate it as
+shown under [Disk space](#disk-space).
+
+**Personal data.** In some places, including the EU, IP addresses can count
+as personal data. If that applies to you, you're the one responsible for this
+data, so set a retention period that fits your rules.
+
 ## Resetting a dashboard password
 
 Forgot the dashboard password, or want to change it? On the server, run:

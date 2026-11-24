@@ -112,6 +112,9 @@ data only, reconstructed from an in-memory persona, never the real
 filesystem. Echidra never itself blocks IPs, changes firewalls, or touches
 production systems; `echidra blocklist` only exports a list for you to apply.
 
+See [Data handling](docs/DEPLOYMENT.md#data-handling) for what's stored, where,
+and what leaves your server.
+
 ## Benchmarks
 
 Reproduce the load test used in the demo video and blog post yourself.
@@ -176,4 +179,4 @@ report it. Want to contribute? See [CONTRIBUTING.md](CONTRIBUTING.md). Otherwise
 
 ## License
 
-Licensed under AGPLv3. See [LICENSE.md](./LICENSE.md) for details.
+Licensed under AGPLv3. Every published release stays available under that licence. See [LICENSE.md](./LICENSE.md) for details.
