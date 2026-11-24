@@ -691,16 +691,16 @@
         var countResp = responses[1];
         if (!eventsResp.ok) throw new Error(await responseErrorMessage(eventsResp));
         var events = await eventsResp.json();
-        // Total Alerts must reflect every alert ever sent, not just this
-        // capped-at-200 list -- fall back to the list length only if the
-        // dedicated count endpoint itself is unavailable.
-        var total = events.length;
+        // The cards count every alert ever sent, on the server; this list is
+        // only the newest 200. If the counts can't load, the cards say N/A
+        // rather than counting the list and showing wrong numbers.
+        var summary = null;
         if (countResp.ok) {
-          var countBody = await countResp.json();
-          if (typeof countBody.total === "number") total = countBody.total;
+          var countBody = await countResp.json().catch(function () { return null; });
+          if (countBody && countBody.all) summary = countBody;
         }
         allAlertEvents = events;
-        allAlertEventsTotal = total;
+        alertSummary = summary;
         applyAlertChannelFilter({ keepPage: background });
       } catch (err) {
         // A failed background tick keeps the last list; the next tick retries.
@@ -716,7 +716,7 @@
     // One history, filtered by channel, so "what happened at 3 am?" is
     // answered in one place; "both" rows count for either channel.
     var alertChannelFilter = "all";
-    var allAlertEventsTotal = 0;
+    var alertSummary = null;
     var shownAlertEvents = [];
 
     function matchesAlertChannel(ev) {
@@ -734,9 +734,8 @@
       document.getElementById("historySubtitle").textContent = HISTORY_SUBTITLES[alertChannelFilter];
       document.querySelector(".alert-events-table").classList.toggle("hide-recipient", alertChannelFilter === "slack");
       shownAlertEvents = allAlertEvents.filter(matchesAlertChannel);
-      // The server's count covers every alert ever sent; a filtered view can
-      // only count what it has loaded.
-      renderSummary(shownAlertEvents, alertChannelFilter === "all" ? allAlertEventsTotal : shownAlertEvents.length);
+      // The server counts every alert for each view (all, email, slack).
+      renderSummary(alertSummary && alertSummary[alertChannelFilter]);
       if (!(options && options.keepPage)) currentAlertsPage = 1;
       renderAlertEventsPage();
     }
@@ -821,16 +820,18 @@
       }
     }
 
-    function renderSummary(events, total) {
-      var now = Date.now();
-      var day = 24 * 60 * 60 * 1000;
-      var last24 = events.filter(function(e) { return (now - new Date(e.sent_at).getTime()) < day; });
-      var success = events.filter(function(e) { return e.success; });
-      var failed = events.filter(function(e) { return !e.success; });
-      document.getElementById("metricTotal").textContent = total;
-      document.getElementById("metricLast24h").textContent = last24.length;
-      document.getElementById("metricSuccess").textContent = success.length;
-      document.getElementById("metricFailed").textContent = failed.length;
+    var SUMMARY_CARD_FIELDS = {
+      metricTotal: "total",
+      metricLast24h: "last_24h",
+      metricSuccess: "delivered",
+      metricFailed: "failed",
+    };
+
+    function renderSummary(counts) {
+      Object.keys(SUMMARY_CARD_FIELDS).forEach(function (id) {
+        var value = counts ? Number(counts[SUMMARY_CARD_FIELDS[id]]) : NaN;
+        document.getElementById(id).textContent = Number.isFinite(value) ? value.toLocaleString("en-US") : "N/A";
+      });
     }
 
     // FastAPI's automatic 422 validation response shapes `detail` as a list

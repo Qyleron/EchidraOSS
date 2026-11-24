@@ -1814,17 +1814,23 @@ def test_persona_id_pattern_accepts_valid_slugs(persona_id):
     assert re.fullmatch(app_module._PERSONA_ID_PATTERN, persona_id) is not None
 
 
-def test_count_alert_events_endpoint_returns_authoritative_total(monkeypatch):
-    """The dashboard's Total Alerts tile needs this separate count endpoint
-    since list_alert_events_endpoint is capped at 500 rows."""
+def test_count_alert_events_endpoint_returns_card_counts_per_view(monkeypatch):
+    """The Alert History cards need these server counts, since
+    list_alert_events_endpoint is capped at 500 rows. "total" stays at the
+    top level for callers that only read that."""
     route = route_for("/alerts/events/count", "GET")
+    summary = {
+        "all": {"total": 734, "last_24h": 12, "delivered": 730, "failed": 4},
+        "email": {"total": 700, "last_24h": 10, "delivered": 697, "failed": 3},
+        "slack": {"total": 40, "last_24h": 2, "delivered": 39, "failed": 1},
+    }
 
     class FakeRepository(_SessionVersionMixin):
-        def count_alert_events(self):
-            return 734
+        def summarize_alert_events(self):
+            return summary
 
     monkeypatch.setattr(app_module, "PostgresClassifierRepository", FakeRepository)
 
     result = route.endpoint(dashboard_request())
 
-    assert result == {"total": 734}
+    assert result == {"total": 734, **summary}

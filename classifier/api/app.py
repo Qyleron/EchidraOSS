@@ -1220,16 +1220,19 @@ def create_app() -> FastAPI:
         "/alerts/events/count",
         tags=["alerts"],
     )
-    def count_alert_events_endpoint(request: Request) -> dict[str, int]:
-        """Return the total number of alert dispatch records ever stored.
+    def count_alert_events_endpoint(request: Request) -> dict:
+        """Return the Alert History cards' counts over every stored alert.
 
-        list_alert_events_endpoint is capped at 500, so the dashboard's
-        "Total Alerts" tile needs this separate authoritative count.
+        list_alert_events_endpoint is capped at 500, so the cards need these
+        separate counts: "all", "email" and "slack", each with total,
+        last_24h, delivered and failed. "total" at the top level is the
+        all-channel total, kept for callers that only read that.
         """
         _require_dashboard_auth(request)
         try:
             repository = PostgresClassifierRepository()
-            return {"total": repository.count_alert_events()}
+            summary = repository.summarize_alert_events()
+            return {"total": summary["all"]["total"], **summary}
         except (DatabaseDriverMissingError, DatabaseNotConfiguredError) as exc:
             raise HTTPException(status_code=503, detail=_user_facing_error_detail(exc))
         except Exception as exc:

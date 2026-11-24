@@ -1123,6 +1123,18 @@ def test_alerts_history_refresh_keeps_scroll_and_page():
     assert 'getElementById("historyTitle").focus({ preventScroll: true });' in html
 
 
+def test_alert_history_cards_use_server_counts_with_separators():
+    html = (DASHBOARD_PUBLIC_PATH / "alerts.html").read_text(encoding="utf-8")
+
+    assert "renderSummary(alertSummary && alertSummary[alertChannelFilter]);" in html
+    assert 'metricSuccess: "delivered",' in html
+    assert 'metricLast24h: "last_24h",' in html
+    assert 'Number.isFinite(value) ? value.toLocaleString("en-US") : "N/A"' in html
+    # The cards are no longer counted from the capped history list.
+    assert "events.filter(function(e) { return e.success; })" not in html
+    assert "allAlertEventsTotal" not in html
+
+
 def test_session_inspector_timeline_uses_a_loader_and_notes_not_command_rows():
     html = (DASHBOARD_PUBLIC_PATH / "sessions.html").read_text(encoding="utf-8")
     css = (DASHBOARD_PUBLIC_PATH / "dashboard.css").read_text(encoding="utf-8")

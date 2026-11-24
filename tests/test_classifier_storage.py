@@ -179,17 +179,37 @@ def test_alert_password_key_is_cached_and_skips_redundant_salt_lookup(monkeypatc
     assert calls["count"] == 1
 
 
-def test_count_alert_events_returns_total_regardless_of_list_limit(monkeypatch):
-    """count_alert_events must reflect every stored row, not the <=500-row
-    cap list_alert_events applies for the history table."""
-    monkeypatch.setattr(
-        "classifier.storage.repository._fetch_one",
-        lambda database_url, sql, params: {"total": 734},
-    )
+def test_summarize_alert_events_counts_every_alert_per_channel(monkeypatch):
+    """The Alert History cards count every stored alert (not the <=500-row
+    history list), per view; a "both" alert counts for email and Slack."""
+    captured = {}
 
-    total = PostgresClassifierRepository("postgresql://example/echidra").count_alert_events()
+    def fake_fetch_all(database_url, sql, params):
+        captured["sql"] = sql
+        return [
+            {"channel": "email", "total": 30000, "last_24h": 40, "delivered": 29990, "failed": 10},
+            {"channel": "slack", "total": 700, "last_24h": 5, "delivered": 700, "failed": 0},
+            {"channel": "both", "total": 64, "last_24h": 1, "delivered": 60, "failed": 4},
+        ]
 
-    assert total == 734
+    monkeypatch.setattr("classifier.storage.repository._fetch_all", fake_fetch_all)
+
+    summary = PostgresClassifierRepository("postgresql://example/echidra").summarize_alert_events()
+
+    assert summary["all"] == {"total": 30764, "last_24h": 46, "delivered": 30750, "failed": 14}
+    assert summary["email"] == {"total": 30064, "last_24h": 41, "delivered": 30050, "failed": 14}
+    assert summary["slack"] == {"total": 764, "last_24h": 6, "delivered": 760, "failed": 4}
+    assert "LIMIT" not in captured["sql"]
+    assert "GROUP BY channel" in captured["sql"]
+
+
+def test_summarize_alert_events_with_no_alerts_is_all_zero(monkeypatch):
+    monkeypatch.setattr("classifier.storage.repository._fetch_all", lambda database_url, sql, params: [])
+
+    summary = PostgresClassifierRepository("postgresql://example/echidra").summarize_alert_events()
+
+    zero = {"total": 0, "last_24h": 0, "delivered": 0, "failed": 0}
+    assert summary == {"all": zero, "email": zero, "slack": zero}
 
 
 def test_insert_alert_event_persists_channel(monkeypatch):

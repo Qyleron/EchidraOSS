@@ -1386,9 +1386,20 @@ ORDER BY sent_at DESC
 LIMIT %(limit)s
 """
 
-COUNT_ALERT_EVENTS_SQL = """
-SELECT COUNT(*) AS total FROM alert_events
+# One row per channel ("email", "slack", "both"), counted over every stored
+# alert -- the history list is capped, so the Alert History cards can't be
+# counted from it.
+SUMMARIZE_ALERT_EVENTS_SQL = """
+SELECT channel,
+       COUNT(*) AS total,
+       COUNT(*) FILTER (WHERE sent_at >= now() - INTERVAL '24 hours') AS last_24h,
+       COUNT(*) FILTER (WHERE success) AS delivered,
+       COUNT(*) FILTER (WHERE NOT success) AS failed
+FROM alert_events
+GROUP BY channel
 """
+
+ALERT_SUMMARY_FIELDS = ("total", "last_24h", "delivered", "failed")
 
 # Limit validation constants
 MAX_LIMIT = 1000
@@ -2415,15 +2426,30 @@ class PostgresClassifierRepository:
             for row in rows
         ]
 
-    def count_alert_events(self) -> int:
-        """Count all alert dispatch records ever stored.
+    def summarize_alert_events(self) -> dict[str, dict[str, int]]:
+        """Count every stored alert: total, last 24 hours, delivered, failed.
 
         list_alert_events is capped (limit <= 500) for the history table, so
-        the dashboard's "Total Alerts" tile needs this authoritative count
-        instead of len() on that truncated list.
+        the Alert History cards need these counts instead of counting that
+        truncated list. Returned for "all", "email" and "slack"; an alert sent
+        to both channels counts for each, the same rule as the history
+        table's channel filter.
         """
-        row = _fetch_one(self.database_url, COUNT_ALERT_EVENTS_SQL, {})
-        return int(row["total"]) if row else 0
+        rows = _fetch_all(self.database_url, SUMMARIZE_ALERT_EVENTS_SQL, {})
+        summary = {
+            view: dict.fromkeys(ALERT_SUMMARY_FIELDS, 0)
+            for view in ("all", "email", "slack")
+        }
+        for row in rows:
+            views = ["all"]
+            if row["channel"] in ("email", "both"):
+                views.append("email")
+            if row["channel"] in ("slack", "both"):
+                views.append("slack")
+            for view in views:
+                for field in ALERT_SUMMARY_FIELDS:
+                    summary[view][field] += int(row[field] or 0)
+        return summary
 
 
 class IssueSyncStore:
