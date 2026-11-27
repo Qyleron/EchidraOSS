@@ -1,9 +1,10 @@
 [project]
 name = "echidra-oss"
-version = "1.1.0"
+version = "1.1.1"
 description = "Open-source deception platform: decoy SSH, HTTP, FTP and Telnet services that turn attacker activity into MITRE ATT&CK-mapped findings with recommended fixes."
 readme = "README.md"
-license = { file = "LICENSE.md" }
+license = "AGPL-3.0-only"
+license-files = ["LICENSE.md"]
 keywords = [
     "honeypot",
     "cybersecurity",
@@ -16,7 +17,6 @@ keywords = [
 ]
 classifiers = [
     "Development Status :: 5 - Production/Stable",
-    "License :: OSI Approved :: GNU Affero General Public License v3",
     "Topic :: Security",
     "Topic :: System :: Networking :: Monitoring",
     "Intended Audience :: Information Technology",
@@ -62,7 +62,7 @@ echidra = "echidra.cli:main"
 testpaths = ["tests"]
 
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]

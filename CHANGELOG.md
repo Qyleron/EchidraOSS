@@ -6,6 +6,8 @@ All notable changes to Echidra are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-11-27
+
 ### Added
 - `echidra --version` prints the installed version.
 
@@ -18,6 +20,8 @@ All notable changes to Echidra are documented here. The format follows
   tools.
 - The dashboard header has a clearer bottom edge, so pages scrolling under it
   stay easy to tell apart.
+- The package declares its licence in the current standard format
+  (AGPL-3.0-only).
 
 ### Fixed
 - The Alert History cards (Last 24h, Delivered, Failed) now count every
